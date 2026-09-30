@@ -7,8 +7,8 @@
   import { session } from '../lib/session.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
-  import { userMenu, changeNamePrompt, nicknamePrompt } from '../lib/actions.ts';
-  import { voice, userKey } from '../lib/audio/voice.svelte.ts';
+  import { userMenu, changeNamePrompt } from '../lib/actions.ts';
+  import { voice } from '../lib/audio/voice.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
   import RichEditor from './RichEditor.svelte';
 
@@ -94,7 +94,6 @@
     <Members {onnavigate} />
   {:else if channel && panel.kind === 'channel'}
     <header>
-      <Icon name="channel" size={18} />
       <h2>{channel.name || 'Root'}</h2>
       <button class="icon-btn" onclick={() => session.closePanel()} aria-label="Close"><Icon name="x" size={18} /></button>
     </header>
@@ -139,15 +138,15 @@
     <div class="body">
       <div class="who" role="presentation" oncontextmenu={e => menu.show(e, userMenu(user))}>
         <Avatar name={user.name} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} />
-        <div>
+        <div class="who-text">
           <h3>{store.displayName(user)}</h3>
+          <p class="where" title="Current channel"><Icon name="channel" size={14} /><span>{session.channel(user.channelId)?.name || 'Root'}</span></p>
           {#if store.displayName(user) !== user.name}<p class="dim small">Real name: {user.name}</p>{/if}
           <p class="badges">
-            <span class="badge-reg" class:registered={user.userId != null}>{user.userId != null ? 'Registered' : 'Guest'}</span>
+            {#if user.userId != null}<span class="badge-reg registered">Registered</span>{/if}
             {#if isSelf && user.userId == null}
               <button class="register" title="Reserve this name on the server, tied to your certificate" onclick={() => session.register(user.session)}>Register</button>
             {/if}
-            <span class="dim small">in {session.channel(user.channelId)?.name || 'Root'}</span>
           </p>
           <p class="flags">
             {#if user.selfMute || user.mute}<span>{user.mute ? 'server muted' : 'muted'}</span>{/if}
@@ -160,17 +159,6 @@
 
       {#if isSelf}
         <div class="actions"><button class="btn" onclick={() => changeNamePrompt(user)}>Change name</button></div>
-      {:else}
-        <h4>Voice</h4>
-        <label for="p-vol" class="vol">Volume for me: {Math.round((voice.settings.userVolumes[userKey(user)] ?? 1) * 100)}%</label>
-        <input id="p-vol" type="range" min="0" max="3" step="0.05" value={voice.settings.userVolumes[userKey(user)] ?? 1}
-          oninput={e => voice.setUserVolume(user, Number(e.currentTarget.value))} />
-        <div class="actions">
-          <button class="btn" class:danger={!!voice.settings.localMutes[userKey(user)]} onclick={() => voice.setLocalMute(user, !voice.settings.localMutes[userKey(user)])}>
-            {voice.settings.localMutes[userKey(user)] ? 'Unmute for me' : 'Mute for me'}
-          </button>
-          <button class="btn" onclick={() => nicknamePrompt(user)}>Set nickname</button>
-        </div>
       {/if}
 
       <h4>Description</h4>
@@ -223,16 +211,17 @@
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
   .here { color: var(--speaking); font-weight: 600; font-size: 14px; }
   .who { display: flex; gap: 14px; align-items: center; }
+  .who-text { min-width: 0; }
+  .where { display: flex; align-items: center; gap: 5px; margin: 3px 0 0; font-size: 13px; color: var(--text-dim); min-width: 0; }
+  .where :global(svg) { flex: none; }
+  .where span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   h3 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
   h4 { margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
-  .badges { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; }
-  .badges .small { margin: 0; }
+  .badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 0; }
   .badge-reg { font-size: 11px; font-weight: 700; padding: 1px 6px; border: 1px solid var(--line); color: var(--text-dim); }
   .badge-reg.registered { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
   .register { font-size: 12px; color: var(--link); }
   .register:hover { text-decoration: underline; }
-  .vol { margin-top: 0; }
-  input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
   .flags { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
   .flags span { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); color: var(--text-dim); }
   .flags .bad { border-color: var(--danger); color: var(--danger); }

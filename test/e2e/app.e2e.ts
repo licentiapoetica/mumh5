@@ -276,6 +276,31 @@ try {
     await page.waitForFunction(() => (document.querySelector('.embed img') as HTMLImageElement)?.naturalWidth === 400);
     console.log('ok: upload posted with vanilla thumbnail, embed loads for mumh5');
 
+    // Link previews through the upload host: fetched and image-proxied by f0ckm (needs internet)
+    bob.sendText({ channels: [0] }, '<a href="https://github.com/mumble-voip/mumble">https://github.com/mumble-voip/mumble</a>');
+    const gh = page.locator('.msg', { hasText: 'github.com/mumble-voip' }).locator('.card');
+    await gh.locator('.title', { hasText: /mumble/i }).waitFor({ timeout: 15000 });
+    await gh.locator('.site', { hasText: 'GitHub' }).waitFor();
+    const ghImg = gh.locator('img');
+    assert.ok((await ghImg.getAttribute('src'))!.startsWith(`${process.env.UPLOAD_HOST}/api/chat/preview/image?`), 'image proxied by the upload host');
+    await page.waitForFunction(() => ((document.querySelector('.card img') as HTMLImageElement)?.naturalWidth ?? 0) > 0, null, { timeout: 15000 });
+    console.log('ok: link preview through the upload host');
+
+    // Direct mode: this computer fetches the preview itself
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'Chat and files' }).click();
+    await page.getByLabel('Link previews').selectOption('direct');
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    bob.sendText({ channels: [0] }, '<a href="https://www.mumble.info/">https://www.mumble.info/</a>');
+    const direct = page.locator('.msg', { hasText: 'www.mumble.info' }).locator('.card');
+    await direct.locator('.title').waitFor({ timeout: 15000 });
+    assert.ok(!(await direct.locator('img').getAttribute('src').catch(() => ''))?.includes('/api/chat/preview/image'), 'direct mode does not use the proxy');
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'Chat and files' }).click();
+    await page.getByLabel('Link previews').selectOption('host');
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    console.log('ok: link preview fetched directly');
+
     // Types the upload host does not allow are refused before uploading
     const txt = path.join(userData, 'notes.txt');
     writeFileSync(txt, 'plain text');
@@ -330,6 +355,12 @@ try {
   for (const item of ['View profile', 'Send message', 'Server mute', 'Kick...', 'Ban...']) {
     await page.getByRole('menuitem', { name: item }).waitFor();
   }
+  // Per-person volume lives in the menu
+  await page.getByRole('slider', { name: 'Volume' }).fill('1.5');
+  await page.locator('.menu .slider-label', { hasText: '150%' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.sidebar .user', { hasText: 'bob' }).click({ button: 'right' });
+  assert.equal(await page.getByRole('slider', { name: 'Volume' }).inputValue(), '1.5', 'volume remembered');
   await page.getByRole('menuitem', { name: 'View profile' }).click();
   await page.locator('.panel h3', { hasText: 'bob' }).waitFor();
   console.log('ok: user context menu and profile');
@@ -341,6 +372,11 @@ try {
   await info.getByText('mumh5 0.1.0').waitFor();
   await info.getByText('linux', { exact: false }).first().waitFor();
   await info.getByText('Online for').waitFor();
+  // Live: the online time advances while the dialog is open
+  const onlineText = () => info.locator('dt', { hasText: 'Online for' }).locator('xpath=following-sibling::dd[1]').textContent();
+  const t1 = await onlineText();
+  await page.waitForTimeout(2200);
+  assert.notEqual(await onlineText(), t1, 'online time ticks live');
   await info.getByRole('button', { name: 'View certificate' }).click();
   await page.getByRole('dialog', { name: /^Certificate of alice/ }).getByText('alice', { exact: true }).first().waitFor();
   await page.getByRole('dialog', { name: /^Certificate of alice/ }).getByRole('button', { name: 'Close', exact: true }).last().click();
@@ -436,7 +472,7 @@ try {
   writeFileSync(big, testPng(1600, 1200));
   const gotInline = new Promise<string>(res => bob.on('text', m => { if (m.html.startsWith('<img')) res(m.html); }));
   await page.locator('.chat .composer input[type=file]').setInputFiles(big);
-  const inline = await within(gotInline, 'inline image');
+  const inline = await within(gotInline, 'inline image', 15000);
   assert.match(inline, /^<img src="data:image\/jpeg;base64,[^"]+"\/>$/);
   assert.ok(inline.length <= 131072, `inline image within the server limit (${inline.length})`);
   console.log(`ok: inline image without upload host (${inline.length} chars)`);
@@ -498,6 +534,19 @@ try {
   await page.locator('.rail .tile[title^="Test Server"] .unread').waitFor({ state: 'detached' });
   console.log('ok: voice returns when the other server disconnects');
 
+  // Narrow window: voice channel as tiles, speaking lights up the tile
+  await page.setViewportSize({ width: 420, height: 800 });
+  const stage = page.getByRole('region', { name: 'Voice channel' });
+  const bobTile = stage.locator('.tile', { hasText: 'bob' });
+  await bobTile.waitFor();
+  const echo2 = packets.map((p, i) => encodeVoice({ target: 0, frame: 5000 + i * 2, opus: p.opus, last: i === packets.length - 1 }, bob.protobufVoice));
+  const pump2 = setInterval(() => { const pk = echo2.shift(); if (pk) bob.sendVoiceTunnel(pk); }, 20);
+  await page.locator('.stage .tile.talking', { hasText: 'bob' }).waitFor({ timeout: 3000 });
+  clearInterval(pump2);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await stage.waitFor({ state: 'detached' }); // wide layouts use the member list instead
+  console.log('ok: voice tiles on small windows show who is talking');
+
   // Change name: Mumble needs a reconnect, the app does it and remembers the name.
   // Unique per run: a reused test server may still have an earlier run's name registered.
   const newName = `alice${Date.now() % 100000}`;
@@ -512,9 +561,10 @@ try {
   }), 'bob sees the new name');
   console.log('ok: name changed by reconnecting');
 
-  // Self-registration: guest badge becomes registered
+  // Self-registration: a guest has no badge and a Register button; afterwards the Registered badge shows
   await page.locator('.me .profile').click();
-  await page.locator('.panel .badge-reg', { hasText: 'Guest' }).waitFor();
+  await page.locator('.panel .register').waitFor();
+  if (await page.locator('.panel .badge-reg').count()) throw new Error('guest profile shows a badge');
   await page.locator('.panel .register').click();
   await page.locator('.panel .badge-reg.registered', { hasText: 'Registered' }).waitFor();
   await page.locator('.sidebar .user', { hasText: newName }).locator('.reg').waitFor();
@@ -546,6 +596,11 @@ try {
     await page.screenshot({ path: path.join(shots, 'profile.png') });
     await page.setViewportSize({ width: 400, height: 780 });
     await page.waitForTimeout(200);
+    // Small windows show the voice channel as tiles above the chat
+    const stage = page.getByRole('region', { name: 'Voice channel' });
+    await stage.locator('.tile', { hasText: 'bob' }).waitFor();
+    await stage.getByRole('button', { name: /^(Mute|Unmute)$/ }).waitFor();
+    await page.screenshot({ path: path.join(shots, 'narrow-stage.png') });
     await page.getByLabel('Open channels').click();
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(shots, 'narrow-drawer.png') });

@@ -48,7 +48,7 @@
       <span class="caret"></span>
     {/if}
     <button class="name" title="Click for details, double-click to join" {...channelClicks}>
-      <Icon name={channel.canEnter ? 'channel' : 'lock'} size={16} />
+      {#if !channel.canEnter}<Icon name="lock" size={14} />{/if}
       <span class="label">{channel.name || 'Root'}</span>
       {#if !expanded && total > 0}<span class="count" title="{total} {total === 1 ? 'person' : 'people'} inside">{total}</span>{/if}
       {#if unread}<span class="badge">{unread}</span>{/if}

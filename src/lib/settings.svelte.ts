@@ -19,6 +19,8 @@ export interface Settings {
   sendThumbnails: boolean; // include a small inline image for vanilla Mumble clients
   compact: boolean;
   youtube: 'off' | 'click' | 'thumbnail'; // YouTube links: plain, click-to-play card, card with thumbnail
+  // Link previews: fetched by the upload host (private), by this computer (reveals IP), or none
+  linkPreviews: 'host' | 'direct' | 'off';
 }
 
 const defaults: Settings = {
@@ -28,7 +30,8 @@ const defaults: Settings = {
   embedHosts: [],
   sendThumbnails: true,
   compact: false,
-  youtube: 'click'
+  youtube: 'click',
+  linkPreviews: 'host'
 };
 
 class SettingsStore {

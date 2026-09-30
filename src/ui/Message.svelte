@@ -1,6 +1,7 @@
 <script lang="ts">
   import Avatar from './Avatar.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
+  import LinkPreview from './LinkPreview.svelte';
   import { store } from '../lib/settings.svelte.ts';
   import type { ChatEntry } from '../lib/session.svelte.ts';
 
@@ -33,7 +34,9 @@
       {/if}
       {#if entry.html}<div class="html">{@html entry.html}</div>{/if}
       {#each entry.embeds as m (m.url)}
-        {#if m.kind === 'youtube'}
+        {#if m.kind === 'link'}
+          <div class="embed"><LinkPreview url={m.url} /></div>
+        {:else if m.kind === 'youtube'}
           {#if store.settings.youtube !== 'off'}<div class="embed"><YouTubeEmbed videoId={m.videoId!} start={m.start} url={m.url} /></div>{/if}
         {:else}
         <div class="embed">

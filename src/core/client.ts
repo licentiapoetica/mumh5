@@ -7,10 +7,12 @@ const VERSION = { major: 1, minor: 5, patch: 0 };
 const PING_INTERVAL_MS = 15000;
 
 // Murmur drops these messages without telling the client when they come too fast
-// (leaky bucket, defaults messageburst=5 and messagelimit=1/s). Mirroring the bucket and
-// queueing keeps quick actions from getting lost. Slightly slower refill for safety.
+// (leaky bucket, defaults messageburst=5 and messagelimit=1/s). Its bucket restarts its timer
+// on every limited message and only leaks whole seconds, discarding the rest; the client
+// mirrors exactly that and queues instead of losing messages. The margin absorbs network jitter.
 const RATE_BURST = 5;
-const RATE_REFILL_MS = 1100;
+const RATE_LEAK_MS = 1000;
+const RATE_MARGIN_MS = 250;
 const RATE_LIMITED = new Set<MessageName>(['TextMessage', 'ChannelState', 'ACL', 'Version']);
 
 export interface Channel {
@@ -142,8 +144,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
   private reader = new FrameReader();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
-  private tokens = RATE_BURST;
-  private lastRefill = Date.now();
+  private bucket = 0;          // our estimate of the server's bucket level
+  private lastLimited = 0;     // when the last rate-limited message was sent
   private queue: Uint8Array[] = [];
   private queueTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -206,14 +208,10 @@ export class MumbleClient extends Emitter<ClientEvents> {
     return this.queue.length;
   }
 
-  private refill(): void {
-    const now = Date.now();
-    const gained = Math.floor((now - this.lastRefill) / RATE_REFILL_MS);
-    if (gained > 0) {
-      this.tokens = Math.min(RATE_BURST, this.tokens + gained);
-      this.lastRefill += gained * RATE_REFILL_MS;
-    }
-    if (this.tokens === RATE_BURST) this.lastRefill = now;
+  // Bucket level the server will compute when the next message arrives now
+  private levelAt(now: number): number {
+    const leaked = Math.floor(Math.max(0, now - this.lastLimited - RATE_MARGIN_MS) / RATE_LEAK_MS);
+    return Math.max(0, this.bucket - leaked);
   }
 
   private sendPaced(bytes: Uint8Array): void {
@@ -223,13 +221,18 @@ export class MumbleClient extends Emitter<ClientEvents> {
 
   private drain(): void {
     if (this.queueTimer || this.closed) return;
-    this.refill();
-    while (this.queue.length && this.tokens > 0) {
-      this.tokens--;
+    while (this.queue.length) {
+      const now = Date.now();
+      const level = this.levelAt(now);
+      if (level + 1 > RATE_BURST) break;
+      this.bucket = level + 1;
+      this.lastLimited = now;
       this.transport?.send(this.queue.shift()!);
     }
     if (this.queue.length) {
-      this.queueTimer = setTimeout(() => { this.queueTimer = null; this.drain(); }, RATE_REFILL_MS - (Date.now() - this.lastRefill) + 5);
+      // A full bucket leaks one message once a whole second (plus margin) has passed
+      const wait = this.lastLimited + RATE_LEAK_MS + RATE_MARGIN_MS - Date.now() + 5;
+      this.queueTimer = setTimeout(() => { this.queueTimer = null; this.drain(); }, Math.max(5, wait));
     }
   }
 

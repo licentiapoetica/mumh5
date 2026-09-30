@@ -1,6 +1,6 @@
 import DOMPurify, { type Config } from 'dompurify';
 
-export type EmbedKind = 'image' | 'video' | 'audio' | 'youtube';
+export type EmbedKind = 'image' | 'video' | 'audio' | 'youtube' | 'link';
 export interface Embed { kind: EmbedKind; url: string; name: string; videoId?: string; start?: number }
 
 // YouTube links: watch, youtu.be, shorts, embed, live, music, mobile
@@ -108,13 +108,17 @@ export function renderIncoming(html: string, trustedHosts: string[]): { html: st
     }
     let url: URL;
     try { url = new URL(a.getAttribute('href')!); } catch { continue; }
-    if (!trustedHosts.includes(url.host.toLowerCase())) continue;
+    const trusted = trustedHosts.includes(url.host.toLowerCase());
     const name = decodeURIComponent(url.pathname.split('/').pop() ?? '');
-    const kind = mediaKind(name);
+    const kind = trusted ? mediaKind(name) : null;
     if (kind) embeds.push({ kind, url: url.href, name });
+    // Other web links get a preview card (not for the upload host's own files)
+    else if (!trusted && /^https?:$/.test(url.protocol) && embeds.filter(e => e.kind === 'link').length < 2 && !embeds.some(e => e.url === url.href)) {
+      embeds.push({ kind: 'link', url: url.href, name: a.textContent ?? '' });
+    }
   }
   // The inline thumbnail is only there for vanilla clients; we show the real media instead
-  if (embeds.some(e => e.kind !== 'youtube')) frag.querySelectorAll('img').forEach(img => img.remove());
+  if (embeds.some(e => e.kind === 'image' || e.kind === 'video' || e.kind === 'audio')) frag.querySelectorAll('img').forEach(img => img.remove());
   const div = document.createElement('div');
   div.append(frag);
   return { html: div.innerHTML.replace(/^(<br\s*\/?>)+|(<br\s*\/?>)+$/g, ''), embeds };

@@ -2,6 +2,9 @@
   import { menu } from '../lib/menu.svelte.ts';
 
   let el: HTMLDivElement | undefined = $state();
+  // Live values of slider items while the menu is open
+  let sliderValues = $state<Record<number, number>>({});
+  $effect(() => { void menu.open; sliderValues = {}; });
   let pos = $state({ x: 0, y: 0 });
 
   // Keep the menu on screen near the pointer
@@ -21,6 +24,8 @@
     if (e.key === 'Escape') menu.close();
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
+      // Arrow keys adjust a focused slider instead of moving through the items
+      if ((document.activeElement as HTMLInputElement | null)?.type === 'range') return;
       const buttons = [...el!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
       const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
       buttons[(i + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
@@ -36,6 +41,14 @@
     {#each menu.open.items as item, i (i)}
       {#if item.separator}
         <div class="sep" role="separator"></div>
+      {:else if item.slider}
+        {@const sl = item.slider}
+        <div class="slider">
+          <span class="slider-label"><span>{item.label}</span><span>{sl.format(sliderValues[i] ?? sl.value)}</span></span>
+          <input type="range" min={sl.min} max={sl.max} step={sl.step} value={sl.value} aria-label={item.label}
+            oninput={e => { const v = Number(e.currentTarget.value); sliderValues[i] = v; sl.oninput(v); }}
+            ondblclick={() => { sliderValues[i] = 1; sl.oninput(1); }} />
+        </div>
       {:else}
         <button role="menuitem" class:danger={item.danger} disabled={item.disabled}
           onclick={() => { menu.close(); item.action?.(); }}>
@@ -61,4 +74,7 @@
   .box { width: 14px; height: 14px; border: 2px solid currentColor; }
   .box.on { background: currentColor; }
   .sep { height: 1px; margin: 4px 6px; background: var(--line); }
+  .slider { padding: 6px 10px 8px; }
+  .slider-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-dim); }
+  .slider input { width: 100%; padding: 0; border: 0; background: transparent; accent-color: var(--accent); margin-top: 4px; }
 </style>

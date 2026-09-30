@@ -2,9 +2,11 @@
   import Icon from './Icon.svelte';
   import ChatLog from './ChatLog.svelte';
   import Composer from './Composer.svelte';
+  import VoiceStage from './VoiceStage.svelte';
   import { session } from '../lib/session.svelte.ts';
 
-  let { onmenu, onpanel, showMenu }: { onmenu: () => void; onpanel: () => void; showMenu: boolean } = $props();
+  // showStage: voice tiles above the chat when the window is too narrow for the member list
+  let { onmenu, onpanel, showMenu, showStage = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean } = $props();
 
   const isDm = $derived(session.view.startsWith('dm:'));
   const title = $derived(session.status === 'connected' ? session.viewTitle() : 'mumh5');
@@ -23,6 +25,8 @@
     <span class="grow"></span>
     <button class="icon-btn" onclick={onpanel} title="Members"><Icon name="users" /></button>
   </header>
+
+  {#if showStage && session.status === 'connected'}<VoiceStage />{/if}
 
   <ChatLog key={session.view}>
     {#snippet empty()}

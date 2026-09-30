@@ -5,6 +5,7 @@ import path from 'node:path';
 import { IdentityStore } from './identity-store.ts';
 import { describeCert } from './certs.ts';
 import * as tray from './tray.ts';
+import { fetchLinkPreview } from './link-preview.ts';
 import { openTls } from './tls-transport.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -73,6 +74,8 @@ ipcMain.on('mumble:close', (e, connId: string) => {
 // Parses DER certificates (e.g. a user's chain from UserStats) for the viewer
 ipcMain.handle('certs:describe', (_e, ders: Uint8Array[]) =>
   (Array.isArray(ders) ? ders.slice(0, 8) : []).flatMap(d => { try { return [describeCert(Buffer.from(d))]; } catch { return []; } }));
+
+ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url).slice(0, 2048)));
 
 ipcMain.on('tray:update', (_e, state: tray.TrayState) => tray.update(state));
 
