@@ -31,6 +31,7 @@ mumh5 keeps the foundation and replaces the experience.
 | Several servers at the same time | One connection | Many; voice on one, text on all, unread badges |
 | Sharing files | Images only, pasted inline and heavily limited | Any allowed file through your own [f0ckm](#file-sharing-with-f0ckm) host, inline players for images, video and audio. Images still work without one |
 | YouTube links | Plain links | Click-to-play player (privacy mode), optional thumbnails |
+| Link previews | None | Title, description and image, fetched by your upload host so linked sites never see your IP |
 | Chat per channel | One shared log for everything | Separate chats per channel and person, plus a side chat for any channel next to your own |
 | Descriptions | Rich text editor | Rich text editor with pictures, and a live size counter against the server limit |
 | Identities | One certificate per installation | Several identities, a different one per server if you like; imports your desktop certificate |
@@ -51,6 +52,7 @@ mumh5 keeps the foundation and replaces the experience.
 - Microphone and output device selection, input and output volume
 - Per-person volume (0 to 300%) and "mute for me"
 - Speaking indicators in the channel tree, member list and your own panel
+- On small windows, your voice channel appears as tiles above the chat, lighting up as people talk, with mute and deafen at hand
 - Bitrate automatically limited to what the server allows
 - Right-click the mute or deafen button for quick device and volume options
 - Hear-yourself microphone test
@@ -73,6 +75,7 @@ mumh5 keeps the foundation and replaces the experience.
 - File sharing: drag and drop, paste, or the attach button, with upload progress
 - Inline images, video and audio players for shared media
 - YouTube links as click-to-play players
+- Link previews with title, description and image; fetched by your upload host by default, so posting a link cannot reveal who reads it
 - Incoming HTML is sanitized; remote images from unknown hosts are never loaded
 - Messages stay compatible with the desktop client, including picture previews
 
@@ -127,7 +130,9 @@ f0ckm keeps these uploads separate from its imageboard, respects its own list of
    ```
 2. In mumh5, open **Settings, Chat and files**, enter the f0ckm address and the key, and press **Test key**.
 
-Without an upload host, mumh5 still sends images, scaled to fit the server's limit, the same way the desktop client does.
+The same host also fetches link previews for you, so the sites people link to never see your IP address.
+
+Without an upload host, mumh5 still sends images, scaled to fit the server's limit, the same way the desktop client does. Link previews can then be fetched directly by your computer if you enable it.
 
 ---
 

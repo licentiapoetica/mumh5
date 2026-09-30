@@ -62,7 +62,7 @@ const lena = await headless('lena');
 sarah.joinChannel(lobby);
 max.joinChannel(lobby);
 await wait(300);
-jonas.joinChannel(byName(jonas, 'Minecraft').id);
+jonas.joinChannel(lobby);
 lena.joinChannel(byName(lena, 'Music').id);
 await wait(1200);
 lena.setSelfMute(true);
@@ -89,6 +89,7 @@ await page.getByRole('button', { name: 'Done' }).click();
 await page.getByTitle('Settings').click();
 await page.getByRole('tab', { name: 'Chat and files' }).click();
 await page.getByLabel('YouTube links').selectOption('thumbnail');
+await page.getByLabel('Link previews').selectOption('direct');
 await page.getByRole('tab', { name: 'Voice' }).click();
 await page.getByRole('radio', { name: /Always on/ }).click();
 await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -108,12 +109,17 @@ sarah.sendText({ channels: [lobby] }, 'anyone up for a round later?');
 await wait(1200);
 max.sendText({ channels: [lobby] }, 'yes, after dinner. 8pm?');
 await wait(1200);
+jonas.sendText({ channels: [lobby] }, 'btw this is what we are using: <a href="https://github.com/mumble-voip/mumble">https://github.com/mumble-voip/mumble</a>');
+await wait(1200);
 await page.getByLabel('Message').fill('works for me. meanwhile, a classic: https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 await page.getByLabel('Message').press('Enter');
 await wait(1200);
 sarah.sendText({ channels: [lobby] }, '<b>no.</b> not again <i>(ok it is a good song)</i>');
 await wait(3000);
-
+await page.locator('.card img').first().waitFor({ timeout: 15000 }).catch(() => {});
+await wait(1000);
+// Show the whole conversation
+await page.locator('.chat .list').evaluate(el => { el.scrollTop = el.scrollHeight; });
 await page.screenshot({ path: path.join(out, 'main.png') });
 
 await page.locator('.sidebar .user', { hasText: 'sarah' }).click();

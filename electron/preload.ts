@@ -12,6 +12,7 @@ for (const key of Object.keys(listeners) as (keyof typeof listeners)[]) {
 contextBridge.exposeInMainWorld('mumh5Native', {
   platformInfo: () => ipcRenderer.invoke('platform:info'),
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
+  linkPreview: (url: string) => ipcRenderer.invoke('preview:fetch', url),
   onTrayAction: (fn: (action: string) => void) => { ipcRenderer.on('tray:action', (_e, a: string) => fn(a)); },
   describeCerts: (ders: Uint8Array[]) => ipcRenderer.invoke('certs:describe', ders),
   identities: {

@@ -5,6 +5,7 @@ interface NativeApi {
   describeCerts(ders: Uint8Array[]): Promise<CertDetails[]>;
   updateTray(state: { icon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
   onTrayAction(fn: (action: string) => void): void;
+  linkPreview(url: string): Promise<LinkPreviewData | null>;
   identities: {
     list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean }>;
     create(name: string, email: string): Promise<IdentitySummary>;
@@ -21,6 +22,16 @@ interface NativeApi {
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;
   on(event: 'secure' | 'data' | 'close', fn: (connId: string, ...args: any[]) => void): () => void;
+}
+
+export interface LinkPreviewData {
+  url: string;
+  title: string;
+  description: string;
+  site: string;
+  image: string;
+  large: boolean;
+  color: string;
 }
 
 export interface IdentitySummary {

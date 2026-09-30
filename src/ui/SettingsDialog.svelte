@@ -75,6 +75,13 @@
     <label for="s-embed">Also show media inline from these hosts</label>
     <textarea id="s-embed" bind:value={embedHosts} onchange={saveFiles} rows="3" placeholder="one host per line, e.g. i.example.com"></textarea>
     <p class="help">Links from other hosts stay plain links, so opening a chat never contacts servers you did not choose.</p>
+    <label for="s-lp">Link previews</label>
+    <select id="s-lp" bind:value={s.linkPreviews} onchange={saveFiles}>
+      <option value="host">Fetched by the upload host (keeps your IP private)</option>
+      <option value="direct">Fetched by this computer (linked sites see your IP)</option>
+      <option value="off">Off</option>
+    </select>
+    {#if s.linkPreviews === 'host' && !(s.uploadHost && s.uploadKey)}<p class="help">Needs an upload host and key above; until then no previews are shown.</p>{/if}
     <label for="s-yt">YouTube links</label>
     <select id="s-yt" bind:value={s.youtube} onchange={saveFiles}>
       <option value="click">Player card, loads from YouTube when clicked</option>

@@ -60,7 +60,7 @@
     {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
   {/if}
 
-  <Chat showMenu={layout === 'narrow'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
+  <Chat showMenu={layout === 'narrow'} showStage={layout !== 'wide'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 
   {#if showPanel}
     {#if layout === 'wide'}

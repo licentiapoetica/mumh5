@@ -27,8 +27,7 @@ export function userMenu(u: User): MenuItem[] {
   const self = session.self;
   const isSelf = u.session === self?.session;
   const items: MenuItem[] = [
-    { label: 'View profile', action: () => { session.showUser(u.session); ui.panelOpen = true; } },
-    { label: 'Information', action: () => (ui.userInfo = u.session) }
+    { label: 'View profile', action: () => { session.showUser(u.session); ui.panelOpen = true; } }
   ];
   if (isSelf) {
     items.push(
@@ -41,6 +40,14 @@ export function userMenu(u: User): MenuItem[] {
     items.push(
       { label: 'Send message', action: () => session.selectView(`dm:${u.session}`) },
       { label: 'Mute for me', checked: !!voice.settings.localMutes[userKey(u)], action: () => voice.setLocalMute(u, !voice.settings.localMutes[userKey(u)]) },
+      {
+        label: 'Volume',
+        slider: {
+          value: voice.settings.userVolumes[userKey(u)] ?? 1, min: 0, max: 3, step: 0.05,
+          format: v => `${Math.round(v * 100)}%`,
+          oninput: v => voice.setUserVolume(u, v)
+        }
+      },
       { label: 'Set nickname...', action: () => nicknamePrompt(u) }
     );
     if (self && u.channelId !== self.channelId) {
@@ -63,6 +70,7 @@ export function userMenu(u: User): MenuItem[] {
   }
   items.push({ separator: true, label: '' }, { label: 'Copy name', action: () => navigator.clipboard.writeText(u.name) });
   if (u.hash) items.push({ label: 'Copy certificate hash', action: () => navigator.clipboard.writeText(u.hash) });
+  items.push({ separator: true, label: '' }, { label: 'Information', action: () => (ui.userInfo = u.session) });
   return items;
 }
 

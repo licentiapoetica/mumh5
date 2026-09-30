@@ -18,6 +18,8 @@
   let stats = $state<any>(null);
   let certs = $state<CertDetails[]>([]);
   let updated = $state(0);
+  // Seconds since the last answer, so online and idle times tick between answers
+  let now = $state(Date.now());
 
   const client = session.client;
   const user = $derived(session.user(who));
@@ -32,8 +34,10 @@
     }
   });
   client?.requestUserStats(who);
-  const timer = setInterval(() => client?.requestUserStats(who, true), 5000);
+  // Live: ask every second (UserStats is not rate limited by the server)
+  const timer = setInterval(() => { now = Date.now(); client?.requestUserStats(who, true); }, 1000);
   onDestroy(() => { off?.(); clearInterval(timer); });
+  const since = $derived(updated ? Math.max(0, Math.floor((now - updated) / 1000)) : 0);
 
   function duration(secs?: number): string {
     if (secs == null) return 'unknown';
@@ -73,8 +77,8 @@
   {:else}
     <h3>Connection</h3>
     <dl>
-      <dt>Online for</dt><dd>{duration(stats.onlinesecs)}</dd>
-      {#if stats.idlesecs != null}<dt>Idle for</dt><dd>{duration(stats.idlesecs)}</dd>{/if}
+      <dt>Online for</dt><dd>{duration(stats.onlinesecs != null ? stats.onlinesecs + since : undefined)}</dd>
+      {#if stats.idlesecs != null}<dt>Idle for</dt><dd>{duration(stats.idlesecs + since)}</dd>{/if}
       <dt>Ping (TCP)</dt><dd>{ping(stats.tcp_ping_avg, stats.tcp_ping_var)}</dd>
       <dt>Ping (UDP)</dt><dd>{stats.udp_packets ? ping(stats.udp_ping_avg, stats.udp_ping_var) : 'not using UDP (voice over TCP)'}</dd>
       <dt>Packets</dt><dd>{stats.tcp_packets ?? 0} TCP, {stats.udp_packets ?? 0} UDP</dd>
@@ -124,7 +128,6 @@
   {/if}
 
   {#snippet footer()}
-    {#if updated}<span class="dim small upd">Updates every 5 seconds</span>{/if}
     <button class="btn primary" onclick={onclose}>Close</button>
   {/snippet}
 </Modal>
@@ -144,6 +147,5 @@
   .small { font-size: 12px; margin-top: 6px; }
   .note { margin-top: 16px; }
   .cert { margin-top: 10px; }
-  .upd { margin-right: auto; align-self: center; }
   @media (max-width: 500px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
 </style>

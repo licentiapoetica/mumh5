@@ -139,3 +139,25 @@ test('voice packets are relayed through the TCP tunnel in the negotiated format'
   }
 });
 
+test('irregular bursts match the server bucket (whole-second leaks)', { skip: !target }, async () => {
+  const alice = await connect('pace' + Date.now() % 1000);
+  const bob = await connect('paceB' + Date.now() % 1000);
+  try {
+    const got: string[] = [];
+    const total = 11;
+    const all = until<void>(res => bob.on('text', m => { got.push(m.html); if (got.length === total) res(); }), 25000);
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    // Gaps that do not line up with whole seconds used to make the client overestimate
+    const gaps = [0, 0, 0, 0, 0, 1900, 300, 300, 1400, 0, 0];
+    for (let i = 0; i < total; i++) {
+      await sleep(gaps[i]);
+      alice.sendText({ channels: [0] }, `p${i}`);
+    }
+    await all;
+    assert.deepEqual(got, gaps.map((_, i) => `p${i}`));
+  } finally {
+    alice.disconnect();
+    bob.disconnect();
+  }
+});
+
