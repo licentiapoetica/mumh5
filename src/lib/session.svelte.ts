@@ -1,0 +1,678 @@
+import { createCodec } from '../core/proto.ts';
+import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
+import { native, ElectronTransport } from './native.ts';
+import type { ServerCertInfo } from '../core/transport.ts';
+import { store, type SavedServer } from './settings.svelte.ts';
+import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
+import { uploadFile, makeThumbnail, makeInlineImage, fetchUploadInfo, checkFile, type UploadInfo } from './upload.ts';
+import { voice } from './audio/voice.svelte.ts';
+
+const codec = createCodec();
+
+// A chat view is a channel ("ch:<id>") or a direct conversation with a user ("dm:<session>").
+export type ViewKey = `ch:${number}` | `dm:${number}`;
+
+export interface ChatEntry {
+  id: number;
+  kind: 'text' | 'system';
+  author: string;
+  authorSession: number | null;
+  self: boolean;
+  html: string;
+  embeds: Embed[];
+  time: number;
+}
+
+export interface UploadJob {
+  id: number;
+  key: string;
+  name: string;
+  progress: number;
+  error: string;
+}
+
+export interface CertPrompt {
+  server: SavedServer;
+  hostPort: string;
+  fingerprint: string;
+  previous: string;
+}
+
+// Right-hand panel: member list, a channel (description preview or its side chat), or a user profile
+export type Panel =
+  | { kind: 'members' }
+  | { kind: 'channel'; id: number; tab: 'info' | 'chat' }
+  | { kind: 'user'; session: number };
+
+let nextId = 1;
+
+export class Session {
+  status = $state<'idle' | 'connecting' | 'connected'>('idle');
+  error = $state('');
+  server = $state<SavedServer | null>(null);
+  // Bumped on every client state change; views read it to re-derive from the client's maps
+  tick = $state(0);
+  view = $state<ViewKey>('ch:0');
+  panel = $state<Panel>({ kind: 'members' });
+  logs = $state<Record<string, ChatEntry[]>>({});
+  unread = $state<Record<string, number>>({});
+  uploads = $state<UploadJob[]>([]);
+  certPrompt = $state<CertPrompt | null>(null);
+  rtt = $state(0);
+  // TLS details of the current server, for the certificate viewer and the trusted badge
+  serverCert = $state<ServerCertInfo | null>(null);
+  uploadInfo = $state<UploadInfo | null>(null);
+  // Channel tree expansion the user chose; channels not in here follow the default
+  expanded = $state<Record<number, boolean>>({});
+
+  client: MumbleClient | null = null;
+  // Incremented per connect so a slow, superseded attempt can tell it is stale
+  private attempt = 0;
+  private uploadInfoFor = '';
+  // Blob hashes already requested, so a preview does not ask the server repeatedly
+  private requested = new Set<string>();
+  // Last message with an inline image, resent as a plain link if the server refuses it
+  private lastImageSend: { key: string; fallback: string; at: number } | null = null;
+  // Channel we asked to move to; the chat view switches when the server confirms it
+  private pendingJoin: number | null = null;
+
+  // ─── Derived helpers ────────────────────────────────────────────────────────
+  // The client mutates its objects in place. These return shallow copies and read `tick`,
+  // so every state change hands Svelte new objects and dependent views update.
+
+  get self(): User | null {
+    void this.tick;
+    const u = this.client?.self;
+    return u ? { ...u } : null;
+  }
+
+  channel(id: number): Channel | undefined {
+    void this.tick;
+    const c = this.client?.channels.get(id);
+    return c && { ...c };
+  }
+
+  user(session: number): User | undefined {
+    void this.tick;
+    const u = this.client?.users.get(session);
+    return u && { ...u };
+  }
+
+  childrenOf(parent: number | null): Channel[] {
+    void this.tick;
+    if (!this.client) return [];
+    return [...this.client.channels.values()]
+      .filter(c => (parent === null ? c.id === 0 : c.parent === parent && c.id !== 0))
+      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+      .map(c => ({ ...c }));
+  }
+
+  usersIn(channelId: number): User[] {
+    void this.tick;
+    if (!this.client) return [];
+    return [...this.client.users.values()]
+      .filter(u => u.channelId === channelId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(u => ({ ...u }));
+  }
+
+  allUsers(): User[] {
+    void this.tick;
+    return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
+  }
+
+  // Users in a channel and all of its subchannels
+  subtreeUserCount(id: number): number {
+    void this.tick;
+    const client = this.client;
+    if (!client) return 0;
+    const ids = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of client.channels.values()) {
+        if (c.parent != null && ids.has(c.parent) && !ids.has(c.id)) { ids.add(c.id); grew = true; }
+      }
+    }
+    let n = 0;
+    for (const u of client.users.values()) if (ids.has(u.channelId)) n++;
+    return n;
+  }
+
+  // Collapsed by default; channels with people in them open up, like the desktop client
+  isExpanded(id: number): boolean {
+    if (id === 0) return true;
+    return this.expanded[id] ?? this.subtreeUserCount(id) > 0;
+  }
+
+  toggleExpanded(id: number): void {
+    this.expanded[id] = !this.isExpanded(id);
+  }
+
+  setAllExpanded(open: boolean): void {
+    const all: Record<number, boolean> = {};
+    for (const id of this.client?.channels.keys() ?? []) all[id] = open;
+    this.expanded = all;
+  }
+
+  viewTitle(key: string = this.view): string {
+    const [kind, id] = key.split(':');
+    if (kind === 'ch') return this.channel(Number(id))?.name || 'Root';
+    return this.user(Number(id))?.name ?? 'Offline user';
+  }
+
+  // Keys whose chat is on screen right now (main view and an open side chat)
+  private visibleKeys(): string[] {
+    const keys: string[] = [this.view];
+    if (this.panel.kind === 'channel' && this.panel.tab === 'chat') keys.push(`ch:${this.panel.id}`);
+    return keys;
+  }
+
+  // ─── Connection ─────────────────────────────────────────────────────────────
+
+  async connect(server: SavedServer): Promise<void> {
+    this.disconnect();
+    const attempt = ++this.attempt;
+    this.server = server;
+    this.error = '';
+    this.logs = {};
+    this.unread = {};
+    this.expanded = {};
+    this.panel = { kind: 'members' };
+    this.requested.clear();
+    this.serverCert = null;
+    this.status = 'connecting';
+
+    if (!native) {
+      this.fail('Connecting needs the desktop app for now. The web version will connect through a proxy.');
+      return;
+    }
+
+    const transport = new ElectronTransport(native, server.host, server.port, server.identityId);
+    let info;
+    try {
+      info = await transport.secure;
+    } catch (e) {
+      if (attempt === this.attempt) this.fail((e as Error).message);
+      return;
+    }
+    if (attempt !== this.attempt) return transport.close();
+    this.serverCert = info;
+
+    // Trust on first use: pin the certificate, and stop before sending credentials if it changed
+    const hostPort = `${server.host.toLowerCase()}:${server.port}`;
+    const pinned = store.pins[hostPort];
+    if (!pinned) {
+      store.pin(hostPort, info.fingerprint);
+    } else if (pinned !== info.fingerprint && !info.authorized) {
+      transport.close();
+      this.certPrompt = { server, hostPort, fingerprint: info.fingerprint, previous: pinned };
+      this.fail('The server certificate changed.');
+      return;
+    }
+
+    const client = new MumbleClient(codec);
+    this.client = client;
+    this.wire(client);
+    // TLS is up but the server may still never finish the login
+    setTimeout(() => { if (this.client === client && !client.synced) client.disconnect('Login timed out'); }, 20000);
+    const platform = await native.platformInfo();
+    if (attempt !== this.attempt) return transport.close();
+    client.connect(transport, {
+      username: server.username,
+      password: server.password,
+      os: platform.os,
+      osVersion: platform.osVersion
+    });
+  }
+
+  acceptCertificate(): void {
+    const p = this.certPrompt;
+    if (!p) return;
+    store.pin(p.hostPort, p.fingerprint);
+    this.certPrompt = null;
+    this.connect(p.server);
+  }
+
+  disconnect(): void {
+    this.attempt++;
+    const client = this.client;
+    this.client = null;
+    client?.disconnect();
+    sessions.onClosed(this);
+    this.status = 'idle';
+    this.tick++;
+  }
+
+  private fail(msg: string): void {
+    this.status = 'idle';
+    this.error = msg;
+  }
+
+  private wire(client: MumbleClient): void {
+    const live = () => this.client === client;
+    const bump = () => { if (live()) this.tick++; };
+
+    client.on('synced', () => {
+      if (!live()) return;
+      this.status = 'connected';
+      this.view = `ch:${client.self?.channelId ?? 0}`;
+      sessions.onSynced(this);
+      if (client.welcomeText) this.system(this.view, client.welcomeText, true);
+      bump();
+    });
+    client.on('channel', bump);
+    client.on('channelRemove', id => {
+      if (!live()) return;
+      if (this.panel.kind === 'channel' && this.panel.id === id) this.panel = { kind: 'members' };
+      bump();
+    });
+    client.on('ping', rtt => { if (live()) this.rtt = rtt; });
+
+    client.on('user', (user, changed, _actor, isNew) => {
+      if (!live()) return;
+      const self = client.self;
+      if (client.synced && self) {
+        if (isNew) {
+          if (user.channelId === self.channelId) this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} connected`);
+        } else if (changed.includes('userId') && user.userId != null) {
+          const who = user.session === self.session ? 'You are' : `${escapeHtml(user.name)} is`;
+          this.system(this.view, `${who} now registered on this server`);
+        } else if (changed.includes('channelId')) {
+          if (user.session === self.session) {
+            // Follow our own channel moves in the chat view (also from a DM when we asked to join)
+            if (this.view.startsWith('ch:') || this.pendingJoin === user.channelId) this.selectView(`ch:${user.channelId}`);
+            this.pendingJoin = null;
+            this.system(`ch:${user.channelId}`, `You joined ${escapeHtml(this.channel(user.channelId)?.name || 'Root')}`);
+          } else if (user.channelId === self.channelId) {
+            this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} joined the channel`);
+          }
+        }
+      }
+      bump();
+    });
+
+    client.on('userRemove', (user, actor, reason, ban) => {
+      if (!live()) return;
+      const self = client.self;
+      if (self && user.channelId === self.channelId) {
+        const by = actor != null && actor !== user.session ? client.users.get(actor)?.name : null;
+        const what = by ? `${ban ? 'was banned' : 'was kicked'} by ${escapeHtml(by)}` : 'disconnected';
+        this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} ${what}${reason ? `: ${escapeHtml(reason)}` : ''}`);
+      }
+      if (this.panel.kind === 'user' && this.panel.session === user.session) this.panel = { kind: 'members' };
+      bump();
+    });
+
+    client.on('text', msg => { if (live()) this.receive(client, msg); });
+
+    client.on('permissionDenied', d => {
+      if (!live()) return;
+      // An image preview can exceed what the server accepts; the link alone still gets through
+      const img = this.lastImageSend;
+      if (d.type === 4 && img && Date.now() - img.at < 5000) {
+        this.lastImageSend = null;
+        this.system(img.key, 'The server refused the image preview, sent the link only');
+        client.sendText(this.target(img.key), img.fallback);
+        return;
+      }
+      if (d.channelId != null && d.channelId === this.pendingJoin) this.pendingJoin = null;
+      const ch = d.channelId != null ? client.channels.get(d.channelId)?.name : undefined;
+      this.system(this.view, escapeHtml(describeDenial(d, ch)));
+    });
+
+    client.on('close', reason => {
+      if (this.client !== client) return;
+      this.client = null;
+      sessions.onClosed(this);
+      this.status = 'idle';
+      this.error = reason === 'Disconnected' ? '' : reason;
+      this.tick++;
+    });
+  }
+
+  // ─── Panels, descriptions, comments ─────────────────────────────────────────
+
+  showChannel(id: number, tab: 'info' | 'chat' = 'info'): void {
+    this.panel = { kind: 'channel', id, tab };
+    if (tab === 'chat') delete this.unread[`ch:${id}`];
+    this.loadDescription(id);
+  }
+
+  showUser(session: number): void {
+    this.panel = { kind: 'user', session };
+    this.loadComment(session);
+  }
+
+  closePanel(): void {
+    this.panel = { kind: 'members' };
+  }
+
+  // Long descriptions and comments are only announced by hash; fetch the text on demand
+  loadDescription(id: number): void {
+    const c = this.client?.channels.get(id);
+    if (!c?.descriptionHash || c.description) return;
+    const tag = `d:${id}:${[...c.descriptionHash].join(',')}`;
+    if (this.requested.has(tag)) return;
+    this.requested.add(tag);
+    this.client!.requestBlob({ descriptions: [id] });
+  }
+
+  loadComment(session: number): void {
+    const u = this.client?.users.get(session);
+    if (!u?.commentHash || u.comment) return;
+    const tag = `c:${session}:${[...u.commentHash].join(',')}`;
+    if (this.requested.has(tag)) return;
+    this.requested.add(tag);
+    this.client!.requestBlob({ comments: [session] });
+  }
+
+  register(session: number): void {
+    this.client?.register(session);
+  }
+
+  // Mumble has no rename while connected: reconnect under the new name (saved for this server)
+  changeName(name: string): void {
+    const server = this.server;
+    if (!server || !name.trim()) return;
+    const updated = { ...$state.snapshot(server), username: name.trim() };
+    store.upsertServer(updated);
+    this.connect(updated);
+  }
+
+  // html comes from the rich editor, already sanitized XHTML
+  setComment(html: string): void {
+    this.client?.setComment(html);
+  }
+
+  // Largest description or image message the server accepts (0: no limit)
+  get htmlLimit(): number {
+    void this.tick;
+    return this.client?.config.imageMessageLength ?? 131072;
+  }
+
+  // ─── Chat ───────────────────────────────────────────────────────────────────
+
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time'>): void {
+    // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
+    if (!this.logs[key]) this.logs[key] = [];
+    this.logs[key].push({ ...entry, id: nextId++, time: Date.now() });
+    if (sessions.active !== this || !this.visibleKeys().includes(key)) this.unread[key] = (this.unread[key] ?? 0) + 1;
+  }
+
+  private system(key: string, html: string, trusted = false): void {
+    const rendered = trusted ? renderIncoming(html, store.trustedHosts) : { html, embeds: [] };
+    this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
+  }
+
+  private receive(client: MumbleClient, msg: TextMessage): void {
+    const self = client.self;
+    const sender = msg.actor != null ? client.users.get(msg.actor) : undefined;
+    let key: string;
+    if (msg.actor == null) key = this.view;
+    else if (msg.channels.length || msg.trees.length) key = `ch:${msg.channels[0] ?? self?.channelId ?? 0}`;
+    else key = `dm:${msg.actor}`;
+
+    const rendered = renderIncoming(msg.html, store.trustedHosts);
+    if (msg.actor == null) {
+      this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
+    } else {
+      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ...rendered });
+    }
+  }
+
+  // Opening a server marks what is on screen as read
+  markVisibleRead(): void {
+    for (const k of this.visibleKeys()) delete this.unread[k];
+  }
+
+  selectView(key: ViewKey): void {
+    this.view = key;
+    delete this.unread[key];
+  }
+
+  // The view follows once the server confirms the move (see the 'user' handler). Murmur
+  // silently drops own state changes sent too quickly (leaky bucket, about one per second),
+  // so an unconfirmed join is sent once more before giving up.
+  joinChannel(id: number): void {
+    const client = this.client;
+    if (!client) return;
+    // Joining a channel is where you want to talk: voice moves to this server
+    sessions.setVoice(this);
+    if (this.self?.channelId === id) {
+      this.selectView(`ch:${id}`);
+      return;
+    }
+    this.pendingJoin = id;
+    client.joinChannel(id);
+    const moved = () => this.client !== client || this.pendingJoin !== id || client.self?.channelId === id;
+    setTimeout(() => {
+      if (moved()) return;
+      client.joinChannel(id);
+      setTimeout(() => {
+        if (moved()) return;
+        this.pendingJoin = null;
+        this.system(this.view, `The server did not move you to ${escapeHtml(client.channels.get(id)?.name || 'Root')}. Try again in a moment.`);
+      }, 1500);
+    }, 1200);
+  }
+
+  private target(key: string): { channels?: number[]; users?: number[] } {
+    const [kind, id] = key.split(':');
+    return kind === 'ch' ? { channels: [Number(id)] } : { users: [Number(id)] };
+  }
+
+  // Send HTML to a view and echo it locally (the server does not echo our messages).
+  sendHtml(html: string, key: string = this.view): boolean {
+    const client = this.client;
+    if (!client || this.status !== 'connected') return false;
+    const limit = /<img/i.test(html) ? client.config.imageMessageLength : client.config.messageLength;
+    if (limit && html.length > limit) {
+      this.system(key, `Message too long for this server (${html.length} / ${limit} characters)`);
+      return false;
+    }
+    client.sendText(this.target(key), html);
+    const rendered = renderIncoming(html, store.trustedHosts);
+    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ...rendered });
+    return true;
+  }
+
+  sendText(text: string, key: string = this.view): boolean {
+    const trimmed = text.trim();
+    return trimmed ? this.sendHtml(textToHtml(trimmed), key) : false;
+  }
+
+  async uploadFiles(files: File[], key: string = this.view): Promise<void> {
+    const { uploadHost, uploadKey, uploadExpiry, sendThumbnails } = store.settings;
+    if (!uploadHost || !uploadKey) return this.sendInlineImages(files, key);
+    let info: UploadInfo;
+    try {
+      info = await this.loadUploadInfo();
+    } catch (e) {
+      this.system(key, `File sharing unavailable: ${escapeHtml((e as Error).message)}`);
+      return;
+    }
+    for (const f of files) {
+      const problem = checkFile(info, f);
+      if (problem) this.system(key, escapeHtml(problem));
+    }
+    for (const file of files.filter(f => !checkFile(info, f))) {
+      const job = { id: nextId++, key, name: file.name, progress: 0, error: '' };
+      this.uploads.push(job);
+      const live = () => this.uploads.find(j => j.id === job.id)!;
+      try {
+        const res = await uploadFile(uploadHost, uploadKey, file, uploadExpiry, p => { live().progress = p; });
+        // Well-formed XHTML (<br/>, <img/>): Murmur rejects long messages that do not parse as XML
+        const link = `<a href="${escapeHtml(res.url)}">${escapeHtml(res.name)}</a> (${formatBytes(res.size)})`;
+        let html = link;
+        const cfg = this.client?.config;
+        if (sendThumbnails && cfg?.allowHtml !== false) {
+          const budget = Math.min(cfg?.imageMessageLength || 131072, 100000) - link.length - 64;
+          const thumb = await makeThumbnail(file, budget);
+          if (thumb) html += `<br/><img src="${thumb}"/>`;
+        }
+        if (html !== link) this.lastImageSend = { key, fallback: link, at: Date.now() };
+        this.sendHtml(html, key);
+        this.uploads = this.uploads.filter(j => j.id !== job.id);
+      } catch (e) {
+        live().error = (e as Error).message;
+        setTimeout(() => { this.uploads = this.uploads.filter(j => j.id !== job.id); }, 6000);
+      }
+    }
+  }
+
+  // Without file hosting: images go inline like a pasted picture in the desktop client,
+  // scaled to the server's image limit. Other files need an upload host.
+  private async sendInlineImages(files: File[], key: string): Promise<void> {
+    const cfg = this.client?.config;
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        this.system(key, `${escapeHtml(file.name)}: sending files needs file hosting. Set up an upload host in Settings; without one only images can be sent.`);
+        continue;
+      }
+      if (cfg?.allowHtml === false) {
+        this.system(key, 'This server does not allow images in messages.');
+        return;
+      }
+      // 0 means no limit; stay reasonable anyway
+      const limit = cfg?.imageMessageLength || 1024 * 1024;
+      const uri = await makeInlineImage(file, limit - 64);
+      if (!uri) {
+        this.system(key, `${escapeHtml(file.name)}: could not make this image small enough for the server (limit ${formatBytes(limit)})`);
+        continue;
+      }
+      this.sendHtml(`<img src="${uri}"/>`, key);
+    }
+  }
+
+  // Cached per host+key; refreshed when settings change
+  async loadUploadInfo(): Promise<UploadInfo> {
+    const { uploadHost, uploadKey } = store.settings;
+    const id = `${uploadHost}|${uploadKey}`;
+    if (this.uploadInfo && this.uploadInfoFor === id) return this.uploadInfo;
+    const info = await fetchUploadInfo(uploadHost, uploadKey);
+    this.uploadInfo = info;
+    this.uploadInfoFor = id;
+    return info;
+  }
+
+  // ─── Voice state and moderation ─────────────────────────────────────────────
+
+  setSelfMute(v: boolean) { this.client?.setSelfMute(v); }
+  setSelfDeaf(v: boolean) { this.client?.setSelfDeaf(v); }
+
+  kick(session: number, reason: string, ban = false) { this.client?.kick(session, reason, ban); }
+  setServerMute(session: number, v: boolean) { this.client?.setUserState(session, { mute: v }); }
+  setServerDeaf(session: number, v: boolean) { this.client?.setUserState(session, { deaf: v }); }
+  setPrioritySpeaker(session: number, v: boolean) { this.client?.setUserState(session, { priority_speaker: v }); }
+  moveUser(session: number, channelId: number) { this.client?.setUserState(session, { channel_id: channelId }); }
+}
+
+// ─── Several servers at once ───────────────────────────────────────────────────
+// Every server has its own Session. Text works on all of them; voice runs on one (like
+// Discord): the server where you last joined a channel. On the others you are shown as
+// deafened, so nobody expects you to hear them, and your state is restored when voice returns.
+
+class Sessions {
+  list = $state<Session[]>([]);
+  activeId = $state<string | null>(null);
+  voiceId = $state<string | null>(null);
+  private idle = new Session();
+  // Self mute/deaf before we deafened a background server, to restore later
+  private saved = new Map<Session, { mute: boolean; deaf: boolean }>();
+
+  get active(): Session {
+    return this.list.find(s => s.server?.id === this.activeId) ?? this.idle;
+  }
+
+  byServer(id: string): Session | undefined {
+    return this.list.find(s => s.server?.id === id);
+  }
+
+  // Show a server, connecting if needed
+  open(server: SavedServer): void {
+    let s = this.byServer(server.id);
+    this.activeId = server.id;
+    s?.markVisibleRead();
+    if (!s) {
+      s = new Session();
+      this.list.push(s);
+      s = this.list[this.list.length - 1];
+    }
+    if (s.status === 'idle') s.connect(server);
+  }
+
+  select(id: string): void {
+    this.activeId = id;
+    this.active.markVisibleRead();
+  }
+
+  close(id: string): void {
+    const s = this.byServer(id);
+    if (!s) return;
+    s.disconnect();
+    this.list = this.list.filter(x => x !== s);
+    if (this.activeId === id) this.activeId = this.list.find(x => x.status !== 'idle')?.server?.id ?? null;
+  }
+
+  get voiceSession(): Session | undefined {
+    return this.list.find(s => s.server?.id === this.voiceId);
+  }
+
+  onSynced(s: Session): void {
+    if (!this.voiceId || !this.voiceSession?.client) this.setVoice(s, true);
+    else this.toBackground(s);
+  }
+
+  onClosed(s: Session): void {
+    this.saved.delete(s);
+    if (this.voiceId !== s.server?.id) return;
+    voice.detach();
+    // Hand voice to another connected server, if any
+    const next = this.list.find(x => x !== s && x.client && x.status === 'connected');
+    this.voiceId = null;
+    if (next) this.setVoice(next);
+  }
+
+  setVoice(s: Session, first = false): void {
+    const id = s.server?.id ?? null;
+    if (!id || (this.voiceId === id && !first)) return;
+    const prev = this.voiceSession;
+    if (prev && prev !== s) {
+      voice.detach();
+      this.toBackground(prev);
+    }
+    this.voiceId = id;
+    this.fromBackground(s);
+    if (s.client) voice.attach(s.client);
+  }
+
+  private toBackground(s: Session): void {
+    const self = s.client?.self;
+    if (!s.client || !self || this.saved.has(s)) return;
+    this.saved.set(s, { mute: self.selfMute, deaf: self.selfDeaf });
+    if (!self.selfDeaf) s.client.setSelfDeaf(true);
+  }
+
+  private fromBackground(s: Session): void {
+    const prev = this.saved.get(s);
+    this.saved.delete(s);
+    if (!prev || !s.client || prev.deaf) return;
+    s.client.send('UserState', { self_deaf: false, self_mute: prev.mute });
+  }
+}
+
+export const sessions = new Sessions();
+
+// The session of the server on screen. Forwards to the active Session so components keep
+// using `session.x`; methods are bound to the real instance so async work stays with its server.
+export const session = new Proxy({} as Session, {
+  get(_t, prop) {
+    const a = sessions.active;
+    const v = Reflect.get(a, prop, a);
+    return typeof v === 'function' ? v.bind(a) : v;
+  },
+  set(_t, prop, value) {
+    return Reflect.set(sessions.active, prop, value, sessions.active);
+  }
+});

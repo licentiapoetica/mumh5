@@ -1,0 +1,105 @@
+<script lang="ts">
+  import Modal from './Modal.svelte';
+  import VoiceSettings from './VoiceSettings.svelte';
+  import IdentityList from './IdentityList.svelte';
+  import { store } from '../lib/settings.svelte.ts';
+  import { native } from '../lib/native.ts';
+  import { fetchUploadInfo } from '../lib/upload.ts';
+
+  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'files' | 'identities' } = $props();
+
+  // svelte-ignore state_referenced_locally
+  let tab = $state<'voice' | 'files' | 'identities'>(initialTab);
+  const s = store.settings;
+  let embedHosts = $state(s.embedHosts.join('\n'));
+  let testResult = $state('');
+
+  // Changes apply right away
+  function saveFiles() {
+    s.uploadHost = s.uploadHost.trim().replace(/\/+$/, '');
+    s.uploadKey = s.uploadKey.trim();
+    s.embedHosts = embedHosts.split(/[\s,]+/).map(h => h.trim()).filter(Boolean);
+    store.saveSettings();
+  }
+
+  async function test() {
+    saveFiles();
+    testResult = 'Checking...';
+    try {
+      const info = await fetchUploadInfo(s.uploadHost, s.uploadKey);
+      testResult = `Key works. Allowed: ${info.allowed_extensions.join(', ')} (max ${Math.round(info.max_bytes / 1048576)} MB)`;
+    } catch (e) {
+      testResult = (e as Error).message;
+    }
+  }
+
+  type Tab = 'voice' | 'files' | 'identities';
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'voice', label: 'Voice' },
+    { id: 'files', label: 'Chat and files' },
+    ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : [])
+  ];
+</script>
+
+<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={640}>
+  <div class="tabs" role="tablist">
+    {#each tabs as t (t.id)}
+      <button role="tab" aria-selected={tab === t.id} class:active={tab === t.id} onclick={() => (tab = t.id)}>{t.label}</button>
+    {/each}
+  </div>
+
+  {#if tab === 'voice'}
+    <VoiceSettings />
+  {:else if tab === 'files'}
+    <p class="help">Files go to a f0ckm instance and are posted as links. Other mumh5 users see them inline; regular Mumble users get a link and a small preview. Without an upload host you can still send images, inline and scaled to the server's limit.</p>
+    <label for="s-host">Upload host</label>
+    <input id="s-host" bind:value={s.uploadHost} onchange={saveFiles} placeholder="https://f0ck.dev" />
+    <label for="s-key">Upload key</label>
+    <input id="s-key" type="password" bind:value={s.uploadKey} onchange={saveFiles} placeholder="cu_..." autocomplete="off" />
+    <div class="row">
+      <div>
+        <label for="s-exp">Files expire after</label>
+        <select id="s-exp" bind:value={s.uploadExpiry} onchange={saveFiles}>
+          <option value="1h">1 hour</option>
+          <option value="24h">24 hours</option>
+          <option value="7d">7 days</option>
+          <option value="30d">30 days</option>
+        </select>
+      </div>
+      <button class="btn" disabled={!s.uploadHost || !s.uploadKey} onclick={test}>Test key</button>
+    </div>
+    {#if testResult}<p class="help">{testResult}</p>{/if}
+    <label class="check"><input type="checkbox" bind:checked={s.sendThumbnails} onchange={saveFiles} /> Send image previews for regular Mumble clients</label>
+
+    <h3>Embeds</h3>
+    <label for="s-embed">Also show media inline from these hosts</label>
+    <textarea id="s-embed" bind:value={embedHosts} onchange={saveFiles} rows="3" placeholder="one host per line, e.g. i.example.com"></textarea>
+    <p class="help">Links from other hosts stay plain links, so opening a chat never contacts servers you did not choose.</p>
+    <label for="s-yt">YouTube links</label>
+    <select id="s-yt" bind:value={s.youtube} onchange={saveFiles}>
+      <option value="click">Player card, loads from YouTube when clicked</option>
+      <option value="thumbnail">Player card with thumbnail (loads the thumbnail from YouTube)</option>
+      <option value="off">Plain links</option>
+    </select>
+  {:else}
+    <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.</p>
+    <IdentityList />
+  {/if}
+
+  {#snippet footer()}
+    <button class="btn primary" onclick={() => { saveFiles(); onclose(); }}>Done</button>
+  {/snippet}
+</Modal>
+
+<style>
+  .tabs { display: flex; gap: 2px; margin: 8px 0 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button { padding: 8px 14px; color: var(--text-dim); font-weight: 600; white-space: nowrap; }
+  .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  h3 { margin: 22px 0 0; font-size: 14px; }
+  .help { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); }
+  .row { display: flex; align-items: flex-end; gap: 8px; }
+  .row > div { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
+  .check input { width: auto; }
+  textarea { resize: vertical; }
+</style>

@@ -1,0 +1,198 @@
+# mumh5
+
+**Mumble, the way it should feel in 2026.**
+
+mumh5 is a modern client for [Mumble](https://www.mumble.info/), the free, open source, low-latency voice chat. It gives Mumble the kind of interface people know from Discord: servers on the left, channels and people in the middle, chat that can do more than text. Underneath, it's plain Mumble, so it connects to **any existing Mumble server** without changing anything on the server side.
+
+Your community keeps its own server, its own rules and its own data. You get an app that's nice to use.
+
+![mumh5 main window: channel tree, chat with a YouTube card, member list](docs/screenshots/main.png)
+
+---
+
+## Why mumh5
+
+Mumble has the best foundation of any voice chat: tiny latency, strong encryption, self-hosting, no accounts, no ads, no tracking. What held it back was the desktop client, which still looks and behaves like 2010.
+
+mumh5 keeps the foundation and replaces the experience.
+
+- **Works with the servers you already use.** No plugins, no server changes, no migration. Friends on the regular Mumble client see you and hear you like anyone else.
+- **Feels familiar.** A server rail, a channel tree, a real chat with message grouping, profiles, right-click menus everywhere. Anyone who has used Discord knows where things are.
+- **Chat that is actually useful.** Drop in files, paste screenshots, share videos and YouTube links. Formatting works, links work, and everything stays compatible with the desktop client.
+- **Several servers at once.** Stay in the text chat of every server you like, with unread badges, while voice runs where you actually are.
+- **Private by default.** Opening a chat never contacts servers you didn't choose. No remote images or trackers, and YouTube stays click-to-play.
+- **Runs everywhere.** Windows, macOS and Linux, with a layout that also works on narrow windows and small screens.
+
+### mumh5 compared to the Mumble desktop client
+
+| | Mumble desktop | mumh5 |
+|---|---|---|
+| Interface | Qt widgets, dense dialogs | Modern layout: server rail, channel tree, chat, side panels |
+| Several servers at the same time | One connection | Many; voice on one, text on all, unread badges |
+| Sharing files | Images only, pasted inline and heavily limited | Any allowed file through your own [f0ckm](#file-sharing-with-f0ckm) host, inline players for images, video and audio. Images still work without one |
+| YouTube links | Plain links | Click-to-play player (privacy mode), optional thumbnails |
+| Chat per channel | One shared log for everything | Separate chats per channel and person, plus a side chat for any channel next to your own |
+| Descriptions | Rich text editor | Rich text editor with pictures, and a live size counter against the server limit |
+| Identities | One certificate per installation | Several identities, a different one per server if you like; imports your desktop certificate |
+| Server certificate trust | Remembered after a warning dialog | Pinned on first use, green header for CA-signed servers, full chain viewer |
+| Fast actions in a row | The server silently drops them past its rate limit | Paced to the server's limit, nothing gets lost |
+| Right-click on mute or deafen | Nothing | Quick device and volume options |
+
+**Where the desktop client is still ahead, today:** UDP voice transport (mumh5 sends voice through the encrypted TCP connection for now, which adds a little delay on bad networks), system-wide push-to-talk, whisper and shout, positional audio, the in-game overlay, recording and the ACL editor. These are on the roadmap below.
+
+---
+
+## Features
+
+### Voice
+- Opus voice with voice activity detection, push to talk or always-on
+- Live level meter with an adjustable threshold, so you set it once and forget it
+- Noise suppression, echo cancellation and automatic gain control
+- Microphone and output device selection, input and output volume
+- Per-person volume (0 to 300%) and "mute for me"
+- Speaking indicators in the channel tree, member list and your own panel
+- Bitrate automatically limited to what the server allows
+- Right-click the mute or deafen button for quick device and volume options
+- Hear-yourself microphone test
+
+![Voice settings](docs/screenshots/voice-settings.png)
+
+### Channels and people
+- Channel tree that starts collapsed; channels with people in them open up
+- Single click previews a channel's description, double click joins
+- Side chat: write in any channel without leaving yours
+- Profiles with rich descriptions (formatting, lists, links, pictures), local nicknames, registration status
+- Change your name (mumh5 reconnects for you) and register on a server with one click
+- Connection information: ping, packet loss, client version and, for admins, the user's certificate chain
+- Moderation from the right-click menu: move, server mute and deafen, priority speaker, kick, ban, register
+
+![Profile with a formatted description](docs/screenshots/profile.png)
+
+### Chat
+- Messages grouped by author, direct messages, unread badges
+- File sharing: drag and drop, paste, or the attach button, with upload progress
+- Inline images, video and audio players for shared media
+- YouTube links as click-to-play players
+- Incoming HTML is sanitized; remote images from unknown hosts are never loaded
+- Messages stay compatible with the desktop client, including picture previews
+
+### Servers and identity
+- Server rail with custom icons, drag-and-drop ordering, connection status and unread counts
+- Several servers connected at once; voice follows the channel you join
+- Identity setup wizard: create a new certificate, import a `.p12`, or reuse your desktop Mumble identity
+- Password-protected backups of your identity
+- Trust on first use for server certificates, a green header for CA-signed ones, and a certificate viewer
+- Tray icon that shows whether you are talking, muted or deafened
+
+<p align="center"><img src="docs/screenshots/mobile.png" alt="mumh5 in a narrow window" width="300"></p>
+
+---
+
+## Getting started
+
+There are no release builds yet. For now, build it yourself; it takes a few minutes.
+
+You need [Node.js](https://nodejs.org/) 22 or newer and git.
+
+```bash
+git clone gitea@git.lat:kibi/mumh5.git
+cd mumh5
+npm install
+npm run dev
+```
+
+On first start, mumh5 asks you to set up your identity. If you already use Mumble on this computer, pick "Use my Mumble desktop identity" to keep your registrations. Then add a server with the plus button.
+
+### Building installers
+
+```bash
+npm run dist:linux   # AppImage and .deb
+npm run dist:win     # NSIS installer
+npm run dist:mac     # .dmg
+```
+
+Installers are written to `release/`. Build each platform on that platform for the best results.
+
+---
+
+## File sharing with f0ckm
+
+Mumble can only carry small inline images. mumh5 can share any file by uploading it to a f0ckm instance (a self-hosted imageboard by the same author) and posting the link. Other mumh5 users get inline players; desktop Mumble users get a normal link plus a small preview.
+
+f0ckm keeps these uploads separate from its imageboard, respects its own list of allowed file types, and deletes them after 30 days by default.
+
+1. On your f0ckm server, create an upload-only key:
+   ```bash
+   node scripts/chat-upload-key.mjs create mumh5
+   ```
+2. In mumh5, open **Settings, Chat and files**, enter the f0ckm address and the key, and press **Test key**.
+
+Without an upload host, mumh5 still sends images, scaled to fit the server's limit, the same way the desktop client does.
+
+---
+
+## Privacy and security
+
+- **Your identity is a certificate** that stays on your computer, stored with owner-only permissions. mumh5 reminds you to back it up.
+- **Server certificates are pinned** the first time you connect. If one changes, mumh5 stops before sending your password and asks you.
+- **Chats don't phone home.** Media is only loaded from your upload host and hosts you add yourself. YouTube is click-to-play in privacy mode.
+- **Strict content security policy** in the app, and all message HTML is sanitized.
+
+---
+
+## Roadmap
+
+- UDP voice with Mumble's OCB2-AES128 encryption, for the lowest latency
+- System-wide push to talk
+- Whisper and shout
+- Rich chat between mumh5 users: replies, reactions, edits, typing indicators
+- Video and screen sharing between mumh5 users
+- A browser version, through a small self-hosted WebSocket proxy
+- Release builds for all platforms
+
+---
+
+## Development
+
+```bash
+npm run dev          # app with hot reload
+npm run check        # type check
+npm test             # unit tests
+```
+
+Tests against a real Mumble server, including an end-to-end test that drives the app:
+
+```bash
+docker run -d --name mumh5-test-murmur -p 64739:64738 -p 64739:64738/udp \
+  -e MUMBLE_CONFIG_AUTOBANATTEMPTS=0 -e MUMBLE_SUPERUSER_PASSWORD=testsuper mumblevoip/mumble-server
+MUMBLE_TEST_HOST=localhost:64739 npm test
+npm run build
+MUMBLE_TEST_HOST=localhost:64739 MUMBLE_SUPERUSER_PASSWORD=testsuper npm run test:e2e
+```
+
+On Linux the end-to-end test forces X11, so it can run on a virtual display: `Xvfb :99 & DISPLAY=:99 npm run test:e2e`. See [CLAUDE.md](CLAUDE.md) for the architecture and project conventions.
+
+```
+electron/   main process: window, TLS sockets, identities, tray
+src/core/   Mumble protocol: framing, codec, client state, voice packets
+src/lib/    app state, voice engine, sanitizing, uploads
+src/ui/     Svelte components
+proto/      Mumble.proto and MumbleUDP.proto from upstream
+test/       unit, server and end-to-end tests
+```
+
+---
+
+## AI disclosure and credits
+
+mumh5 is built by **Kibi** together with **Claude**, Anthropic's AI model, working in Claude Code.
+
+Kibi sets the direction: what mumh5 should be, how it should look and feel, which trade-offs to make, and whether a result is good enough. Claude writes most of the code, the tests and this documentation, and checks each feature against a real Mumble server before calling it done. Commits written with Claude carry a `Co-Authored-By: Claude` line.
+
+We say this openly because you should know how the software you run was made. Features are covered by automated tests, including end-to-end tests against a real Mumble server. If something is wrong, please open an issue.
+
+## License
+
+[MIT](LICENSE). The Mumble protocol definitions in `proto/`, and the code generated from them, are licensed by The Mumble Developers under a BSD license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+mumh5 is not affiliated with the Mumble project. Mumble is a trademark of its respective owners.

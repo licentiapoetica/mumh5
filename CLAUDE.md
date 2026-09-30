@@ -1,0 +1,78 @@
+# CLAUDE.md
+
+## Style rules
+
+- No rounded corners anywhere. No `border-radius` (a global `border-radius: 0 !important` backs this up in `src/app.css`).
+- No emojis in code, UI text, comments, commit messages or docs. Emoji inside chat content from users is fine.
+- UI copy is short, plain and honest. Don't claim something works if it is not tested. Explanations go in tooltips or help text, not in big callouts.
+- Colors come from the CSS variables in `src/app.css`; icons from `src/lib/icons.ts` via `<Icon>`.
+
+## Project overview
+
+mumh5 is a Mumble client: Electron desktop app (Windows, macOS, Linux), Svelte 5 + TypeScript + Vite UI, Discord-like layout, responsive down to phone width. It must stay compatible with stock Murmur servers and with people on the desktop Mumble client. A browser build (through a self-hosted WebSocket proxy with a server allowlist) is planned.
+
+File sharing uploads to a f0ckm instance (`../f0ckm`, `src/chat_upload_handler.mjs` there) with an upload-only key; links are posted in chat.
+
+## Commands
+
+```bash
+npm run dev            # Vite + Electron, restarts Electron when main/preload change
+npm run check          # svelte-check; must report 0 errors and 0 warnings
+npm test               # unit tests; server tests too when MUMBLE_TEST_HOST is set
+npm run build          # renderer to dist/, main+preload to dist-electron/ (esbuild)
+npm run test:e2e       # drives the built app (needs npm run build first)
+npm run screenshots    # regenerates docs/screenshots (see test/e2e/screenshots.ts)
+npm run proto          # regenerate src/core/mumble-pb.js and mumble-udp-pb.js from proto/
+```
+
+Test server (autoban off because tests reconnect a lot; SuperUser for channel setup):
+
+```bash
+docker run -d --name mumh5-test-murmur -p 64739:64738 -p 64739:64738/udp \
+  -e MUMBLE_CONFIG_AUTOBANATTEMPTS=0 -e MUMBLE_SUPERUSER_PASSWORD=testsuper mumblevoip/mumble-server
+MUMBLE_TEST_HOST=localhost:64739 MUMBLE_SUPERUSER_PASSWORD=testsuper npm run test:e2e
+```
+
+A reused test server keeps registrations and channels from earlier runs; tests must use unique names or clean up (the E2E removes its channels first).
+
+## Architecture
+
+- `electron/` (Node, main process): window, TLS sockets to Mumble servers (`tls-transport.ts`), identities and PKCS#12 (`identity.ts`, `identity-store.ts`), certificate parsing (`certs.ts`), tray (`tray.ts`). The renderer only gets the narrow `window.mumh5Native` API from `preload.ts` (context isolation, sandbox).
+- `src/core/` (browser-safe TypeScript, also runs in Node for tests): framing and codec (`proto.ts`), the Mumble client state machine (`client.ts`), voice packet formats (`voice-packet.ts`). No DOM, no Electron, no Node imports here.
+- `src/lib/`: app state. `session.svelte.ts` has one `Session` per server plus the `sessions` manager; `session` is a Proxy to the active one. `audio/voice.svelte.ts` is the voice engine (WebCodecs Opus, capture and playback AudioWorklets). `html.ts` sanitizes incoming HTML and serializes outgoing rich text.
+- `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
+
+Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
+
+## Conventions
+
+- Svelte 5 runes only. Comment density: short comments that explain why, not what.
+- The protobuf codec is generated static code (no eval) because the CSP forbids `unsafe-eval`. Field names keep snake_case from the .proto.
+- TypeScript files imported by Node tests use `.ts` extensions and erasable syntax only (no parameter properties, no enums).
+- New features get an E2E step in `test/e2e/app.e2e.ts`; protocol logic gets unit or server tests.
+- Privacy rule: opening a chat must never contact hosts the user did not choose. Remote media only from the upload host and user-listed hosts; YouTube is click-to-play (`youtube-nocookie.com`).
+
+## Svelte reactivity pitfalls (all hit before)
+
+- `$state` wraps assigned objects in proxies: `this.server !== server` compares proxy to raw object and is always true. Use ids or counters.
+- `(obj[key] ??= []).push(x)` pushes to the raw array; assign first, then push through `obj[key]`.
+- The Mumble client mutates its objects in place. Session getters return shallow copies and read `tick`, otherwise views don't update.
+
+## Mumble protocol pitfalls (all hit before)
+
+- Messages or comments longer than the server's text limit (5000) are parsed by Murmur as XML; anything not well-formed is denied as TextTooLong. Always emit XHTML (`<br/>`, `<img .../>`, `toMumbleHtml`).
+- Murmur silently drops own UserState, TextMessage, ChannelState, ACL and Version past a leaky bucket (burst 5, 1/s). The client paces these; don't bypass `send()`.
+- 1.5 servers use the protobuf UDP voice format (type byte 0 + MumbleUDP.Audio) with clients announcing 1.5; older ones the legacy format. The UDPTunnel TCP body is the raw voice packet, not a protobuf message. Sequence numbers count 10 ms frames.
+- Long comments and descriptions arrive as a hash only; a new hash invalidates the old text; fetch with RequestBlob.
+- Renaming while connected is not possible; mumh5 reconnects with the new name.
+
+## Running the app in this environment
+
+- The shell has `ELECTRON_RUN_AS_NODE=1` set; strip it when launching Electron (the dev script and tests do).
+- The desktop is Wayland and Electron picks it automatically, so windows appear on the user's screen even with `DISPLAY=:99`. For hidden runs: `Xvfb :99`, `--ozone-platform=x11`, and unset `WAYLAND_DISPLAY` and `XDG_SESSION_TYPE`.
+- The user often has their own mumh5 (`npm run dev`) running. Only stop processes started with a `mumh5-e2e` profile; never kill Electron processes in general.
+- `pkill -f pattern` matches the invoking shell; use `pkill -f "[p]attern"`.
+
+## Commits
+
+End commit messages with `Co-Authored-By: Claude <noreply@anthropic.com>` style attribution (the exact line comes from the session). No emojis in commit messages.
