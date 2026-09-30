@@ -14,8 +14,6 @@
   let picker: HTMLInputElement;
   let imagePicker: HTMLInputElement;
   let empty = $state(true);
-  let source = $state(false);
-  let sourceText = $state('');
   // The formatting toolbar is opt-in and remembered
   let formatting = $state(loadFormatting());
   const disabled = $derived(session.status !== 'connected');
@@ -27,7 +25,6 @@
   function toggleFormatting() {
     formatting = !formatting;
     try { localStorage.setItem('mumh5.formatBar', formatting ? '1' : '0'); } catch { /* storage unavailable */ }
-    if (!formatting && source) toggleSource();
     input.focus();
   }
 
@@ -45,16 +42,14 @@
   }
 
   function submit() {
-    const html = source ? sourceText : input.innerHTML;
+    const html = input.innerHTML;
     // Plain text goes out the usual way; anything formatted as sanitized XHTML
-    const formatted = source || !!input.querySelector('b, strong, i, em, u, s, strike, span[style], font, ul, ol, a, img');
+    const formatted = !!input.querySelector('b, strong, i, em, u, s, strike, span[style], font, ul, ol, a, img');
     const ok = formatted
       ? session.sendHtml(toMumbleHtml(html, { linkify: true }), target)
       : session.sendText(input.innerText, target);
     if (!ok) return;
     input.innerHTML = '';
-    sourceText = '';
-    if (source) source = false;
     sync();
   }
 
@@ -97,17 +92,6 @@
     };
   }
 
-  function toggleSource() {
-    if (!source) {
-      sourceText = toMumbleHtml(input.innerHTML);
-      source = true;
-    } else {
-      input.innerHTML = toMumbleHtml(sourceText);
-      source = false;
-      sync();
-    }
-  }
-
   $effect(() => {
     void target;
     if (autofocus && !disabled && matchMedia('(pointer: fine)').matches) input.focus();
@@ -128,7 +112,7 @@
   {/if}
   <div class="frame">
     {#if formatting}
-      <FormatToolbar {exec} onlink={link} onimage={() => imagePicker.click()} {source} ontogglesource={toggleSource} />
+      <FormatToolbar {exec} onlink={link} onimage={() => imagePicker.click()} />
     {/if}
     <div class="box">
       <button class="icon-btn" title={store.settings.uploadHost ? 'Upload a file' : 'Send an image'} {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
@@ -137,33 +121,27 @@
         onchange={() => { session.uploadFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
       <input bind:this={imagePicker} type="file" accept="image/*" hidden
         onchange={() => { session.uploadFiles([...(imagePicker.files ?? [])], target); imagePicker.value = ''; }} />
-      <div class="input" class:blank={empty} class:hidden={source} bind:this={input} contenteditable={!disabled}
+      <div class="input" class:blank={empty} bind:this={input} contenteditable={!disabled}
         role="textbox" aria-multiline="true" aria-label="Message" tabindex="0" data-placeholder={placeholder}
         oninput={sync} {onkeydown} {onpaste}></div>
-      {#if source}
-        <textarea class="input src" bind:value={sourceText} aria-label="HTML source" spellcheck="false"
-          onkeydown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}></textarea>
-      {/if}
       <button class="icon-btn fmt" class:on={formatting} title="Text formatting" aria-label="Text formatting" aria-pressed={formatting}
         {disabled} onmousedown={e => e.preventDefault()} onclick={toggleFormatting}>Aa</button>
-      <button class="icon-btn send" title="Send" disabled={disabled || (empty && !(source && sourceText.trim()))} onclick={submit}><Icon name="send" size={18} /></button>
+      <button class="icon-btn send" title="Send" disabled={disabled || empty} onclick={submit}><Icon name="send" size={18} /></button>
     </div>
   </div>
 </div>
 
 <style>
   /* Same height as the user panel at the bottom of the sidebar; grows for longer messages */
-  .composer { flex: none; min-height: var(--footer-h); display: flex; flex-direction: column; justify-content: flex-end; padding: 6px 16px; background: var(--bg-0); }
+  .composer { flex: none; min-height: var(--footer-h); display: flex; flex-direction: column; justify-content: flex-end; padding: 0; background: var(--bg-0); }
   .frame { background: var(--bg-3); }
   .frame :global(.toolbar) { background: var(--bg-2); }
-  .box { display: flex; align-items: flex-end; gap: 4px; min-height: calc(var(--footer-h) - 12px); padding: 2px 4px; }
+  .box { display: flex; align-items: flex-end; gap: 4px; min-height: var(--footer-h); padding: 6px 4px; }
   .input { position: relative; flex: 1; min-width: 0; padding: 8px 4px; max-height: 200px; overflow-y: auto; line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
-  .input.hidden { display: none; }
   .input.blank::before { content: attr(data-placeholder); position: absolute; left: 4px; top: 8px; color: var(--text-faint); pointer-events: none; }
   .input :global(img) { max-height: 120px; }
   .input :global(ul), .input :global(ol) { margin: 0; padding-left: 20px; }
   .input[contenteditable='false'] { color: var(--text-faint); }
-  .src { border: 0; resize: none; background: transparent; font: 12px var(--mono); min-height: 60px; }
   .fmt { font-weight: 700; font-size: 13px; }
   .fmt.on { color: var(--accent-hover); }
   .send:not(:disabled) { color: var(--accent-hover); }

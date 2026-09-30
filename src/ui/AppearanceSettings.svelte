@@ -1,5 +1,16 @@
 <script lang="ts">
-  import { store, THEMES, type ThemeId } from '../lib/settings.svelte.ts';
+  import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
+
+  const ARRANGEMENTS: { id: Arrangement; name: string; note: string }[] = [
+    { id: 'side', name: 'Modern', note: 'Channels left, members right' },
+    { id: 'classic', name: 'Classic', note: 'Chat left, channels right, like Mumble' },
+    { id: 'stacked', name: 'Stacked', note: 'Channels on top, chat below, like Mumble' }
+  ];
+
+  function arrange(id: Arrangement) {
+    store.settings.arrangement = id;
+    store.saveSettings();
+  }
 
   function pick(id: ThemeId) {
     store.settings.theme = id;
@@ -28,7 +39,41 @@
   {/each}
 </div>
 
+<h3 class="gap">Layout</h3>
+<div class="themes" role="radiogroup" aria-label="Layout">
+  {#each ARRANGEMENTS as a (a.id)}
+    {@const on = (store.settings.arrangement ?? 'side') === a.id}
+    <button role="radio" aria-checked={on} class:active={on} onclick={() => arrange(a.id)} aria-label={a.name}>
+      <span class="mini lay {a.id}" aria-hidden="true">
+        <span class="m-rail"><span></span><span></span></span>
+        {#if a.id === 'side'}<span class="m-side"><i></i><i class="sel"></i><i></i></span>{/if}
+        {#if a.id === 'stacked'}
+          <span class="m-col">
+            <span class="m-side"><i></i><i class="sel"></i></span>
+            <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><span class="m-box"></span></span>
+          </span>
+        {:else}
+          <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><i class="short"></i><span class="m-box"></span></span>
+        {/if}
+        {#if a.id === 'classic'}<span class="m-side"><i></i><i class="sel"></i><i></i></span>{/if}
+        {#if a.id === 'side'}<span class="m-members"><i></i><i></i></span>{/if}
+      </span>
+      <span class="name">{a.name}</span>
+      <span class="note">{a.note}</span>
+    </button>
+  {/each}
+</div>
+<p class="help">Narrow windows always use the phone layout.</p>
+
 <style>
+  .gap { margin-top: 22px; }
+  .help { margin: 6px 0 0; font-size: 13px; color: var(--text-dim); }
+  .m-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .m-col .m-chat { flex: 1; }
+  .m-col .m-side { width: auto; height: 34%; flex: none; padding: 5px; gap: 4px; border-bottom: 1px solid var(--line); }
+  .m-members { width: 18%; background: var(--bg-1); display: flex; flex-direction: column; gap: 5px; padding: 8px 4px; border-left: 1px solid var(--line); }
+  .m-members i { height: 4px; background: var(--text-faint); width: 80%; }
+  .lay.classic .m-side { border-left: 1px solid var(--line); }
   h3 { margin: 8px 0 0; font-size: 14px; }
   .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
   .themes > button { display: flex; flex-direction: column; gap: 2px; padding: 8px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); }

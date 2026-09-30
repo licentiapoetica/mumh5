@@ -1,0 +1,40 @@
+# Builds the Linux packages and the Windows installer when a version tag (v1.2.3) is pushed,
+# and attaches them to a Gitea release of that tag. macOS builds need a Mac and are not made here.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Has Wine, so the Windows installer builds on Linux
+    container: electronuserland/builder:wine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npx electron-builder --linux --win --publish never
+      - name: Upload to the release
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          release=$(curl -sf -H "Authorization: token $TOKEN" "$API/releases/tags/$TAG" || true)
+          if [ -z "$release" ]; then
+            release=$(curl -sf -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+              -d "{\"tag_name\":\"$TAG\",\"name\":\"mumh5 $TAG\"}" "$API/releases")
+          fi
+          id=$(printf '%s' "$release" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).id))")
+          for f in release/*.AppImage release/*.deb release/*.tar.gz release/*.exe; do
+            curl -sf -X POST -H "Authorization: token $TOKEN" -F "attachment=@$f" "$API/releases/$id/assets?name=$(basename "$f")" >/dev/null
+            echo "uploaded $(basename "$f")"
+          done

@@ -2,7 +2,7 @@ import tls from 'node:tls';
 import { describeCert, type CertDetails } from './certs.ts';
 
 export interface TlsHandlers {
-  onSecure(info: { fingerprint: string; authorized: boolean; authError: string | null; chain: CertDetails[] }): void;
+  onSecure(info: { fingerprint: string; authorized: boolean; authError: string | null; chain: CertDetails[]; address: string; port: number }): void;
   onData(chunk: Uint8Array): void;
   onClose(reason: string): void;
 }
@@ -35,6 +35,9 @@ export function openTls(host: string, port: number, cert: string, key: string, h
     }
     h.onSecure({
       chain,
+      // The server's actual IP, so UDP voice goes to the same machine as the TCP connection
+      address: socket.remoteAddress ?? host,
+      port: socket.remotePort ?? port,
       fingerprint: chain[0]?.fingerprint256 ?? '',
       authorized: socket.authorized,
       authError: socket.authorizationError ? String(socket.authorizationError) : null

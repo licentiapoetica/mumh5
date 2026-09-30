@@ -14,6 +14,7 @@
   import UserInfoDialog from './ui/UserInfoDialog.svelte';
   import ChannelDialog from './ui/ChannelDialog.svelte';
   import PublicServers from './ui/PublicServers.svelte';
+  import ResizeHandle from './ui/ResizeHandle.svelte';
   import { identities } from './lib/identities.svelte.ts';
   import { session } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
@@ -22,6 +23,13 @@
   let width = $state(window.innerWidth);
   // wide: rail + sidebar + chat + panel; medium: panel as an overlay; narrow: everything but chat in drawers
   const layout = $derived(width >= 1100 ? 'wide' : width >= 760 ? 'medium' : 'narrow');
+
+  // Arrangement (Appearance setting): side is the default, classic puts the channel list right
+  // of the chat, stacked above it. Phones always use drawers.
+  const arrangement = $derived(layout === 'narrow' ? 'side' : store.settings.arrangement ?? 'side');
+  // The member panel sits inline only in the side arrangement on wide windows, otherwise it overlays
+  const panelInline = $derived(layout === 'wide' && arrangement === 'side');
+  let treeHeight = $state(Math.max(120, Number((() => { try { return localStorage.getItem('mumh5.treeHeight'); } catch { return null; } })()) || 280));
 
   let navOpen = $state(false);
   let editing = $state<{ server: SavedServer | null } | null>(null);
@@ -35,12 +43,13 @@
     else delete document.documentElement.dataset.theme;
   });
 
-  // The panel starts open on wide layouts only
+  // The panel starts open only where it sits inline
   let lastLayout = '';
   $effect(() => {
-    if (layout === lastLayout) return;
-    ui.panelOpen = layout === 'wide';
-    lastLayout = layout;
+    const key = `${layout}/${arrangement}`;
+    if (key === lastLayout) return;
+    ui.panelOpen = panelInline;
+    lastLayout = key;
   });
   // On phones one drawer at a time
   $effect(() => { if (layout === 'narrow' && ui.panelOpen) navOpen = false; });
@@ -53,26 +62,48 @@
 
   const closeOverlays = () => {
     navOpen = false;
-    if (layout !== 'wide') ui.panelOpen = false;
+    if (!panelInline) ui.panelOpen = false;
   };
 </script>
 
 <svelte:window bind:innerWidth={width} />
 
-<div class="app {layout}">
-  {#if layout !== 'narrow' || navOpen}
-    <div class="nav" class:drawer={layout === 'narrow'}>
-      <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)}
-        onsettings={() => (ui.settingsOpen = true)} />
-      <Sidebar resizable={layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+{#snippet rail()}
+  <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)}
+    onsettings={() => (ui.settingsOpen = true)} />
+{/snippet}
+{#snippet chat()}
+  <Chat showMenu={layout === 'narrow'} showStage={!panelInline && arrangement === 'side'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
+{/snippet}
+
+<div class="app {layout} {arrangement}">
+  {#if arrangement === 'classic'}
+    {@render rail()}
+    {@render chat()}
+    <Sidebar handleEdge="left" onnavigate={() => {}} />
+  {:else if arrangement === 'stacked'}
+    {@render rail()}
+    <div class="stack">
+      <div class="tree" style:height="{treeHeight}px">
+        <Sidebar fill onnavigate={() => {}} />
+        <ResizeHandle bind:width={treeHeight} edge="bottom" min={120} max={() => window.innerHeight - 220} initial={280}
+          storageKey="mumh5.treeHeight" label="Resize channel list" />
+      </div>
+      {@render chat()}
     </div>
-    {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
+  {:else}
+    {#if layout !== 'narrow' || navOpen}
+      <div class="nav" class:drawer={layout === 'narrow'}>
+        {@render rail()}
+        <Sidebar resizable={layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+      </div>
+      {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
+    {/if}
+    {@render chat()}
   {/if}
 
-  <Chat showMenu={layout === 'narrow'} showStage={layout !== 'wide'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
-
   {#if showPanel}
-    {#if layout === 'wide'}
+    {#if panelInline}
       <RightPanel onnavigate={() => {}} onclose={() => (ui.panelOpen = false)} />
     {:else}
       <button class="scrim" aria-label="Close" onclick={() => (ui.panelOpen = false)}></button>
@@ -104,6 +135,9 @@
   .nav { display: flex; flex: none; min-height: 0; }
   .nav.drawer { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; max-width: calc(100% - 48px); box-shadow: 8px 0 32px rgb(0 0 0 / 0.4); }
   .nav.drawer :global(.sidebar) { width: min(260px, calc(100vw - 68px - 48px)); }
+  .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .stack > :global(.chat) { flex: 1; min-height: 0; }
+  .tree { position: relative; z-index: 1; flex: none; display: flex; min-height: 0; border-bottom: 1px solid var(--line); }
   .scrim { position: absolute; inset: 0; z-index: 15; background: rgb(0 0 0 / 0.5); }
   .panel-drawer { position: absolute; z-index: 20; top: 0; right: 0; bottom: 0; max-width: calc(100% - 48px); display: flex; box-shadow: -8px 0 32px rgb(0 0 0 / 0.4); }
 </style>

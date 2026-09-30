@@ -8,6 +8,7 @@ import * as tray from './tray.ts';
 import { fetchLinkPreview } from './link-preview.ts';
 import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
+import { udpChannel } from './udp-voice.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 
@@ -16,7 +17,7 @@ const identities = () => (identityStore ??= new IdentityStore(app.getPath('userD
 
 // ─── Mumble TLS connections, one per renderer request ─────────────────────────
 
-type Conn = ReturnType<typeof openTls> & { owner: WebContents };
+type Conn = ReturnType<typeof openTls> & { owner: WebContents; udp?: ReturnType<typeof udpChannel> };
 const conns = new Map<string, Conn>();
 
 // ─── Identities (client certificates) ─────────────────────────────────────────
@@ -54,9 +55,19 @@ ipcMain.handle('mumble:open', async (e, connId: string, host: string, port: numb
   const owner = e.sender;
   const emit = (channel: string, ...args: unknown[]) => { if (!owner.isDestroyed()) owner.send(channel, connId, ...args); };
   const conn = openTls(String(host), Number(port) || 64738, id.certPem, id.keyPem, {
-    onSecure: info => emit('mumble:secure', info),
+    onSecure: info => {
+      // Encrypted UDP voice to the address the TLS connection actually reached
+      const udp = udpChannel(info.address, info.port);
+      udp.onVoice = p => emit('mumble:udpVoice', p);
+      udp.onState = (ok, rtt) => emit('mumble:udpState', ok, rtt);
+      udp.onResync = () => emit('mumble:udpResync');
+      const c = conns.get(connId);
+      if (c) c.udp = udp;
+      else udp.close();
+      emit('mumble:secure', info);
+    },
     onData: chunk => emit('mumble:data', chunk),
-    onClose: reason => { conns.delete(connId); emit('mumble:close', reason); }
+    onClose: reason => { conns.get(connId)?.udp?.close(); conns.delete(connId); emit('mumble:close', reason); }
   });
   conns.set(connId, Object.assign(conn, { owner }));
   owner.once('destroyed', () => conn.close());
@@ -66,6 +77,17 @@ ipcMain.on('mumble:send', (e, connId: string, bytes: Uint8Array) => {
   const conn = conns.get(connId);
   if (conn && conn.owner === e.sender) conn.send(bytes);
 });
+
+// UDP voice: keys from the server's CryptSetup, voice packets, nonce resync
+const ownUdp = (e: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent, connId: string) => {
+  const conn = conns.get(connId);
+  return conn && conn.owner === e.sender ? conn.udp : undefined;
+};
+ipcMain.on('mumble:udpSetup', (e, connId: string, key: Uint8Array, cn: Uint8Array, sn: Uint8Array, protobuf: boolean) =>
+  ownUdp(e, connId)?.setup(new Uint8Array(key), new Uint8Array(cn), new Uint8Array(sn), !!protobuf));
+ipcMain.on('mumble:udpNonce', (e, connId: string, sn: Uint8Array) => ownUdp(e, connId)?.setServerNonce(new Uint8Array(sn)));
+ipcMain.on('mumble:udpSend', (e, connId: string, bytes: Uint8Array) => ownUdp(e, connId)?.send(new Uint8Array(bytes)));
+ipcMain.handle('mumble:udpClientNonce', (e, connId: string) => ownUdp(e, connId)?.clientNonce() ?? null);
 
 ipcMain.on('mumble:close', (e, connId: string) => {
   const conn = conns.get(connId);
@@ -114,6 +136,8 @@ function createWindow() {
     minHeight: 480,
     backgroundColor: '#111214',
     title: 'mumh5',
+    // Window and taskbar icon on Linux (Windows and macOS take it from the package)
+    icon: path.join(__dirname, '../dist/icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

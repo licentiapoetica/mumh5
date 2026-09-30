@@ -79,9 +79,10 @@
     <dl>
       <dt>Online for</dt><dd>{duration(stats.onlinesecs != null ? stats.onlinesecs + since : undefined)}</dd>
       {#if stats.idlesecs != null}<dt>Idle for</dt><dd>{duration(stats.idlesecs + since)}</dd>{/if}
-      <dt>Ping (TCP)</dt><dd>{ping(stats.tcp_ping_avg, stats.tcp_ping_var)}</dd>
-      <dt>Ping (UDP)</dt><dd>{stats.udp_packets ? ping(stats.udp_ping_avg, stats.udp_ping_var) : 'not using UDP (voice over TCP)'}</dd>
-      <dt>Packets</dt><dd>{stats.tcp_packets ?? 0} TCP, {stats.udp_packets ?? 0} UDP</dd>
+      <!-- The server counts the client's ping messages, not voice; clients that never ping (many bots) show none -->
+      <dt>Ping (TCP)</dt><dd>{stats.tcp_packets ? ping(stats.tcp_ping_avg, stats.tcp_ping_var) : 'n/a (this client sends no pings)'}</dd>
+      <dt>Ping (UDP)</dt><dd>{stats.udp_packets ? ping(stats.udp_ping_avg, stats.udp_ping_var) : 'n/a'}</dd>
+      <dt>Pings received</dt><dd>{stats.tcp_packets ?? 0} over TCP, {stats.udp_packets ?? 0} over UDP</dd>
       {#if stats.bandwidth != null}<dt>Bandwidth</dt><dd>{formatBytes(stats.bandwidth)}/s</dd>{/if}
       {#if stats.address?.length}<dt>Address</dt><dd class="mono">{address(stats.address)}</dd>{/if}
     </dl>

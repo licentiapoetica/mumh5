@@ -8,9 +8,33 @@ import type { Transport } from '../src/core/transport.ts';
 import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity } from '../electron/identity.ts';
 import { encodeVoice, decodeVoice } from '../src/core/voice-packet.ts';
+import { udpChannel } from '../electron/udp-voice.ts';
 
 const target = process.env.MUMBLE_TEST_HOST;
 const codec = createCodec();
+
+function connectUdp(name: string): Promise<MumbleClient> {
+  const [host, port] = target!.split(':');
+  const id = generateIdentity(name);
+  const client = new MumbleClient(codec);
+  let udp: ReturnType<typeof udpChannel> | undefined;
+  let conn: ReturnType<typeof openTls> | undefined;
+  const transport: Transport = { onData: null, onClose: null, send: b => conn?.send(b), close: () => { udp?.close(); conn?.close(); } };
+  return new Promise((resolve, reject) => {
+    conn = openTls(host, Number(port || 64738), id.certPem, id.keyPem, {
+      // UDP goes to the address the TLS connection actually reached
+      onSecure: info => {
+        udp = udpChannel(info.address, info.port);
+        transport.udp = udp;
+        client.connect(transport, { username: name, os: 'test' });
+      },
+      onData: c => transport.onData?.(c),
+      onClose: r => { udp?.close(); transport.onClose?.(r); }
+    });
+    client.on('synced', () => resolve(client));
+    client.on('close', reject);
+  });
+}
 
 function connect(name: string, password = ''): Promise<MumbleClient> {
   const [host, port] = target!.split(':');
@@ -229,6 +253,33 @@ test('channel management and ACLs as SuperUser', { skip: !target || !superPw }, 
   } finally {
     admin.disconnect();
     guest.disconnect();
+  }
+});
+
+test('voice over encrypted UDP (OCB2) between two clients', { skip: !target }, async () => {
+  const alice = await connectUdp('udpA' + Date.now() % 1000);
+  const bob = await connectUdp('udpB' + Date.now() % 1000);
+  try {
+    // Both sides confirm UDP with encrypted pings
+    await until<void>(res => { if (alice.udpOk) res(); else alice.on('udp', ok => { if (ok) res(); }); }, 8000);
+    await until<void>(res => { if (bob.udpOk) res(); else bob.on('udp', ok => { if (ok) res(); }); }, 8000);
+    assert.ok(alice.udpRtt >= 0);
+
+    // Alice's voice goes out over UDP and reaches bob over UDP, not the TCP tunnel
+    let tunneled = 0;
+    const origSend = (alice as any).sendVoiceTunnel.bind(alice);
+    (alice as any).sendVoiceTunnel = (p: Uint8Array) => { tunneled++; origSend(p); };
+    const got = until<number>(res => {
+      let n = 0;
+      bob.on('voice', raw => { const p = decodeVoice(raw); if (p?.session === alice.session && ++n === 10) res(n); });
+    });
+    const opus = new Uint8Array([0x78, ...new Array(40).fill(9)]);
+    for (let i = 0; i < 10; i++) alice.sendVoice(encodeVoice({ target: 0, frame: i * 2, opus, last: i === 9 }, alice.protobufVoice));
+    assert.equal(await got, 10);
+    assert.equal(tunneled, 0, 'nothing went through the TCP tunnel');
+  } finally {
+    alice.disconnect();
+    bob.disconnect();
   }
 });
 

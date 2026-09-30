@@ -161,6 +161,14 @@ export class Session {
     this.expanded = all;
   }
 
+  // How voice travels right now
+  get voiceTransport(): { udp: boolean; rtt: number } {
+    void this.tick;
+    const c = this.client;
+    // The setting (reactive) rather than the client's copy, so toggling it updates the view
+    return { udp: !!c && c.udpOk && !voice.settings.forceTcp, rtt: c?.udpRtt ?? 0 };
+  }
+
   // true / false when known, null when the server has not told us yet
   can(channelId: number, bit: number): boolean | null {
     void this.tick;
@@ -236,6 +244,7 @@ export class Session {
     }
 
     const client = new MumbleClient(codec);
+    client.forceTcp = voice.settings.forceTcp;
     this.client = client;
     this.wire(client);
     // TLS is up but the server may still never finish the login
@@ -309,6 +318,7 @@ export class Session {
       bump();
     });
     client.on('ping', rtt => { if (live()) this.rtt = rtt; });
+    client.on('udp', bump);
 
     client.on('user', (user, changed, actor, isNew) => {
       if (!live()) return;

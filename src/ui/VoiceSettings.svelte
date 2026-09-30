@@ -1,7 +1,12 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { voice, type TransmitMode } from '../lib/audio/voice.svelte.ts';
-  import { session } from '../lib/session.svelte.ts';
+  import { session, sessions } from '../lib/session.svelte.ts';
+
+  function setForceTcp(on: boolean) {
+    voice.update({ forceTcp: on });
+    for (const s of sessions.list) if (s.client) s.client.forceTcp = on;
+  }
 
   const s = voice.settings;
   let capturing = $state(false);
@@ -133,6 +138,7 @@
       </select>
     </div>
   </div>
+  <label class="check"><input type="checkbox" checked={s.forceTcp} onchange={e => setForceTcp(e.currentTarget.checked)} /> Send voice over TCP only (for networks that block or mangle UDP)</label>
   <label for="v-jit">Jitter buffer: {s.jitterMs} ms</label>
   <input id="v-jit" type="range" min="20" max="300" step="10" value={s.jitterMs}
     oninput={e => voice.update({ jitterMs: Number(e.currentTarget.value) })} />
@@ -140,7 +146,8 @@
 
   {#if session.status === 'connected'}
     <h3>Statistics</h3>
-    <p class="help stats">Sent {voice.stats.sent} packets, received {voice.stats.received}, decoded {voice.stats.decoded}, gaps {voice.stats.lost}. Transport: TCP tunnel.</p>
+    {@const t = session.voiceTransport}
+    <p class="help stats">Sent {voice.stats.sent} packets, received {voice.stats.received}, decoded {voice.stats.decoded}, gaps {voice.stats.lost}. Transport: {t.udp ? `UDP, ${Math.round(t.rtt)} ms ping` : 'TCP tunnel'}.</p>
   {/if}
 </div>
 

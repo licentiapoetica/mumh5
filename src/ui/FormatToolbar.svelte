@@ -4,7 +4,7 @@
   // Formatting controls shared by the description editor and the message input.
   // Buttons keep the text selection (mousedown is suppressed) and act through the callbacks.
   let { exec, onlink, onimage, source = false, ontogglesource }:
-    { exec: (cmd: string, arg?: string) => void; onlink: () => void; onimage: () => void; source?: boolean; ontogglesource: () => void } = $props();
+    { exec: (cmd: string, arg?: string) => void; onlink: () => void; onimage: () => void; source?: boolean; ontogglesource?: () => void } = $props();
 
   let color = $state('#e8b23c');
   const keep = (e: MouseEvent) => e.preventDefault();
@@ -32,8 +32,10 @@
   <button class="tool" title="Link" aria-label="Link" disabled={source} onmousedown={keep} onclick={onlink}><Icon name="link" size={16} /></button>
   <button class="tool" title="Insert picture" aria-label="Insert picture" disabled={source} onmousedown={keep} onclick={onimage}><Icon name="image" size={16} /></button>
   <button class="tool" title="Clear formatting" aria-label="Clear formatting" disabled={source} onmousedown={keep} onclick={() => exec('removeFormat')}><Icon name="eraser" size={16} /></button>
-  <span class="grow"></span>
-  <button class="tool" class:on={source} title="Edit HTML" aria-label="Edit HTML" aria-pressed={source} onclick={ontogglesource}><Icon name="code" size={16} /></button>
+  {#if ontogglesource}
+    <span class="grow"></span>
+    <button class="tool" class:on={source} title="Edit HTML" aria-label="Edit HTML" aria-pressed={source} onclick={ontogglesource}><Icon name="code" size={16} /></button>
+  {/if}
 </div>
 
 <style>

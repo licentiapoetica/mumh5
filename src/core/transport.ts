@@ -4,6 +4,18 @@ export interface Transport {
   close(): void;
   onData: ((chunk: Uint8Array) => void) | null;
   onClose: ((reason: string) => void) | null;
+  // Encrypted UDP for voice, where the platform has it (desktop); absent on the web
+  udp?: UdpChannel;
+}
+
+export interface UdpChannel {
+  setup(key: Uint8Array, clientNonce: Uint8Array, serverNonce: Uint8Array, protobuf: boolean): void;
+  setServerNonce(nonce: Uint8Array): void;
+  clientNonce(): Promise<Uint8Array | null>;
+  send(plain: Uint8Array): void;
+  onVoice: ((plain: Uint8Array) => void) | null;
+  onState: ((ok: boolean, rtt: number) => void) | null;
+  onResync: (() => void) | null;
 }
 
 export interface ConnectTarget {
