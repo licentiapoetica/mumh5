@@ -6,14 +6,36 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { userMenu } from '../lib/actions.ts';
+  import { PERM } from '../core/client.ts';
+  import ResizeHandle from './ResizeHandle.svelte';
   import { voice } from '../lib/audio/voice.svelte.ts';
 
-  let { onnavigate }: { onnavigate: () => void } = $props();
+  // resizable: false in the phone drawer, which keeps a fixed width
+  let { onnavigate, resizable = true }: { onnavigate: () => void; resizable?: boolean } = $props();
+
+  const MIN_W = 200, DEFAULT_W = 260;
+  const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
+  let width = $state(Math.max(MIN_W, Number((() => { try { return localStorage.getItem('mumh5.sidebarWidth'); } catch { return null; } })()) || DEFAULT_W));
 
   const roots = $derived(session.childrenOf(null));
   const self = $derived(session.self);
   const cert = $derived(session.serverCert);
   const trusted = $derived(!!cert?.authorized);
+
+  // Right-click on free space in the channel list (rows open their own menus and stop the event)
+  function listMenu(e: MouseEvent) {
+    if (session.status !== 'connected') return;
+    const here = session.self?.channelId ?? 0;
+    const hereName = session.channel(here)?.name || 'Root';
+    const noMake = (id: number) => session.can(id, PERM.MakeChannel) === false && session.can(id, PERM.MakeTempChannel) === false;
+    menu.show(e, [
+      { label: 'Create channel...', disabled: noMake(0), action: () => (ui.channelDialog = { mode: 'create', parent: 0 }) },
+      ...(here !== 0 ? [{ label: `Create channel in ${hereName}...`, disabled: noMake(here), action: () => (ui.channelDialog = { mode: 'create', parent: here }) }] : []),
+      { separator: true, label: '' },
+      { label: 'Expand all', action: () => session.setAllExpanded(true) },
+      { label: 'Collapse all', action: () => session.setAllExpanded(false) }
+    ]);
+  }
 
   function openQuick(e: MouseEvent, kind: 'input' | 'output') {
     e.preventDefault();
@@ -36,7 +58,8 @@
   );
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" style:width={resizable ? `${width}px` : undefined}>
+  {#if resizable}<ResizeHandle bind:width edge="right" min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
   <header class:trusted>
     <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <strong>{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={14} />{/if}{session.server?.label ?? 'mumh5'}</strong>
@@ -52,7 +75,7 @@
     {/if}
   </header>
 
-  <div class="scroll">
+  <div class="scroll" role="presentation" oncontextmenu={listMenu}>
     {#if session.status === 'connected'}
       <ul class="tree">
         {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
@@ -72,7 +95,7 @@
           {/each}
         </ul>
       {/if}
-    {:else if session.error}
+    {:else if session.error && !session.disconnectInfo}
       <p class="error">{session.error}</p>
     {:else if session.status === 'idle'}
       <p class="hint">Pick a server on the left, or add one with the plus button.</p>
@@ -110,7 +133,7 @@
 </aside>
 
 <style>
-  .sidebar { width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
+  .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
   header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 0; border-bottom: 1px solid var(--line); }
   header.trusted { background: #1d5c38; border-bottom-color: #2a7a4c; }
   header.trusted .status, header.trusted .icon-btn { color: #cfeedd; }
@@ -135,7 +158,7 @@
   .elsewhere { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; color: var(--text-dim); background: var(--bg-0); border-top: 1px solid var(--line); }
   .elsewhere span { flex: 1; min-width: 0; }
   .elsewhere .btn { padding: 4px 10px; font-size: 12px; }
-  .me { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--bg-0); }
+  .me { flex: none; height: var(--footer-h); display: flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--bg-0); }
   .profile { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 2px; text-align: left; }
   .profile:hover { background: var(--bg-hover); }
   .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }

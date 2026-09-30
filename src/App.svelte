@@ -12,10 +12,12 @@
   import IdentityWizard from './ui/IdentityWizard.svelte';
   import QuickAudio from './ui/QuickAudio.svelte';
   import UserInfoDialog from './ui/UserInfoDialog.svelte';
+  import ChannelDialog from './ui/ChannelDialog.svelte';
+  import PublicServers from './ui/PublicServers.svelte';
   import { identities } from './lib/identities.svelte.ts';
   import { session } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
-  import type { SavedServer } from './lib/settings.svelte.ts';
+  import { store, type SavedServer } from './lib/settings.svelte.ts';
 
   let width = $state(window.innerWidth);
   // wide: rail + sidebar + chat + panel; medium: panel as an overlay; narrow: everything but chat in drawers
@@ -25,6 +27,13 @@
   let editing = $state<{ server: SavedServer | null } | null>(null);
 
   const showPanel = $derived(ui.panelOpen && session.status === 'connected');
+
+  // Color scheme on the root element; dark is the stylesheet default
+  $effect(() => {
+    const t = store.settings.theme;
+    if (t && t !== 'dark') document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
+  });
 
   // The panel starts open on wide layouts only
   let lastLayout = '';
@@ -53,9 +62,9 @@
 <div class="app {layout}">
   {#if layout !== 'narrow' || navOpen}
     <div class="nav" class:drawer={layout === 'narrow'}>
-      <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })}
+      <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)}
         onsettings={() => (ui.settingsOpen = true)} />
-      <Sidebar onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+      <Sidebar resizable={layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
     </div>
     {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
   {/if}
@@ -73,6 +82,8 @@
 </div>
 
 {#if editing}<ConnectDialog server={editing.server} onclose={() => (editing = null)} />{/if}
+{#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
+{#if ui.publicServers}<PublicServers onclose={() => (ui.publicServers = false)} />{/if}
 {#if ui.settingsOpen}<SettingsDialog tab={ui.settingsTab} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
 {#if ui.quickAudio}<QuickAudio />{/if}
 {#if ui.userInfo != null && session.status === 'connected'}
@@ -82,6 +93,9 @@
 {#if ui.cert}<CertViewer {...ui.cert} onclose={() => (ui.cert = null)} />{/if}
 {#if identities.loaded && !identities.setupDone}<IdentityWizard mode="setup" onclose={() => {}} />
 {:else if ui.wizard}<IdentityWizard mode={ui.wizard} onclose={() => (ui.wizard = null)} />{/if}
+{#if ui.channelDialog && session.status === 'connected'}
+  {#key ui.channelDialog}<ChannelDialog {...ui.channelDialog} onclose={() => (ui.channelDialog = null)} />{/key}
+{/if}
 {#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => (ui.prompt = null)} />{/if}
 <ContextMenu />
 

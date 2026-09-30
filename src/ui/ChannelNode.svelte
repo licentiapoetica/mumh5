@@ -8,6 +8,8 @@
   import { channelMenu, userMenu } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
+  import { drag } from '../lib/drag.svelte.ts';
+  import { sounds } from '../lib/audio/sounds.svelte.ts';
   import type { Channel } from '../core/client.ts';
 
   let { channel, depth = 0, onnavigate }: { channel: Channel; depth?: number; onnavigate: () => void } = $props();
@@ -30,6 +32,32 @@
     };
   }
 
+  // Drop a person to move them here, or a channel to make it a subchannel of this one
+  let over = $state(false);
+  const canDrop = $derived.by(() => {
+    const d = drag.item;
+    if (!d) return false;
+    if (d.kind === 'user') return session.user(d.id)?.channelId !== channel.id;
+    return d.id !== channel.id && channel.id !== session.channel(d.id)?.parent && !session.isInside(channel.id, d.id);
+  });
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    over = false;
+    // Check before clearing: canDrop is derived from the dragged item
+    const d = drag.item;
+    const ok = canDrop;
+    drag.item = null;
+    if (!d || !ok) return;
+    if (d.kind === 'user') {
+      if (d.id === session.self?.session) session.joinChannel(channel.id);
+      else session.moveUser(d.id, channel.id);
+    } else {
+      session.client?.updateChannel(d.id, { parent: channel.id });
+      sounds.play('channelMoved');
+    }
+  }
+
   const channelClicks = clickOrDouble(
     () => { session.showChannel(channel.id); ui.panelOpen = true; },
     () => { session.joinChannel(channel.id); onnavigate(); }
@@ -37,8 +65,11 @@
 </script>
 
 <li>
-  <div class="row channel" class:here class:selected style:padding-left="{8 + depth * 14}px"
-    oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation">
+  <div class="row channel" class:here class:selected class:over style:padding-left="{8 + depth * 14}px"
+    oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
+    ondragover={e => { if (canDrop) { e.preventDefault(); over = true; } }}
+    ondragleave={() => (over = false)}
+    ondrop={onDrop}>
     {#if children.length || users.length}
       <button class="caret" class:collapsed={!expanded} onclick={() => session.toggleExpanded(channel.id)}
         aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={expanded}>
@@ -47,7 +78,11 @@
     {:else}
       <span class="caret"></span>
     {/if}
-    <button class="name" title="Click for details, double-click to join" {...channelClicks}>
+    <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
+    <button class="name" title="Click for details, double-click to join" {...channelClicks}
+      draggable={channel.id !== 0}
+      ondragstart={e => { drag.item = { kind: 'channel', id: channel.id }; e.dataTransfer?.setData('text/plain', channel.name); }}
+      ondragend={() => { drag.item = null; over = false; }}>
       {#if !channel.canEnter}<Icon name="lock" size={14} />{/if}
       <span class="label">{channel.name || 'Root'}</span>
       {#if !expanded && total > 0}<span class="count" title="{total} {total === 1 ? 'person' : 'people'} inside">{total}</span>{/if}
@@ -65,6 +100,9 @@
         )}
         <li>
           <button class="row user" class:self={isSelf} style:padding-left="{30 + depth * 14}px"
+            draggable="true"
+            ondragstart={e => { drag.item = { kind: 'user', id: u.session }; e.dataTransfer?.setData('text/plain', u.name); }}
+            ondragend={() => (drag.item = null)}
             title={isSelf ? 'You' : `${store.displayName(u)} (double-click to message)`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} />
@@ -98,6 +136,8 @@
   .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); }
   .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); }
   .channel.selected { background: var(--bg-active); color: var(--text); }
+  .channel.over { background: var(--accent); color: var(--accent-text); }
+  .channel.over .label { color: var(--accent-text); }
   .channel.here .label { color: var(--text); font-weight: 600; }
   .channel.here { box-shadow: inset 3px 0 0 var(--speaking); }
   .caret { width: 14px; flex: none; display: inline-flex; justify-content: center; color: var(--text-faint); }

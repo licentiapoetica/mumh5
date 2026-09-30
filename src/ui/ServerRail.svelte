@@ -5,8 +5,8 @@
   import { menu } from '../lib/menu.svelte.ts';
   import { makeServerIcon } from '../lib/upload.ts';
 
-  let { onadd, onedit, onsettings }:
-    { onadd: () => void; onedit: (s: SavedServer) => void; onsettings: () => void } = $props();
+  let { onadd, onedit, onsettings, onbrowse }:
+    { onadd: () => void; onedit: (s: SavedServer) => void; onsettings: () => void; onbrowse: () => void } = $props();
 
   const initials = (label: string) =>
     label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
@@ -50,6 +50,7 @@
   function serverMenu(e: MouseEvent, s: SavedServer, i: number) {
     const state = stateOf(s.id);
     menu.show(e, [
+      { header: true, label: s.label },
       state === 'idle'
         ? { label: 'Connect', action: () => sessions.open(s) }
         : { label: 'Disconnect', action: () => sessions.close(s.id) },
@@ -87,6 +88,7 @@
   {#if dropIndex === store.servers.length && dragging}<div class="drop-line"></div>{/if}
   <input bind:this={iconPicker} type="file" accept="image/*" hidden onchange={pickIcon} />
   <button class="tile add" title="Add a server" onclick={onadd}><Icon name="plus" /></button>
+  <button class="tile add" title="Browse public servers" onclick={onbrowse}><Icon name="globe" /></button>
   <div class="spacer"></div>
   <button class="tile ghost" title="Settings" onclick={onsettings}><Icon name="settings" /></button>
 </nav>

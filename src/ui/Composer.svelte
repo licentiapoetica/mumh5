@@ -1,48 +1,112 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import FormatToolbar from './FormatToolbar.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
+  import { ui } from '../lib/ui.svelte.ts';
   import { acceptAttr } from '../lib/upload.ts';
+  import { toMumbleHtml } from '../lib/html.ts';
 
   // target: the chat this composer sends to ("ch:<id>" or "dm:<session>")
   let { target, placeholder, autofocus = true }: { target: string; placeholder: string; autofocus?: boolean } = $props();
 
-  let text = $state('');
-  let input: HTMLTextAreaElement;
+  let input: HTMLDivElement;
   let picker: HTMLInputElement;
+  let imagePicker: HTMLInputElement;
+  let empty = $state(true);
+  let source = $state(false);
+  let sourceText = $state('');
+  // The formatting toolbar is opt-in and remembered
+  let formatting = $state(loadFormatting());
   const disabled = $derived(session.status !== 'connected');
   const uploads = $derived(session.uploads.filter(u => u.key === target));
+
+  function loadFormatting(): boolean {
+    try { return localStorage.getItem('mumh5.formatBar') === '1'; } catch { return false; }
+  }
+  function toggleFormatting() {
+    formatting = !formatting;
+    try { localStorage.setItem('mumh5.formatBar', formatting ? '1' : '0'); } catch { /* storage unavailable */ }
+    if (!formatting && source) toggleSource();
+    input.focus();
+  }
 
   // Know the host's allowed types before the picker opens
   $effect(() => {
     if (store.settings.uploadHost && store.settings.uploadKey) session.loadUploadInfo().catch(() => {});
   });
 
+  const sync = () => { empty = !input.textContent?.trim() && !input.querySelector('img'); };
+
+  function exec(cmd: string, arg?: string) {
+    input.focus();
+    document.execCommand(cmd, false, arg);
+    sync();
+  }
+
   function submit() {
-    if (session.sendText(text, target)) text = '';
+    const html = source ? sourceText : input.innerHTML;
+    // Plain text goes out the usual way; anything formatted as sanitized XHTML
+    const formatted = source || !!input.querySelector('b, strong, i, em, u, s, strike, span[style], font, ul, ol, a, img');
+    const ok = formatted
+      ? session.sendHtml(toMumbleHtml(html, { linkify: true }), target)
+      : session.sendText(input.innerText, target);
+    if (!ok) return;
+    input.innerHTML = '';
+    sourceText = '';
+    if (source) source = false;
+    sync();
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault();
-      submit();
+      if (e.shiftKey) exec('insertLineBreak');
+      else submit();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      const cmd = ({ b: 'bold', i: 'italic', u: 'underline' } as Record<string, string>)[e.key.toLowerCase()];
+      if (cmd) { e.preventDefault(); exec(cmd); }
     }
   }
 
   function onpaste(e: ClipboardEvent) {
     const files = [...(e.clipboardData?.files ?? [])];
-    if (files.length) {
-      e.preventDefault();
-      session.uploadFiles(files, target);
-    }
+    e.preventDefault();
+    if (files.length) return session.uploadFiles(files, target);
+    const html = e.clipboardData?.getData('text/html');
+    if (html && formatting) exec('insertHTML', toMumbleHtml(html));
+    else exec('insertText', e.clipboardData?.getData('text/plain') ?? '');
   }
 
-  // Grow with content up to a limit
-  $effect(() => {
-    void text;
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
-  });
+  // window.prompt does not exist in Electron; the app's dialog, then restore the selection
+  function link() {
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount && input.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+    ui.prompt = {
+      title: 'Insert link', label: 'Address (https://...)', confirm: 'Insert link', initial: 'https://',
+      onsubmit: raw => {
+        const url = raw.trim();
+        if (!/^https?:\/\/\S+$/i.test(url)) return;
+        input.focus();
+        if (range) { sel!.removeAllRanges(); sel!.addRange(range); }
+        if (range && !range.collapsed) exec('createLink', url);
+        else exec('insertHTML', `<a href="${url.replace(/"/g, '&quot;')}">${url.replace(/</g, '&lt;')}</a>`);
+      }
+    };
+  }
+
+  function toggleSource() {
+    if (!source) {
+      sourceText = toMumbleHtml(input.innerHTML);
+      source = true;
+    } else {
+      input.innerHTML = toMumbleHtml(sourceText);
+      source = false;
+      sync();
+    }
+  }
 
   $effect(() => {
     void target;
@@ -62,21 +126,46 @@
       {/each}
     </ul>
   {/if}
-  <div class="box">
-    <button class="icon-btn" title={store.settings.uploadHost ? "Upload a file" : "Send an image"} {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
-    <input bind:this={picker} type="file" multiple hidden
-      accept={store.settings.uploadHost && store.settings.uploadKey ? acceptAttr(session.uploadInfo) : 'image/*'}
-      onchange={() => { session.uploadFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
-    <textarea bind:this={input} bind:value={text} rows="1" {placeholder} {disabled} {onkeydown} {onpaste}
-      aria-label="Message"></textarea>
-    <button class="icon-btn send" title="Send" disabled={disabled || !text.trim()} onclick={submit}><Icon name="send" size={18} /></button>
+  <div class="frame">
+    {#if formatting}
+      <FormatToolbar {exec} onlink={link} onimage={() => imagePicker.click()} {source} ontogglesource={toggleSource} />
+    {/if}
+    <div class="box">
+      <button class="icon-btn" title={store.settings.uploadHost ? 'Upload a file' : 'Send an image'} {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
+      <input bind:this={picker} type="file" multiple hidden
+        accept={store.settings.uploadHost && store.settings.uploadKey ? acceptAttr(session.uploadInfo) : 'image/*'}
+        onchange={() => { session.uploadFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
+      <input bind:this={imagePicker} type="file" accept="image/*" hidden
+        onchange={() => { session.uploadFiles([...(imagePicker.files ?? [])], target); imagePicker.value = ''; }} />
+      <div class="input" class:blank={empty} class:hidden={source} bind:this={input} contenteditable={!disabled}
+        role="textbox" aria-multiline="true" aria-label="Message" tabindex="0" data-placeholder={placeholder}
+        oninput={sync} {onkeydown} {onpaste}></div>
+      {#if source}
+        <textarea class="input src" bind:value={sourceText} aria-label="HTML source" spellcheck="false"
+          onkeydown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}></textarea>
+      {/if}
+      <button class="icon-btn fmt" class:on={formatting} title="Text formatting" aria-label="Text formatting" aria-pressed={formatting}
+        {disabled} onmousedown={e => e.preventDefault()} onclick={toggleFormatting}>Aa</button>
+      <button class="icon-btn send" title="Send" disabled={disabled || (empty && !(source && sourceText.trim()))} onclick={submit}><Icon name="send" size={18} /></button>
+    </div>
   </div>
 </div>
 
 <style>
-  .composer { flex: none; padding: 0 16px 16px; }
-  .box { display: flex; align-items: flex-end; gap: 4px; background: var(--bg-3); padding: 6px; }
-  textarea { flex: 1; resize: none; border: 0; background: transparent; padding: 6px 4px; max-height: 200px; line-height: 1.4; }
+  /* Same height as the user panel at the bottom of the sidebar; grows for longer messages */
+  .composer { flex: none; min-height: var(--footer-h); display: flex; flex-direction: column; justify-content: flex-end; padding: 6px 16px; background: var(--bg-0); }
+  .frame { background: var(--bg-3); }
+  .frame :global(.toolbar) { background: var(--bg-2); }
+  .box { display: flex; align-items: flex-end; gap: 4px; min-height: calc(var(--footer-h) - 12px); padding: 2px 4px; }
+  .input { position: relative; flex: 1; min-width: 0; padding: 8px 4px; max-height: 200px; overflow-y: auto; line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .input.hidden { display: none; }
+  .input.blank::before { content: attr(data-placeholder); position: absolute; left: 4px; top: 8px; color: var(--text-faint); pointer-events: none; }
+  .input :global(img) { max-height: 120px; }
+  .input :global(ul), .input :global(ol) { margin: 0; padding-left: 20px; }
+  .input[contenteditable='false'] { color: var(--text-faint); }
+  .src { border: 0; resize: none; background: transparent; font: 12px var(--mono); min-height: 60px; }
+  .fmt { font-weight: 700; font-size: 13px; }
+  .fmt.on { color: var(--accent-hover); }
   .send:not(:disabled) { color: var(--accent-hover); }
   .uploads { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   .uploads li { display: flex; align-items: center; gap: 8px; background: var(--bg-1); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }

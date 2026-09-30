@@ -6,6 +6,7 @@ import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
 import { uploadFile, makeThumbnail, makeInlineImage, fetchUploadInfo, checkFile, type UploadInfo } from './upload.ts';
 import { voice } from './audio/voice.svelte.ts';
+import { sounds } from './audio/sounds.svelte.ts';
 
 const codec = createCodec();
 
@@ -59,6 +60,11 @@ export class Session {
   uploads = $state<UploadJob[]>([]);
   certPrompt = $state<CertPrompt | null>(null);
   rtt = $state(0);
+  // Why the last connection ended, shown with a Reconnect button (null after a normal disconnect)
+  disconnectInfo = $state<{ kind: 'kicked' | 'banned' | 'lost' | 'rejected'; by: string; reason: string } | null>(null);
+  private removedBy: { kind: 'kicked' | 'banned'; by: string; reason: string } | null = null;
+  // Last known channel per user, to tell joins from leaves of our channel for sounds
+  private lastChannel = new Map<number, number>();
   // TLS details of the current server, for the certificate viewer and the trusted badge
   serverCert = $state<ServerCertInfo | null>(null);
   uploadInfo = $state<UploadInfo | null>(null);
@@ -155,6 +161,22 @@ export class Session {
     this.expanded = all;
   }
 
+  // true / false when known, null when the server has not told us yet
+  can(channelId: number, bit: number): boolean | null {
+    void this.tick;
+    return this.client?.can(channelId, bit) ?? null;
+  }
+
+  // Whether a channel lies somewhere below another (a channel cannot move into its own subtree)
+  isInside(channelId: number, ancestor: number): boolean {
+    let c = this.client?.channels.get(channelId);
+    while (c && c.parent != null) {
+      if (c.parent === ancestor) return true;
+      c = this.client?.channels.get(c.parent);
+    }
+    return false;
+  }
+
   viewTitle(key: string = this.view): string {
     const [kind, id] = key.split(':');
     if (kind === 'ch') return this.channel(Number(id))?.name || 'Root';
@@ -181,6 +203,8 @@ export class Session {
     this.panel = { kind: 'members' };
     this.requested.clear();
     this.serverCert = null;
+    this.disconnectInfo = null;
+    this.removedBy = null;
     this.status = 'connecting';
 
     if (!native) {
@@ -226,6 +250,10 @@ export class Session {
     });
   }
 
+  reconnect(): void {
+    if (this.server) this.connect($state.snapshot(this.server) as SavedServer);
+  }
+
   acceptCertificate(): void {
     const p = this.certPrompt;
     if (!p) return;
@@ -258,10 +286,23 @@ export class Session {
       this.status = 'connected';
       this.view = `ch:${client.self?.channelId ?? 0}`;
       sessions.onSynced(this);
+      sounds.play('connected');
+      for (const u of client.users.values()) this.lastChannel.set(u.session, u.channelId);
+      // What we may do per channel, for menus (not rate limited by the server)
+      for (const id of client.channels.keys()) client.requestPermissions(id);
       if (client.welcomeText) this.system(this.view, client.welcomeText, true);
       bump();
     });
-    client.on('channel', bump);
+    client.on('channel', ch => {
+      if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
+      bump();
+    });
+    client.on('permissions', () => {
+      if (!live()) return;
+      // A flush means permissions changed somewhere (e.g. an ACL edit); ask again
+      if (!client.permissions.size) for (const id of client.channels.keys()) client.requestPermissions(id);
+      bump();
+    });
     client.on('channelRemove', id => {
       if (!live()) return;
       if (this.panel.kind === 'channel' && this.panel.id === id) this.panel = { kind: 'members' };
@@ -269,9 +310,12 @@ export class Session {
     });
     client.on('ping', rtt => { if (live()) this.rtt = rtt; });
 
-    client.on('user', (user, changed, _actor, isNew) => {
+    client.on('user', (user, changed, actor, isNew) => {
       if (!live()) return;
       const self = client.self;
+      const before = this.lastChannel.get(user.session);
+      this.lastChannel.set(user.session, user.channelId);
+      if (client.synced && self && this.isVoice()) this.userSound(user.session === self.session, user, changed, actor, isNew, before, self.channelId);
       if (client.synced && self) {
         if (isNew) {
           if (user.channelId === self.channelId) this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} connected`);
@@ -294,7 +338,17 @@ export class Session {
 
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
+      // We were kicked or banned; the server closes the connection right after
+      if (user.session === client.session) {
+        const by = actor != null ? client.users.get(actor)?.name ?? '' : '';
+        this.removedBy = { kind: ban ? 'banned' : 'kicked', by, reason };
+      }
       const self = client.self;
+      if (self && user.session !== self.session && this.isVoice() && user.channelId === self.channelId) {
+        const byOther = actor != null && actor !== user.session;
+        sounds.play(ban ? 'userBanned' : byOther ? 'userKicked' : 'userDisconnected');
+      }
+      this.lastChannel.delete(user.session);
       if (self && user.channelId === self.channelId) {
         const by = actor != null && actor !== user.session ? client.users.get(actor)?.name : null;
         const what = by ? `${ban ? 'was banned' : 'was kicked'} by ${escapeHtml(by)}` : 'disconnected';
@@ -304,7 +358,11 @@ export class Session {
       bump();
     });
 
-    client.on('text', msg => { if (live()) this.receive(client, msg); });
+    client.on('text', msg => {
+      if (!live()) return;
+      this.receive(client, msg);
+      if (msg.actor != null && msg.actor !== client.session) sounds.play(msg.channels.length || msg.trees.length ? 'message' : 'privateMessage');
+    });
 
     client.on('permissionDenied', d => {
       if (!live()) return;
@@ -317,18 +375,52 @@ export class Session {
         return;
       }
       if (d.channelId != null && d.channelId === this.pendingJoin) this.pendingJoin = null;
+      sounds.play('denied');
       const ch = d.channelId != null ? client.channels.get(d.channelId)?.name : undefined;
       this.system(this.view, escapeHtml(describeDenial(d, ch)));
     });
 
+    client.on('reject', (_type, reason) => {
+      if (!live()) return;
+      this.removedBy = null;
+      this.disconnectInfo = { kind: 'rejected', by: '', reason };
+    });
+
     client.on('close', reason => {
       if (this.client !== client) return;
+      if (this.removedBy) this.disconnectInfo = this.removedBy;
+      else if (!this.disconnectInfo && reason !== 'Disconnected') this.disconnectInfo = { kind: 'lost', by: '', reason };
+      const kind = this.disconnectInfo?.kind;
+      sounds.play(kind === 'kicked' ? 'kicked' : kind === 'banned' ? 'banned' : kind === 'lost' ? 'connectionLost' : kind === 'rejected' ? 'error' : 'disconnected');
       this.client = null;
       sessions.onClosed(this);
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
       this.tick++;
     });
+  }
+
+  // Presence sounds only come from the server where voice runs; others would be noise
+  private isVoice(): boolean {
+    return sessions.voiceId === this.server?.id;
+  }
+
+  private userSound(isSelf: boolean, user: User, changed: string[], actor: number | null, isNew: boolean, before: number | undefined, mine: number): void {
+    if (isSelf) {
+      const byOther = actor != null && actor !== user.session;
+      if (changed.includes('channelId')) sounds.play(byOther ? 'moved' : 'switchedChannel');
+      if (!byOther && changed.includes('selfDeaf')) sounds.play(user.selfDeaf ? 'deafen' : 'undeafen');
+      else if (!byOther && changed.includes('selfMute')) sounds.play(user.selfMute ? 'mute' : 'unmute');
+      return;
+    }
+    const self = actor == null || actor === user.session;
+    if (isNew) {
+      if (user.channelId === mine) sounds.play('userConnected');
+    } else if (changed.includes('channelId')) {
+      if (user.channelId === mine) sounds.play(self ? 'userJoined' : 'userMovedIn');
+      else if (before === mine) sounds.play(self ? 'userLeft' : 'userMovedOut');
+    }
+    if (changed.includes('recording') && user.channelId === mine) sounds.play(user.recording ? 'recordingStarted' : 'recordingStopped');
   }
 
   // ─── Panels, descriptions, comments ─────────────────────────────────────────
@@ -472,6 +564,7 @@ export class Session {
       return false;
     }
     client.sendText(this.target(key), html);
+    sounds.play('messageSent');
     const rendered = renderIncoming(html, store.trustedHosts);
     this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ...rendered });
     return true;
@@ -514,8 +607,10 @@ export class Session {
         if (html !== link) this.lastImageSend = { key, fallback: link, at: Date.now() };
         this.sendHtml(html, key);
         this.uploads = this.uploads.filter(j => j.id !== job.id);
+        sounds.play('uploadDone');
       } catch (e) {
         live().error = (e as Error).message;
+        sounds.play('uploadFailed');
         setTimeout(() => { this.uploads = this.uploads.filter(j => j.id !== job.id); }, 6000);
       }
     }

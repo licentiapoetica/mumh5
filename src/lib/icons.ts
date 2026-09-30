@@ -21,6 +21,7 @@ export const ICON_PATHS: Record<string, string> = {
   server: 'M2 3h20v8H2zM2 13h20v8H2zM6 7h.01M6 17h.01',
   shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
+  globe: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2c3.5 3.5 3.5 16.5 0 20M12 2c-3.5 3.5-3.5 16.5 0 20',
   list: 'M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01',
   'list-ordered': 'M10 6h11M10 12h11M10 18h11M4 4v4M3 18h3l-3 3h3M3 10h2l-2 3h2',
   link: 'M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1',

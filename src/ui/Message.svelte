@@ -3,11 +3,20 @@
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import LinkPreview from './LinkPreview.svelte';
   import { store } from '../lib/settings.svelte.ts';
+  import { session } from '../lib/session.svelte.ts';
+  import { menu } from '../lib/menu.svelte.ts';
+  import { userMenu } from '../lib/actions.ts';
   import type { ChatEntry } from '../lib/session.svelte.ts';
 
   let { entry, grouped }: { entry: ChatEntry; grouped: boolean } = $props();
 
   const time = $derived(new Date(entry.time));
+
+  // Right-click on the author opens the user menu while they are still online
+  function authorMenu(e: MouseEvent) {
+    const u = entry.authorSession != null ? session.user(entry.authorSession) : undefined;
+    if (u) menu.show(e, userMenu(u));
+  }
   const hhmm = $derived(time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 </script>
 
@@ -22,13 +31,13 @@
       {#if grouped}
         <span class="time hover">{hhmm}</span>
       {:else}
-        <Avatar name={entry.author} size={38} />
+        <span role="presentation" oncontextmenu={authorMenu}><Avatar name={entry.author} size={38} /></span>
       {/if}
     </div>
     <div class="content">
       {#if !grouped}
         <header>
-          <strong class:self={entry.self}>{entry.author}</strong>
+          <strong class:self={entry.self} oncontextmenu={authorMenu}>{entry.author}</strong>
           <time datetime={time.toISOString()}>{time.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</time>
         </header>
       {/if}

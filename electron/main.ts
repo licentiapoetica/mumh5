@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, session, systemPreferences, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, shell, session, systemPreferences, type WebContents } from 'electron';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +6,7 @@ import { IdentityStore } from './identity-store.ts';
 import { describeCert } from './certs.ts';
 import * as tray from './tray.ts';
 import { fetchLinkPreview } from './link-preview.ts';
+import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
@@ -75,6 +76,26 @@ ipcMain.on('mumble:close', (e, connId: string) => {
 ipcMain.handle('certs:describe', (_e, ders: Uint8Array[]) =>
   (Array.isArray(ders) ? ders.slice(0, 8) : []).flatMap(d => { try { return [describeCert(Buffer.from(d))]; } catch { return []; } }));
 
+// Edit commands for the renderer's context menu (clipboard access goes through the browser engine)
+ipcMain.on('edit:action', (e, action: string, arg?: unknown) => {
+  const wc = e.sender;
+  switch (action) {
+    case 'undo': return wc.undo();
+    case 'redo': return wc.redo();
+    case 'cut': return wc.cut();
+    case 'copy': return wc.copy();
+    case 'paste': return wc.paste();
+    case 'selectAll': return wc.selectAll();
+    case 'replaceMisspelling': return wc.replaceMisspelling(String(arg));
+    case 'addWord': return wc.session.addWordToSpellCheckerDictionary(String(arg));
+    case 'copyImageAt': { const p = arg as { x: number; y: number }; return wc.copyImageAt(p.x, p.y); }
+    case 'saveImage': return wc.downloadURL(String(arg));
+  }
+});
+
+ipcMain.handle('publist:fetch', (_e, url: string) => fetchPublicListWith(u => net.fetch(u), String(url)));
+ipcMain.handle('publist:ping', (_e, host: string, port: number) => pingServer(String(host), Number(port)));
+
 ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url).slice(0, 2048)));
 
 ipcMain.on('tray:update', (_e, state: tray.TrayState) => tray.update(state));
@@ -123,6 +144,15 @@ function createWindow() {
       e.preventDefault();
       win.hide();
     }
+  });
+  // No default menu in Electron: report what was right-clicked, the renderer shows its own menu
+  // (custom menus call preventDefault, which suppresses this event)
+  win.webContents.on('context-menu', (_e, p) => {
+    win.webContents.send('context-menu', {
+      x: p.x, y: p.y, isEditable: p.isEditable, selectionText: p.selectionText, linkURL: p.linkURL,
+      mediaType: p.mediaType, srcURL: p.srcURL, misspelledWord: p.misspelledWord,
+      suggestions: p.dictionarySuggestions.slice(0, 5), editFlags: p.editFlags
+    });
   });
   win.on('show', () => tray.onWindowVisibility());
   win.on('hide', () => tray.onWindowVisibility());

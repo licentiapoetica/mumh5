@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import Members from './Members.svelte';
+  import ResizeHandle from './ResizeHandle.svelte';
   import ChatLog from './ChatLog.svelte';
   import Composer from './Composer.svelte';
   import { session } from '../lib/session.svelte.ts';
@@ -33,37 +34,7 @@
   const MIN_W = 240, DEFAULT_W = 300;
   const maxW = () => Math.max(MIN_W, Math.min(900, window.innerWidth - 420));
   let width = $state(Math.max(MIN_W, Number(localStorage.getItem('mumh5.panelWidth')) || DEFAULT_W));
-  let resizing = $state(false);
 
-  function setWidth(w: number) {
-    width = Math.round(Math.max(MIN_W, Math.min(maxW(), w)));
-    try { localStorage.setItem('mumh5.panelWidth', String(width)); } catch { /* storage unavailable */ }
-  }
-
-  function startResize(e: PointerEvent) {
-    e.preventDefault();
-    const handle = e.currentTarget as HTMLElement;
-    handle.setPointerCapture(e.pointerId);
-    resizing = true;
-    const right = (handle.parentElement as HTMLElement).getBoundingClientRect().right;
-    const move = (ev: PointerEvent) => setWidth(right - ev.clientX);
-    const up = () => {
-      resizing = false;
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', up);
-      handle.removeEventListener('pointercancel', up);
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', up);
-    handle.addEventListener('pointercancel', up);
-  }
-
-  function resizeKey(e: KeyboardEvent) {
-    if (e.key === 'ArrowLeft') setWidth(width + 16);
-    else if (e.key === 'ArrowRight') setWidth(width - 16);
-    else return;
-    e.preventDefault();
-  }
 
   let editing = $state(false);
   let draft = $state('');
@@ -81,14 +52,8 @@
 
 </script>
 
-<svelte:window onresize={() => setWidth(width)} />
-
-<aside class="panel" class:resizing aria-label="Details" style:width="{width}px">
-  <!-- Focusable separator is the ARIA window-splitter pattern -->
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-  <div class="resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" aria-valuenow={width}
-    aria-valuemin={MIN_W} aria-valuemax={maxW()} tabindex="0" title="Drag to resize, double-click to reset"
-    onpointerdown={startResize} ondblclick={() => setWidth(DEFAULT_W)} onkeydown={resizeKey}></div>
+<aside class="panel" aria-label="Details" style:width="{width}px">
+  <ResizeHandle bind:width edge="left" min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.panelWidth" label="Resize panel" />
   {#if panel.kind === 'members' || (!channel && !user)}
     <header><h2>Members</h2><button class="icon-btn" onclick={onclose} aria-label="Close"><Icon name="x" size={18} /></button></header>
     <Members {onnavigate} />
@@ -142,12 +107,6 @@
           <h3>{store.displayName(user)}</h3>
           <p class="where" title="Current channel"><Icon name="channel" size={14} /><span>{session.channel(user.channelId)?.name || 'Root'}</span></p>
           {#if store.displayName(user) !== user.name}<p class="dim small">Real name: {user.name}</p>{/if}
-          <p class="badges">
-            {#if user.userId != null}<span class="badge-reg registered">Registered</span>{/if}
-            {#if isSelf && user.userId == null}
-              <button class="register" title="Reserve this name on the server, tied to your certificate" onclick={() => session.register(user.session)}>Register</button>
-            {/if}
-          </p>
           <p class="flags">
             {#if user.selfMute || user.mute}<span>{user.mute ? 'server muted' : 'muted'}</span>{/if}
             {#if user.selfDeaf || user.deaf}<span>{user.deaf ? 'server deafened' : 'deafened'}</span>{/if}
@@ -192,9 +151,6 @@
 
 <style>
   .panel { position: relative; max-width: 100%; height: 100%; flex: none; display: flex; flex-direction: column; background: var(--bg-1); border-left: 1px solid var(--line); min-height: 0; }
-  .panel.resizing { user-select: none; }
-  .resize { position: absolute; z-index: 5; top: 0; bottom: 0; left: -4px; width: 8px; cursor: col-resize; touch-action: none; }
-  .resize:hover, .resize:focus-visible, .resizing .resize { background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); outline: none; }
   header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
   h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tabs { display: flex; flex: none; border-bottom: 1px solid var(--line); }
@@ -217,11 +173,6 @@
   .where span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   h3 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
   h4 { margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
-  .badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 0; }
-  .badge-reg { font-size: 11px; font-weight: 700; padding: 1px 6px; border: 1px solid var(--line); color: var(--text-dim); }
-  .badge-reg.registered { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
-  .register { font-size: 12px; color: var(--link); }
-  .register:hover { text-decoration: underline; }
   .flags { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
   .flags span { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); color: var(--text-dim); }
   .flags .bad { border-color: var(--danger); color: var(--danger); }

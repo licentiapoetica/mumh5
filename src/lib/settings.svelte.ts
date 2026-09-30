@@ -21,7 +21,19 @@ export interface Settings {
   youtube: 'off' | 'click' | 'thumbnail'; // YouTube links: plain, click-to-play card, card with thumbnail
   // Link previews: fetched by the upload host (private), by this computer (reveals IP), or none
   linkPreviews: 'host' | 'direct' | 'off';
+  theme: ThemeId;
+  publicListUrl: string;  // where the public server list comes from
 }
+
+export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'win95';
+
+export const THEMES: { id: ThemeId; name: string; note: string }[] = [
+  { id: 'dark', name: 'Dark', note: 'The default' },
+  { id: 'light', name: 'Light', note: 'For bright rooms' },
+  { id: 'midnight', name: 'Midnight', note: 'True black, red accents' },
+  { id: 'frost', name: 'Frost', note: 'Cool blue-grey' },
+  { id: 'win95', name: 'Windows 95', note: 'Start me up' }
+];
 
 const defaults: Settings = {
   uploadHost: '',
@@ -31,7 +43,9 @@ const defaults: Settings = {
   sendThumbnails: true,
   compact: false,
   youtube: 'click',
-  linkPreviews: 'host'
+  linkPreviews: 'host',
+  theme: 'dark',
+  publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0'
 };
 
 class SettingsStore {

@@ -16,7 +16,7 @@
       x: Math.max(4, Math.min(m.x, window.innerWidth - r.width - 4)),
       y: Math.max(4, Math.min(m.y, window.innerHeight - r.height - 4))
     };
-    el.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    if (!m.keepFocus) el.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   });
 
   function onkeydown(e: KeyboardEvent) {
@@ -39,7 +39,9 @@
   <div class="catcher" role="presentation" onmousedown={() => menu.close()} oncontextmenu={e => { e.preventDefault(); menu.close(); }}></div>
   <div class="menu" role="menu" bind:this={el} style:left="{pos.x}px" style:top="{pos.y}px">
     {#each menu.open.items as item, i (i)}
-      {#if item.separator}
+      {#if item.header}
+        <div class="head" role="presentation">{item.label}</div>
+      {:else if item.separator}
         <div class="sep" role="separator"></div>
       {:else if item.slider}
         {@const sl = item.slider}
@@ -51,7 +53,7 @@
         </div>
       {:else}
         <button role="menuitem" class:danger={item.danger} disabled={item.disabled}
-          onclick={() => { menu.close(); item.action?.(); }}>
+          onmousedown={e => e.preventDefault()} onclick={() => { menu.close(); item.action?.(); }}>
           <span class="label">{item.label}</span>
           {#if item.checked !== undefined}<span class="box" class:on={item.checked}></span>{/if}
         </button>
@@ -74,6 +76,8 @@
   .box { width: 14px; height: 14px; border: 2px solid currentColor; }
   .box.on { background: currentColor; }
   .sep { height: 1px; margin: 4px 6px; background: var(--line); }
+  .head { padding: 4px 10px 6px; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--text-dim); border-bottom: 1px solid var(--line);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .slider { padding: 6px 10px 8px; }
   .slider-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-dim); }
   .slider input { width: 100%; padding: 0; border: 0; background: transparent; accent-color: var(--accent); margin-top: 4px; }

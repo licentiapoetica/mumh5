@@ -52,6 +52,12 @@ Voice runs on one server at a time (where you last joined a channel); background
 - New features get an E2E step in `test/e2e/app.e2e.ts`; protocol logic gets unit or server tests.
 - Privacy rule: opening a chat must never contact hosts the user did not choose. Remote media only from the upload host and user-listed hosts; YouTube is click-to-play (`youtube-nocookie.com`).
 
+## Browser and CSP pitfalls (all hit before)
+
+- The CSP allows media only from `self`, `blob:` and http(s). `data:` audio is blocked silently: play user files through object URLs. Large user files go to IndexedDB (`src/lib/blobstore.ts`), not localStorage.
+- `window.prompt` does not exist in Electron; use `ui.prompt`.
+- A drop handler must read derived state before clearing the drag item it derives from.
+
 ## Svelte reactivity pitfalls (all hit before)
 
 - `$state` wraps assigned objects in proxies: `this.server !== server` compares proxy to raw object and is always true. Use ids or counters.
@@ -65,6 +71,10 @@ Voice runs on one server at a time (where you last joined a channel); background
 - 1.5 servers use the protobuf UDP voice format (type byte 0 + MumbleUDP.Audio) with clients announcing 1.5; older ones the legacy format. The UDPTunnel TCP body is the raw voice packet, not a protobuf message. Sequence numbers count 10 ms frames.
 - Long comments and descriptions arrive as a hash only; a new hash invalidates the old text; fetch with RequestBlob.
 - Renaming while connected is not possible; mumh5 reconnects with the new name.
+- Murmur never sends SuperUser (user id 0) PermissionQuery answers; treat SuperUser as allowed everything.
+- In ACLs, Write overrides denies. Grant test rights to one user (`$<certhash>` group), not `@all`.
+- Murmur caches permissions per channel object; deleting and recreating channels quickly can leave stale denials. E2E runs use a fresh server.
+- The public list (publist.mumble.info) refuses non-browser TLS clients with HTTP 501; fetch it with Electron's `net.fetch`, not Node https.
 
 ## Running the app in this environment
 

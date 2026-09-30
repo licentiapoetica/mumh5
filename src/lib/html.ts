@@ -160,9 +160,32 @@ function serialize(node: Node): string {
   return `<${tag}${attrs}>${[...el.childNodes].map(serialize).join('')}</${tag}>`;
 }
 
+// Turns plain URLs in text into links (not inside existing links)
+function linkifyNodes(root: Node): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const texts: Text[] = [];
+  while (walker.nextNode()) texts.push(walker.currentNode as Text);
+  for (const t of texts) {
+    if ((t.parentElement as Element | null)?.closest('a')) continue;
+    const parts = (t.data).split(/(https?:\/\/[^\s<]+[^\s<.,:;"')\]])/);
+    if (parts.length < 2) continue;
+    const frag = document.createDocumentFragment();
+    parts.forEach((p, i) => {
+      if (i % 2) {
+        const a = document.createElement('a');
+        a.setAttribute('href', p);
+        a.textContent = p;
+        frag.append(a);
+      } else if (p) frag.append(p);
+    });
+    t.replaceWith(frag);
+  }
+}
+
 // Sanitized, well-formed XHTML that Murmur's XML check accepts and Mumble clients render
-export function toMumbleHtml(html: string): string {
+export function toMumbleHtml(html: string, opts: { linkify?: boolean } = {}): string {
   const frag = DOMPurify.sanitize(html, purifyConfig);
+  if (opts.linkify) linkifyNodes(frag);
   return [...frag.childNodes].map(serialize).join('')
     .replace(/(<p><br\/><\/p>)+$/, '')
     .replace(/^(<br\/>)+|(<br\/>)+$/g, '')

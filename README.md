@@ -38,8 +38,10 @@ mumh5 keeps the foundation and replaces the experience.
 | Server certificate trust | Remembered after a warning dialog | Pinned on first use, green header for CA-signed servers, full chain viewer |
 | Fast actions in a row | The server silently drops them past its rate limit | Paced to the server's limit, nothing gets lost |
 | Right-click on mute or deafen | Nothing | Quick device and volume options |
+| Look | One Qt style (plus skins) | Five built-in color schemes, including Windows 95 |
+| Channel and permission editing | Dialogs, drag and drop | Same power: create, edit, link, drag and drop, rule and group editor |
 
-**Where the desktop client is still ahead, today:** UDP voice transport (mumh5 sends voice through the encrypted TCP connection for now, which adds a little delay on bad networks), system-wide push-to-talk, whisper and shout, positional audio, the in-game overlay, recording and the ACL editor. These are on the roadmap below.
+**Where the desktop client is still ahead, today:** UDP voice transport (mumh5 sends voice through the encrypted TCP connection for now, which adds a little delay on bad networks), system-wide push-to-talk, whisper and shout, positional audio, the in-game overlay, recording, and the ban list and registered-user editors. These are on the roadmap below.
 
 ---
 
@@ -67,6 +69,9 @@ mumh5 keeps the foundation and replaces the experience.
 - Change your name (mumh5 reconnects for you) and register on a server with one click
 - Connection information: ping, packet loss, client version and, for admins, the user's certificate chain
 - Moderation from the right-click menu: move, server mute and deafen, priority speaker, kick, ban, register
+- Channel management: create, edit, delete, link, and drag and drop channels and people
+- Full permission editor: rules per channel with inheritance, groups and members, like the desktop ACL editor
+- If you get kicked, you see who kicked you and why, with a Reconnect button
 
 ![Profile with a formatted description](docs/screenshots/profile.png)
 
@@ -79,8 +84,20 @@ mumh5 keeps the foundation and replaces the experience.
 - Incoming HTML is sanitized; remote images from unknown hosts are never loaded
 - Messages stay compatible with the desktop client, including picture previews
 
+### Color schemes
+Dark, Light, Midnight (true black), Frost, and a faithful **Windows 95** theme with beveled buttons, navy title bars and the teal desktop.
+
+| Windows 95 | Light | Frost | Midnight |
+|---|---|---|---|
+| ![Windows 95](docs/screenshots/theme-win95.png) | ![Light](docs/screenshots/theme-light.png) | ![Frost](docs/screenshots/theme-frost.png) | ![Midnight](docs/screenshots/theme-midnight.png) |
+
+### Sounds
+- Notification sounds for joins, leaves, messages, mute, push to talk, kicks and more
+- Replace any sound with your own file, or load a whole sound pack at once (matched by file name)
+
 ### Servers and identity
 - Server rail with custom icons, drag-and-drop ordering, connection status and unread counts
+- Public server browser with live user counts and ping, like the desktop client
 - Several servers connected at once; voice follows the channel you join
 - Identity setup wizard: create a new certificate, import a `.p12`, or reuse your desktop Mumble identity
 - Password-protected backups of your identity
