@@ -136,6 +136,8 @@ function createWindow() {
     minHeight: 480,
     backgroundColor: '#111214',
     title: 'mumh5',
+    // Window and taskbar icon on Linux (Windows and macOS take it from the package)
+    icon: path.join(__dirname, '../dist/icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

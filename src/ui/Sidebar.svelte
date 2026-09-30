@@ -11,7 +11,10 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
 
   // resizable: false in the phone drawer, which keeps a fixed width
-  let { onnavigate, resizable = true }: { onnavigate: () => void; resizable?: boolean } = $props();
+  // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
+  // fill: take the whole area (stacked layout, where the parent sizes it)
+  let { onnavigate, resizable = true, handleEdge = 'right', fill = false }:
+    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean } = $props();
 
   const MIN_W = 200, DEFAULT_W = 260;
   const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
@@ -58,8 +61,8 @@
   );
 </script>
 
-<aside class="sidebar" style:width={resizable ? `${width}px` : undefined}>
-  {#if resizable}<ResizeHandle bind:width edge="right" min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
+<aside class="sidebar" class:fill style:width={resizable && !fill ? `${width}px` : undefined}>
+  {#if resizable && !fill}<ResizeHandle bind:width edge={handleEdge} min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
   <header class:trusted>
     <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <strong>{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={14} />{/if}{session.server?.label ?? 'mumh5'}</strong>
@@ -134,6 +137,7 @@
 
 <style>
   .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
+  .sidebar.fill { width: 100%; height: 100%; }
   header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 0; border-bottom: 1px solid var(--line); }
   header.trusted { background: #1d5c38; border-bottom-color: #2a7a4c; }
   header.trusted .status, header.trusted .icon-btn { color: #cfeedd; }

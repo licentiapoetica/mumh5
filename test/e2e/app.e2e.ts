@@ -85,6 +85,13 @@ try {
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor({ state: 'detached' });
   console.log('ok: identity wizard creates an identity');
 
+  // Welcome page: no message box while offline, identities one click away
+  assert.equal(await page.locator('.chat .composer').count(), 0);
+  await page.getByRole('button', { name: 'Manage identities' }).click();
+  await page.getByRole('tab', { name: 'Identities', selected: true }).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: welcome page without composer, manage identities');
+
   // Settings: upload host + key
   if (process.env.UPLOAD_HOST && process.env.UPLOAD_KEY) {
     await page.getByTitle('Settings').click();
@@ -306,6 +313,36 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: color schemes');
+
+  // Layouts like the desktop client: classic (channels right of chat), stacked (channels above)
+  const box = (sel: string) => page.locator(sel).first().boundingBox().then(b => b!);
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Classic' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.app.classic').waitFor();
+  assert.ok((await box('.sidebar')).x > (await box('.chat')).x, 'classic: channel list right of chat');
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Stacked' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.app.stacked').waitFor();
+  const chatBox = await box('.chat'), treeBox = await box('.sidebar');
+  assert.ok(chatBox.y >= treeBox.y + treeBox.height - 1, 'stacked: chat below channel list');
+  // The split between chat and channel list drags
+  const handle = page.getByRole('separator', { name: 'Resize channel list' });
+  const hb = (await handle.boundingBox())!;
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + 60, { steps: 4 });
+  await page.mouse.up();
+  assert.ok((await box('.sidebar')).height > treeBox.height + 40, 'stacked: split resizes');
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.app.side').waitFor();
+  console.log('ok: classic and stacked layouts');
 
   // Public server list, from a local list in the official XML format
   const http = await import('node:http');

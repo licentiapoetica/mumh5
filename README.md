@@ -27,7 +27,7 @@ mumh5 keeps the foundation and replaces the experience.
 
 | | Mumble desktop | mumh5 |
 |---|---|---|
-| Interface | Qt widgets, dense dialogs | Modern layout: server rail, channel tree, chat, side panels |
+| Interface | Qt widgets, dense dialogs | Modern layout (server rail, channel tree, chat, side panels), or the classic and stacked layouts of the desktop client |
 | Several servers at the same time | One connection | Many; voice on one, text on all, unread badges |
 | Sharing files | Images only, pasted inline and heavily limited | Any allowed file through your own [f0ckm](#file-sharing-with-f0ckm) host, inline players for images, video and audio. Images still work without one |
 | YouTube links | Plain links | Click-to-play player (privacy mode), optional thumbnails |
@@ -111,7 +111,18 @@ Dark, Light, Midnight (true black), Frost, and a faithful **Windows 95** theme w
 
 ## Getting started
 
-There are no release builds yet. For now, build it yourself; it takes a few minutes.
+Download a build from the [releases page](https://git.lat/kibi/mumh5/releases):
+
+| System | File |
+|---|---|
+| Windows | `mumh5-<version>-win-x64.exe` (installer; not signed yet, so Windows SmartScreen warns once) |
+| Linux, any distribution | `mumh5-<version>-linux-x86_64.AppImage` (make it executable, then run it) |
+| Debian, Ubuntu | `mumh5-<version>-linux-amd64.deb` |
+| Linux, portable | `mumh5-<version>-linux-x64.tar.gz` |
+
+There is no macOS build yet; build it yourself on a Mac (below).
+
+### Running from source
 
 You need [Node.js](https://nodejs.org/) 22 or newer and git.
 
@@ -132,7 +143,7 @@ npm run dist:win     # NSIS installer
 npm run dist:mac     # .dmg
 ```
 
-Installers are written to `release/`. Build each platform on that platform for the best results.
+Installers are written to `release/`. The Windows installer also builds on Linux with Wine installed; the macOS one needs a Mac. Pushing a version tag (`git tag v0.1.0 && git push origin v0.1.0`) makes the Gitea workflow in `.gitea/workflows/release.yml` build the Linux and Windows files and attach them to a release.
 
 ---
 

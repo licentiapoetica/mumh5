@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- mumh5 app icon: the accent square with the headphones glyph, square caps like the UI icons -->
+  <rect width="1024" height="1024" fill="#7c6cff"/>
+  <rect x="0" y="880" width="1024" height="144" fill="#6a5ae8"/>
+  <g transform="translate(176 150) scale(28)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M3 14v-2a9 9 0 0 1 18 0v2"/>
+    <path d="M21 14v7h-4v-7z" fill="#ffffff"/>
+    <path d="M3 14v7h4v-7z" fill="#ffffff"/>
+  </g>
+  <rect x="424" y="700" width="176" height="36" fill="#3bd16f"/>
+</svg>

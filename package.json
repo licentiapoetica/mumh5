@@ -2,7 +2,7 @@
   "name": "mumh5",
   "productName": "mumh5",
   "version": "0.1.0",
-  "description": "Modern Mumble client with rich chat, file sharing and video",
+  "description": "A modern Mumble client: Discord-like interface, file sharing, voice and more, for any Mumble server",
   "license": "MIT",
   "type": "module",
   "main": "dist-electron/main.cjs",
@@ -26,24 +26,37 @@
     "files": [
       "dist/**",
       "dist-electron/**",
+      "!dist-electron/*.map",
       "package.json",
       "LICENSE",
       "THIRD_PARTY_NOTICES.md"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "linux": {
       "target": [
         "AppImage",
-        "deb"
+        "deb",
+        "tar.gz"
       ],
-      "category": "Network"
+      "category": "Network",
+      "executableName": "mumh5",
+      "synopsis": "Modern Mumble client",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "mumh5",
+          "Keywords": "mumble;voice;chat;voip;"
+        }
+      },
+      "syncDesktopName": true
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "build/icon.png"
     },
     "mac": {
       "target": [
@@ -54,6 +67,22 @@
         "NSMicrophoneUsageDescription": "mumh5 uses the microphone for voice chat.",
         "NSCameraUsageDescription": "mumh5 uses the camera for video chat."
       }
+    },
+    "icon": "build/icon.png",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "deb": {
+      "depends": [
+        "libnotify4",
+        "libxtst6",
+        "libnss3",
+        "libasound2 | libasound2t64"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "shortcutName": "mumh5"
     }
   },
   "devDependencies": {
@@ -81,9 +110,14 @@
     "esbuild@0.28.2": true,
     "electron-winstaller": false
   },
-  "author": "Kibi Kelburton",
+  "author": {
+    "name": "Kibi Kelburton",
+    "email": "git@f0ck.it"
+  },
   "repository": {
     "type": "git",
     "url": "gitea@git.lat:kibi/mumh5.git"
-  }
+  },
+  "homepage": "https://git.lat/kibi/mumh5",
+  "desktopName": "mumh5.desktop"
 }

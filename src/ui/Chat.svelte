@@ -58,13 +58,18 @@
         {:else}
           <h2>mumh5</h2>
           <p>Choose a server to get started, or find one:</p>
-          <button class="btn browse" onclick={() => (ui.publicServers = true)}>Browse public servers</button>
+          <div class="welcome-actions">
+            <button class="btn" onclick={() => (ui.publicServers = true)}>Browse public servers</button>
+            <button class="btn" onclick={() => { ui.settingsTab = 'identities'; ui.settingsOpen = true; }}>Manage identities</button>
+          </div>
         {/if}
       </div>
     {/snippet}
   </ChatLog>
 
-  <Composer target={session.view} placeholder={session.status === 'connected' ? `Message ${isDm ? '@' : '#'}${title}` : 'Not connected'} />
+  {#if session.status === 'connected'}
+    <Composer target={session.view} placeholder={`Message ${isDm ? '@' : '#'}${title}`} />
+  {/if}
 </section>
 
 <style>
@@ -79,7 +84,7 @@
   .empty { padding: 32px 16px 8px; }
   .empty h2 { margin: 0 0 4px; font-size: 24px; }
   .empty p { margin: 0; color: var(--text-dim); }
-  .browse { margin-top: 12px; }
+  .welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .ended { max-width: 460px; margin: 16px 16px 0; padding: 16px 18px; background: var(--bg-1); border: 1px solid var(--line); border-left: 4px solid var(--warn); }
   .ended.bad { border-left-color: var(--danger); }
   .ended h2 { margin: 0; font-size: 20px; }

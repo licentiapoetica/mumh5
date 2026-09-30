@@ -26,17 +26,23 @@
 
   async function load() {
     // A new list starts a new ping round; answers from the previous round are dropped
-    generation++;
+    // and a list that arrives after the source changed is ignored
+    const round = ++generation;
     queue = [];
     running = 0;
     loading = true;
     error = '';
+    let list: PublicServer[] = [];
+    let failed = '';
     try {
-      servers = (await native?.publicServers(store.settings.publicListUrl)) ?? [];
-      if (!native) error = 'The public list needs the desktop app.';
+      list = (await native?.publicServers(store.settings.publicListUrl)) ?? [];
+      if (!native) failed = 'The public list needs the desktop app.';
     } catch (e) {
-      error = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      failed = (e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
     }
+    if (round !== generation || !alive) return;
+    servers = list;
+    error = failed;
     loading = false;
     pingVisible();
   }

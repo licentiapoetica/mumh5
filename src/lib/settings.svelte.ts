@@ -23,7 +23,11 @@ export interface Settings {
   linkPreviews: 'host' | 'direct' | 'off';
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
+  arrangement: Arrangement;
 }
+
+// Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
+export type Arrangement = 'side' | 'classic' | 'stacked';
 
 export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'win95';
 
@@ -45,7 +49,8 @@ const defaults: Settings = {
   youtube: 'click',
   linkPreviews: 'host',
   theme: 'dark',
-  publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0'
+  publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
+  arrangement: 'side'
 };
 
 class SettingsStore {
