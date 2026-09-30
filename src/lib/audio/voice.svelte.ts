@@ -80,6 +80,11 @@ class VoiceEngine {
   private client: MumbleClient | null = null;
   private sessionGains = new Map<number, number>();
   private unsubscribe: (() => void)[] = [];
+  // Push-to-talk press/release, for the notification sounds
+  onPtt: ((down: boolean) => void) | null = null;
+  // Speaking (or pressing push to talk) while muted, for the reminder sound
+  onTalkingWhileMuted: (() => void) | null = null;
+  private lastMutedReminder = 0;
 
   private frameCounter = 0;      // Mumble sequence, in 10 ms frames
   private sampleTime = 0;        // encoder timestamps, microseconds
@@ -301,6 +306,12 @@ class VoiceEngine {
       if (db > s.vadThreshold) this.lastVoiceAt = now;
       wanted = now - this.lastVoiceAt < s.vadHoldMs;
     }
+    // Speaking into a muted microphone: remind, at most every 8 seconds
+    const self = this.client?.self;
+    if (wanted && s.mode === 'vad' && self && (self.selfMute || self.mute) && !self.selfDeaf && now - this.lastMutedReminder > 8000) {
+      this.lastMutedReminder = now;
+      this.onTalkingWhileMuted?.();
+    }
     wanted &&= this.canTalk() && !!this.encoder && this.encoder.state === 'configured';
 
     if (wanted && !this.open) { this.open = true; this.transmitting = true; }
@@ -353,7 +364,13 @@ class VoiceEngine {
     // Typing in a text field does not trigger push to talk
     const t = e.target as HTMLElement | null;
     if (down && t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (this.pttDown === down) return;
     this.pttDown = down;
+    if (this.settings.mode === 'ptt' && this.client) {
+      const self = this.client.self;
+      if (down && self && (self.selfMute || self.mute)) this.onTalkingWhileMuted?.();
+      else this.onPtt?.(down);
+    }
   }
 
   // ─── Receiving ──────────────────────────────────────────────────────────────

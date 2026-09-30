@@ -5,14 +5,18 @@
   import { identities } from '../lib/identities.svelte.ts';
   import { makeServerIcon } from '../lib/upload.ts';
 
-  let { server, onclose }: { server: SavedServer | null; onclose: () => void } = $props();
+  // prefill: values for a new server, e.g. picked from the public list
+  let { server, prefill, onclose }: { server: SavedServer | null; prefill?: { host?: string; port?: number; label?: string }; onclose: () => void } = $props();
 
   // svelte-ignore state_referenced_locally
   const initial = server;
-  let label = $state(initial?.label ?? '');
-  let host = $state(initial?.host ?? '');
-  let port = $state(initial?.port ?? 64738);
-  let username = $state(initial?.username ?? '');
+  // svelte-ignore state_referenced_locally
+  const pre = prefill ?? {};
+  let label = $state(initial?.label ?? pre.label ?? '');
+  let host = $state(initial?.host ?? pre.host ?? '');
+  let port = $state(initial?.port ?? pre.port ?? 64738);
+  // New servers start with the name you used last
+  let username = $state(initial?.username ?? store.servers.at(-1)?.username ?? '');
   let password = $state(initial?.password ?? '');
   let identityId = $state(initial?.identityId ?? '');
   let icon = $state(initial?.icon ?? '');

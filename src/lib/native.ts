@@ -6,6 +6,10 @@ interface NativeApi {
   updateTray(state: { icon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
   onTrayAction(fn: (action: string) => void): void;
   linkPreview(url: string): Promise<LinkPreviewData | null>;
+  publicServers(url: string): Promise<PublicServer[]>;
+  pingServer(host: string, port: number): Promise<PingResult | null>;
+  onContextMenu(fn: (params: ContextParams) => void): void;
+  editAction(action: string, arg?: unknown): void;
   identities: {
     list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean }>;
     create(name: string, email: string): Promise<IdentitySummary>;
@@ -23,6 +27,23 @@ interface NativeApi {
   close(connId: string): void;
   on(event: 'secure' | 'data' | 'close', fn: (connId: string, ...args: any[]) => void): () => void;
 }
+
+// What Electron reports for a right-click without a custom menu
+export interface ContextParams {
+  x: number;
+  y: number;
+  isEditable: boolean;
+  selectionText: string;
+  linkURL: string;
+  mediaType: string;
+  srcURL: string;
+  misspelledWord: string;
+  suggestions: string[];
+  editFlags: { canUndo: boolean; canRedo: boolean; canCut: boolean; canCopy: boolean; canPaste: boolean; canSelectAll: boolean };
+}
+
+export interface PublicServer { name: string; host: string; port: number; url: string; country: string; countryCode: string; continent: string; ca: boolean }
+export interface PingResult { ping: number; users: number; maxUsers: number; bandwidth: number; version: string }
 
 export interface LinkPreviewData {
   url: string;

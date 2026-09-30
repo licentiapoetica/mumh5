@@ -102,6 +102,40 @@ export function describeDenial(d: Denial, channelName?: string): string {
   }
 }
 
+// ACL permission bits (ChanACL::Perm)
+export const PERM = {
+  Write: 0x1, Traverse: 0x2, Enter: 0x4, Speak: 0x8, MuteDeafen: 0x10, Move: 0x20,
+  MakeChannel: 0x40, LinkChannel: 0x80, Whisper: 0x100, TextMessage: 0x200, MakeTempChannel: 0x400,
+  Listen: 0x800, Kick: 0x10000, Ban: 0x20000, Register: 0x40000, SelfRegister: 0x80000, ResetUserContent: 0x100000
+} as const;
+
+export interface AclGroup {
+  name: string;
+  inherited: boolean;     // exists because a parent defines it (and made it inheritable)
+  inherit: boolean;       // members of the parent's group count here too
+  inheritable: boolean;   // subchannels may inherit this group
+  add: number[];          // user ids added here
+  remove: number[];       // user ids removed here
+  inheritedMembers: number[];
+}
+
+export interface AclEntry {
+  applyHere: boolean;
+  applySubs: boolean;
+  inherited: boolean;     // defined on a parent channel, read-only here
+  userId: number | null;
+  group: string | null;
+  grant: number;
+  deny: number;
+}
+
+export interface ChannelAcl {
+  channelId: number;
+  inheritAcls: boolean;
+  groups: AclGroup[];
+  acls: AclEntry[];
+}
+
 export interface ConnectOptions {
   username: string;
   password?: string;
@@ -122,6 +156,9 @@ type ClientEvents = {
   reject: (type: number, reason: string) => void;
   voice: (packet: Uint8Array) => void;
   userStats: (stats: any) => void;
+  acl: (acl: ChannelAcl) => void;
+  userNames: (names: Map<number, string>) => void;
+  permissions: (channelId: number | null, bits: number) => void;
   ping: (rttMs: number) => void;
   close: (reason: string) => void;
   message: (name: MessageName, msg: any) => void;
@@ -130,6 +167,10 @@ type ClientEvents = {
 export class MumbleClient extends Emitter<ClientEvents> {
   readonly channels = new Map<number, Channel>();
   readonly users = new Map<number, User>();
+  // Our effective permissions per channel (PermissionQuery); cleared when the server flushes
+  readonly permissions = new Map<number, number>();
+  // Registered user names by id, learned from QueryUsers
+  readonly registeredNames = new Map<number, string>();
   session: number | null = null;
   synced = false;
   welcomeText = '';
@@ -276,6 +317,74 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.send('UserState', { session, ...state });
   }
 
+  // ─── Channel management ────────────────────────────────────────────────────
+
+  requestPermissions(channelId: number): void {
+    this.send('PermissionQuery', { channel_id: channelId });
+  }
+
+  can(channelId: number, bit: number): boolean | null {
+    // The server never sends SuperUser (user id 0) its permissions: it may do everything
+    if (this.self?.userId === 0) return true;
+    const p = this.permissions.get(channelId);
+    // Write on a channel implies the other channel permissions
+    return p == null ? null : (p & (bit | PERM.Write)) !== 0;
+  }
+
+  createChannel(parent: number, name: string, opts: { temporary?: boolean; description?: string; position?: number; maxUsers?: number } = {}): void {
+    this.send('ChannelState', {
+      parent, name,
+      temporary: !!opts.temporary,
+      ...(opts.description ? { description: opts.description } : {}),
+      ...(opts.position ? { position: opts.position } : {}),
+      ...(opts.maxUsers ? { max_users: opts.maxUsers } : {})
+    });
+  }
+
+  updateChannel(channelId: number, fields: { name?: string; description?: string; position?: number; maxUsers?: number; parent?: number }): void {
+    const msg: Record<string, unknown> = { channel_id: channelId };
+    if (fields.name != null) msg.name = fields.name;
+    if (fields.description != null) msg.description = fields.description;
+    if (fields.position != null) msg.position = fields.position;
+    if (fields.maxUsers != null) msg.max_users = fields.maxUsers;
+    if (fields.parent != null) msg.parent = fields.parent;
+    this.send('ChannelState', msg);
+  }
+
+  removeChannel(channelId: number): void {
+    this.send('ChannelRemove', { channel_id: channelId });
+  }
+
+  setLinks(channelId: number, add: number[], remove: number[]): void {
+    this.send('ChannelState', { channel_id: channelId, links_add: add, links_remove: remove });
+  }
+
+  queryAcl(channelId: number): void {
+    this.send('ACL', { channel_id: channelId, query: true });
+  }
+
+  // Sends the channel's own rules and groups; inherited ones stay with their channel
+  saveAcl(acl: ChannelAcl): void {
+    this.send('ACL', {
+      channel_id: acl.channelId,
+      inherit_acls: acl.inheritAcls,
+      groups: acl.groups
+        // Same rule as the desktop client: skip groups that only exist by inheritance
+        .filter(g => !(g.inherited && g.inherit && g.inheritable && !g.add.length && !g.remove.length))
+        .map(g => ({ name: g.name, inherit: g.inherit, inheritable: g.inheritable, add: g.add, remove: g.remove })),
+      acls: acl.acls.filter(a => !a.inherited).map(a => ({
+        apply_here: a.applyHere, apply_subs: a.applySubs,
+        ...(a.userId != null ? { user_id: a.userId } : { group: a.group ?? 'all' }),
+        grant: a.grant, deny: a.deny
+      }))
+    });
+  }
+
+  // Resolves registered user ids to names and names to ids
+  queryUsers(q: { ids?: number[]; names?: string[] }): void {
+    this.send('QueryUsers', { ids: q.ids ?? [], names: q.names ?? [] });
+  }
+
   // Connection details of a user; the server decides how much we may see
   requestUserStats(session: number, statsOnly = false): void {
     this.send('UserStats', { session, stats_only: statsOnly });
@@ -367,6 +476,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
         this.session = msg.session;
         this.maxBandwidth = msg.max_bandwidth ?? 0;
         this.welcomeText = msg.welcome_text ?? '';
+        if (msg.permissions != null) this.permissions.set(0, Number(msg.permissions));
         this.synced = true;
         this.ping();
         this.emit('synced');
@@ -418,6 +528,35 @@ export class MumbleClient extends Emitter<ClientEvents> {
         break;
       case 'UserStats':
         this.emit('userStats', msg);
+        break;
+      case 'ACL': {
+        // proto2 defaults: missing booleans are true
+        const t = (v: unknown) => v !== false;
+        this.emit('acl', {
+          channelId: msg.channel_id,
+          inheritAcls: t(msg.inherit_acls),
+          groups: (msg.groups ?? []).map((g: any) => ({
+            name: g.name, inherited: t(g.inherited), inherit: t(g.inherit), inheritable: t(g.inheritable),
+            add: g.add ?? [], remove: g.remove ?? [], inheritedMembers: g.inherited_members ?? []
+          })),
+          acls: (msg.acls ?? []).map((a: any) => ({
+            applyHere: t(a.apply_here), applySubs: t(a.apply_subs), inherited: t(a.inherited),
+            userId: a.user_id ?? null, group: a.user_id != null ? null : (a.group ?? 'all'),
+            grant: a.grant ?? 0, deny: a.deny ?? 0
+          }))
+        });
+        break;
+      }
+      case 'QueryUsers': {
+        const ids: number[] = msg.ids ?? [], names: string[] = msg.names ?? [];
+        ids.forEach((id, i) => { if (names[i]) this.registeredNames.set(id, names[i]); });
+        this.emit('userNames', this.registeredNames);
+        break;
+      }
+      case 'PermissionQuery':
+        if (msg.flush) this.permissions.clear();
+        if (msg.channel_id != null && msg.permissions != null) this.permissions.set(msg.channel_id, msg.permissions);
+        this.emit('permissions', msg.channel_id ?? null, msg.permissions ?? 0);
         break;
       case 'PluginDataTransmission':
         if (msg.senderSession != null && msg.dataID) {

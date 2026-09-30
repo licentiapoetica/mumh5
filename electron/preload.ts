@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   platformInfo: () => ipcRenderer.invoke('platform:info'),
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
   linkPreview: (url: string) => ipcRenderer.invoke('preview:fetch', url),
+  publicServers: (url: string) => ipcRenderer.invoke('publist:fetch', url),
+  pingServer: (host: string, port: number) => ipcRenderer.invoke('publist:ping', host, port),
+  onContextMenu: (fn: (params: unknown) => void) => { ipcRenderer.on('context-menu', (_e, p) => fn(p)); },
+  editAction: (action: string, arg?: unknown) => ipcRenderer.send('edit:action', action, arg),
   onTrayAction: (fn: (action: string) => void) => { ipcRenderer.on('tray:action', (_e, a: string) => fn(a)); },
   describeCerts: (ders: Uint8Array[]) => ipcRenderer.invoke('certs:describe', ders),
   identities: {

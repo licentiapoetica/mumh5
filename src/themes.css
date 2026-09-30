@@ -1,0 +1,253 @@
+/* Color schemes. Dark is the default in app.css; each theme overrides the same variables.
+   [data-theme-preview] applies a theme to a single element (the pickers in Settings). */
+
+:root:not([data-theme]), [data-theme-preview="dark"] {
+  --bg-0: #0d0e10;
+  --bg-1: #151619;
+  --bg-2: #1b1c20;
+  --bg-3: #24262b;
+  --bg-hover: #2a2c32;
+  --bg-active: #33363d;
+  --line: #2c2e34;
+  --text: #e3e4e8;
+  --text-dim: #9a9ca5;
+  --text-faint: #686a73;
+  --accent: #7c6cff;
+  --accent-hover: #8f81ff;
+  --accent-text: #ffffff;
+  --speaking: #3bd16f;
+  --danger: #f0504a;
+  --warn: #e8b23c;
+  --link: #6fb3ff;
+  --rail: var(--bg-0);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"], [data-theme-preview="light"] {
+  --rail: var(--bg-0);
+  --bg-0: #e3e5e8;
+  --bg-1: #f2f3f5;
+  --bg-2: #ffffff;
+  --bg-3: #e8e9ec;
+  --bg-hover: #e1e3e7;
+  --bg-active: #d4d7dc;
+  --line: #d4d6db;
+  --text: #1d1f23;
+  --text-dim: #555a64;
+  --text-faint: #858a94;
+  --accent: #5b4bdb;
+  --accent-hover: #4a3bc4;
+  --accent-text: #ffffff;
+  --speaking: #1f9d4c;
+  --danger: #d33a34;
+  --warn: #b7791f;
+  --link: #1f64c9;
+  color-scheme: light;
+}
+
+:root[data-theme="midnight"], [data-theme-preview="midnight"] {
+  --rail: var(--bg-0);
+  --bg-0: #000000;
+  --bg-1: #050505;
+  --bg-2: #0a0a0a;
+  --bg-3: #151515;
+  --bg-hover: #1a1a1a;
+  --bg-active: #222222;
+  --line: #1c1c1c;
+  --text: #d8d8d8;
+  --text-dim: #8a8a8a;
+  --text-faint: #5a5a5a;
+  --accent: #e0443e;
+  --accent-hover: #f05a54;
+  --accent-text: #ffffff;
+  --speaking: #3bd16f;
+  --danger: #ff5a52;
+  --warn: #e8b23c;
+  --link: #ff8a80;
+  color-scheme: dark;
+}
+
+:root[data-theme="frost"], [data-theme-preview="frost"] {
+  --rail: var(--bg-0);
+  --bg-0: #242933;
+  --bg-1: #2e3440;
+  --bg-2: #333a47;
+  --bg-3: #3b4252;
+  --bg-hover: #434c5e;
+  --bg-active: #4c566a;
+  --line: #3f4758;
+  --text: #eceff4;
+  --text-dim: #b4bccb;
+  --text-faint: #7f8a9e;
+  --accent: #88c0d0;
+  --accent-hover: #8fbcbb;
+  --accent-text: #1c222c;
+  --speaking: #a3be8c;
+  --danger: #bf616a;
+  --warn: #ebcb8b;
+  --link: #81a1c1;
+  color-scheme: dark;
+}
+
+/* ─── Windows 95 ───────────────────────────────────────────────────────────── */
+
+:root[data-theme="win95"], [data-theme-preview="win95"] {
+  --bg-0: #c0c0c0;
+  --bg-1: #c0c0c0;
+  --bg-2: #ffffff;
+  --bg-3: #c0c0c0;
+  --bg-hover: #dfdfdf;
+  --bg-active: #000080;
+  --line: #808080;
+  --text: #000000;
+  --text-dim: #202020;
+  --text-faint: #606060;
+  --accent: #000080;
+  --accent-hover: #1084d0;
+  --accent-text: #ffffff;
+  --speaking: #008000;
+  --danger: #c00000;
+  --warn: #808000;
+  --link: #0000ee;
+  --font: Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Geneva, Verdana, sans-serif;
+  --fs: 13px;
+  --rail: #008080;
+  --raised: inset -1px -1px #000, inset 1px 1px #fff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+  --sunken: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #000;
+  color-scheme: light;
+}
+
+:root[data-theme="win95"] body { -webkit-font-smoothing: none; }
+:root[data-theme="win95"] ::selection { background: #000080; color: #fff; }
+
+/* Buttons: raised, pressed in when active */
+:root[data-theme="win95"] .btn,
+:root[data-theme="win95"] .icon-btn,
+:root[data-theme="win95"] .rail .tile,
+:root[data-theme="win95"] .modes button,
+:root[data-theme="win95"] .tabs button,
+:root[data-theme="win95"] .tool,
+:root[data-theme="win95"] .facade .play {
+  background: #c0c0c0;
+  color: #000;
+  border: 0;
+  box-shadow: var(--raised);
+}
+:root[data-theme="win95"] .btn:active:not(:disabled),
+:root[data-theme="win95"] .icon-btn:active,
+:root[data-theme="win95"] .rail .tile:active,
+:root[data-theme="win95"] .modes button.active,
+:root[data-theme="win95"] .tabs button.active,
+:root[data-theme="win95"] .tool.on {
+  box-shadow: var(--sunken);
+  background: #c0c0c0;
+  color: #000;
+}
+:root[data-theme="win95"] .btn.primary { background: #c0c0c0; color: #000; outline: 1px solid #000; outline-offset: -1px; }
+:root[data-theme="win95"] .btn.danger { color: #c00000; }
+:root[data-theme="win95"] .icon-btn { color: #000; }
+:root[data-theme="win95"] .icon-btn.on { color: #c00000; }
+:root[data-theme="win95"] .btn:hover:not(:disabled),
+:root[data-theme="win95"] .icon-btn:hover,
+:root[data-theme="win95"] .tool:hover:not(:disabled) { background: #c0c0c0; color: #000; }
+
+/* Text fields: sunken and white */
+:root[data-theme="win95"] input:not([type=range]):not([type=checkbox]):not([type=color]),
+:root[data-theme="win95"] textarea,
+:root[data-theme="win95"] select,
+:root[data-theme="win95"] .rich,
+:root[data-theme="win95"] .composer .box,
+:root[data-theme="win95"] .meter {
+  background: #fff;
+  color: #000;
+  border: 0;
+  box-shadow: var(--sunken);
+}
+:root[data-theme="win95"] .composer .box textarea { box-shadow: none; }
+:root[data-theme="win95"] .rich .area, :root[data-theme="win95"] .rich textarea { box-shadow: none; }
+:root[data-theme="win95"] input[type=range] { accent-color: #000080; }
+
+/* Title bars */
+:root[data-theme="win95"] .modal header,
+:root[data-theme="win95"] .sidebar header,
+:root[data-theme="win95"] .chat > header,
+:root[data-theme="win95"] .panel > header {
+  background: linear-gradient(90deg, #000080, #1084d0);
+  color: #fff;
+  border: 0;
+}
+:root[data-theme="win95"] .modal header { margin: 3px 3px 0; padding: 4px 4px 4px 8px; }
+:root[data-theme="win95"] .modal header h2 { font-size: 13px; font-weight: 700; color: #fff; }
+:root[data-theme="win95"] .modal header .icon-btn { width: 18px; height: 16px; }
+:root[data-theme="win95"] .chat > header h1,
+:root[data-theme="win95"] .panel > header h2,
+:root[data-theme="win95"] .sidebar header strong,
+:root[data-theme="win95"] .sidebar header .status,
+:root[data-theme="win95"] .chat > header .topic { color: #fff; }
+:root[data-theme="win95"] .chat > header .icon-btn,
+:root[data-theme="win95"] .panel > header .icon-btn,
+:root[data-theme="win95"] .sidebar header .icon-btn { width: 22px; height: 20px; }
+
+/* Windows and panels */
+:root[data-theme="win95"] .modal,
+:root[data-theme="win95"] .menu,
+:root[data-theme="win95"] .pop {
+  background: #c0c0c0;
+  border: 0;
+  box-shadow: var(--raised), 2px 2px 0 rgb(0 0 0 / 0.35);
+}
+:root[data-theme="win95"] .modal footer { background: #c0c0c0; border-top: 0; }
+:root[data-theme="win95"] .menu button:hover:not(:disabled),
+:root[data-theme="win95"] .menu button:focus-visible { background: #000080; color: #fff; }
+:root[data-theme="win95"] .rail { background: var(--rail); }
+:root[data-theme="win95"] .rail .tile.active::before { background: #fff; }
+:root[data-theme="win95"] .rail .add,
+:root[data-theme="win95"] .rail .ghost { color: #000; }
+:root[data-theme="win95"] .sidebar,
+:root[data-theme="win95"] .panel { border-left: 0; box-shadow: inset 1px 0 #fff; }
+:root[data-theme="win95"] .sidebar .scroll,
+:root[data-theme="win95"] .chat .list,
+:root[data-theme="win95"] .members,
+:root[data-theme="win95"] .panel .body {
+  background: #fff;
+  box-shadow: var(--sunken);
+  margin: 2px;
+}
+:root[data-theme="win95"] .me,
+:root[data-theme="win95"] .elsewhere { background: #c0c0c0; box-shadow: var(--raised); }
+:root[data-theme="win95"] .chat { background: #c0c0c0; }
+:root[data-theme="win95"] .row.channel.selected,
+:root[data-theme="win95"] .dm.viewing { background: #000080; color: #fff; }
+:root[data-theme="win95"] .row.channel.selected .label { color: #fff; }
+:root[data-theme="win95"] .badge,
+:root[data-theme="win95"] .unread { background: #c00000; }
+:root[data-theme="win95"] .card { background: #fff; box-shadow: var(--sunken); border-top: 0; border-right: 0; border-bottom: 0; }
+:root[data-theme="win95"] .stage { background: #c0c0c0; }
+:root[data-theme="win95"] .stage .tile { background: #c0c0c0; border: 0; box-shadow: var(--raised); }
+:root[data-theme="win95"] .stage .tile.talking { box-shadow: var(--raised), inset 0 0 0 3px #008000; }
+
+/* Classic scroll bars */
+:root[data-theme="win95"] ::-webkit-scrollbar { width: 16px; height: 16px; }
+:root[data-theme="win95"] ::-webkit-scrollbar-track {
+  background-color: #dfdfdf;
+  background-image: repeating-conic-gradient(#c0c0c0 0% 25%, #fff 0% 50%);
+  background-size: 2px 2px;
+}
+:root[data-theme="win95"] ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border: 0;
+  box-shadow: var(--raised);
+}
+:root[data-theme="win95"] ::-webkit-scrollbar-button:single-button {
+  display: block;
+  height: 16px;
+  width: 16px;
+  background: #c0c0c0 no-repeat center / 8px 8px;
+  box-shadow: var(--raised);
+}
+:root[data-theme="win95"] ::-webkit-scrollbar-button:single-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M4 2L7 6H1z'/%3E%3C/svg%3E");
+}
+:root[data-theme="win95"] ::-webkit-scrollbar-button:single-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1 2h6L4 6z'/%3E%3C/svg%3E");
+}

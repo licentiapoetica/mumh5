@@ -132,6 +132,18 @@ await wait(800);
 await page.screenshot({ path: path.join(out, 'voice-settings.png') });
 await page.getByRole('button', { name: 'Done', exact: true }).click();
 
+// Every color scheme, main view with the member list
+await page.locator('.panel .icon-btn[aria-label="Close"]').click().catch(() => {});
+for (const t of ['light', 'midnight', 'frost', 'win95', 'dark']) {
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.locator(`[data-theme-preview="${t}"]`).click();
+  if (t === 'win95') await page.screenshot({ path: path.join(out, 'settings-appearance.png') });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await wait(400);
+  if (t !== 'dark') await page.screenshot({ path: path.join(out, `theme-${t}.png`) });
+}
+
 await page.setViewportSize({ width: 390, height: 844 });
 await page.locator('.scrim').first().click().catch(() => {});
 await wait(500);

@@ -2,13 +2,41 @@ import { session } from './session.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { voice, userKey } from './audio/voice.svelte.ts';
+import { sounds } from './audio/sounds.svelte.ts';
 import type { MenuItem } from './menu.svelte.ts';
-import type { Channel, User } from '../core/client.ts';
+import { PERM, type Channel, type User } from '../core/client.ts';
 
 // Right-click menu for a channel in the tree
 export function channelMenu(c: Channel): MenuItem[] {
   const here = session.self?.channelId === c.id;
+  const mine = session.self?.channelId ?? 0;
+  // Greyed out only when the server said no; unknown permissions stay enabled
+  const no = (bit: number) => session.can(c.id, bit) === false;
+  const linked = c.links.has(mine);
+  const manage: MenuItem[] = [
+    { separator: true, label: '' },
+    { label: 'Create channel...', disabled: no(PERM.MakeChannel) && no(PERM.MakeTempChannel), action: () => (ui.channelDialog = { mode: 'create', parent: c.id }) },
+    { label: 'Edit channel...', disabled: no(PERM.Write), action: () => (ui.channelDialog = { mode: 'edit', id: c.id }) },
+    { label: 'Permissions...', disabled: no(PERM.Write), action: () => (ui.channelDialog = { mode: 'edit', id: c.id, tab: 'permissions' }) }
+  ];
+  if (!here) {
+    manage.push(linked
+      ? { label: 'Unlink from my channel', disabled: no(PERM.LinkChannel), action: () => session.client?.setLinks(c.id, [], [mine]) }
+      : { label: 'Link to my channel', disabled: no(PERM.LinkChannel), action: () => session.client?.setLinks(c.id, [mine], []) });
+  }
+  if (c.links.size) manage.push({ label: 'Unlink all', disabled: no(PERM.LinkChannel), action: () => session.client?.setLinks(c.id, [], [...c.links]) });
+  if (c.id !== 0) {
+    manage.push({
+      label: 'Delete channel...', danger: true, disabled: no(PERM.Write),
+      action: () => (ui.prompt = {
+        title: `Delete ${c.name}?`, label: '', confirm: 'Delete channel', danger: true, input: 'none',
+        text: 'The channel, its subchannels and their permissions are removed for everyone. People inside are moved out.',
+        onsubmit: () => { session.client?.removeChannel(c.id); sounds.play('channelDeleted'); }
+      })
+    });
+  }
   return [
+    { header: true, label: c.name || 'Root' },
     { label: here ? 'You are here' : 'Join channel', action: () => session.joinChannel(c.id), disabled: here || !c.canEnter },
     { label: 'Open chat', action: () => { session.showChannel(c.id, 'chat'); ui.panelOpen = true; } },
     { label: 'Show description', action: () => { session.showChannel(c.id, 'info'); ui.panelOpen = true; } },
@@ -17,7 +45,8 @@ export function channelMenu(c: Channel): MenuItem[] {
     { label: 'Expand all', action: () => session.setAllExpanded(true) },
     { label: 'Collapse all', action: () => session.setAllExpanded(false) },
     { separator: true, label: '' },
-    { label: 'Copy channel name', action: () => navigator.clipboard.writeText(c.name || 'Root') }
+    { label: 'Copy channel name', action: () => navigator.clipboard.writeText(c.name || 'Root') },
+    ...manage
   ];
 }
 
@@ -27,6 +56,7 @@ export function userMenu(u: User): MenuItem[] {
   const self = session.self;
   const isSelf = u.session === self?.session;
   const items: MenuItem[] = [
+    { header: true, label: store.displayName(u) },
     { label: 'View profile', action: () => { session.showUser(u.session); ui.panelOpen = true; } }
   ];
   if (isSelf) {

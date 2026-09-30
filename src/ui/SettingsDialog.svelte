@@ -2,14 +2,16 @@
   import Modal from './Modal.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
   import IdentityList from './IdentityList.svelte';
+  import AppearanceSettings from './AppearanceSettings.svelte';
+  import SoundSettings from './SoundSettings.svelte';
   import { store } from '../lib/settings.svelte.ts';
   import { native } from '../lib/native.ts';
   import { fetchUploadInfo } from '../lib/upload.ts';
 
-  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'files' | 'identities' } = $props();
+  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'files' | 'identities' } = $props();
 
   // svelte-ignore state_referenced_locally
-  let tab = $state<'voice' | 'files' | 'identities'>(initialTab);
+  let tab = $state<'voice' | 'sounds' | 'appearance' | 'files' | 'identities'>(initialTab);
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
   let testResult = $state('');
@@ -33,9 +35,11 @@
     }
   }
 
-  type Tab = 'voice' | 'files' | 'identities';
+  type Tab = 'voice' | 'sounds' | 'appearance' | 'files' | 'identities';
   const tabs: { id: Tab; label: string }[] = [
     { id: 'voice', label: 'Voice' },
+    { id: 'sounds', label: 'Sounds' },
+    { id: 'appearance', label: 'Appearance' },
     { id: 'files', label: 'Chat and files' },
     ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : [])
   ];
@@ -50,6 +54,10 @@
 
   {#if tab === 'voice'}
     <VoiceSettings />
+  {:else if tab === 'sounds'}
+    <SoundSettings />
+  {:else if tab === 'appearance'}
+    <AppearanceSettings />
   {:else if tab === 'files'}
     <p class="help">Files go to a f0ckm instance and are posted as links. Other mumh5 users see them inline; regular Mumble users get a link and a small preview. Without an upload host you can still send images, inline and scaled to the server's limit.</p>
     <label for="s-host">Upload host</label>
