@@ -41,7 +41,7 @@ mumh5 keeps the foundation and replaces the experience.
 | Look | One Qt style (plus skins) | Five built-in color schemes, including Windows 95 |
 | Channel and permission editing | Dialogs, drag and drop | Same power: create, edit, link, drag and drop, rule and group editor |
 
-**Where the desktop client is still ahead, today:** UDP voice transport (mumh5 sends voice through the encrypted TCP connection for now, which adds a little delay on bad networks), system-wide push-to-talk, whisper and shout, positional audio, the in-game overlay, recording, and the ban list and registered-user editors. These are on the roadmap below.
+**Where the desktop client is still ahead, today:** system-wide push-to-talk, whisper and shout, positional audio, the in-game overlay, recording, and the ban list and registered-user editors. These are on the roadmap below.
 
 ---
 
@@ -55,6 +55,7 @@ mumh5 keeps the foundation and replaces the experience.
 - Per-person volume (0 to 300%) and "mute for me"
 - Speaking indicators in the channel tree, member list and your own panel
 - On small windows, your voice channel appears as tiles above the chat, lighting up as people talk, with mute and deafen at hand
+- Low-latency voice over encrypted UDP (Mumble's OCB2-AES128), with automatic fallback to the TCP connection and a TCP-only switch
 - Bitrate automatically limited to what the server allows
 - Right-click the mute or deafen button for quick device and volume options
 - Hear-yourself microphone test
@@ -164,7 +165,6 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 
 ## Roadmap
 
-- UDP voice with Mumble's OCB2-AES128 encryption, for the lowest latency
 - System-wide push to talk
 - Whisper and shout
 - Rich chat between mumh5 users: replies, reactions, edits, typing indicators

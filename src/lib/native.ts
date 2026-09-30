@@ -1,4 +1,4 @@
-import type { Transport, ServerCertInfo, CertDetails } from '../core/transport.ts';
+import type { Transport, ServerCertInfo, CertDetails, UdpChannel } from '../core/transport.ts';
 
 interface NativeApi {
   platformInfo(): Promise<{ os: string; osVersion: string }>;
@@ -25,7 +25,11 @@ interface NativeApi {
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;
-  on(event: 'secure' | 'data' | 'close', fn: (connId: string, ...args: any[]) => void): () => void;
+  on(event: 'secure' | 'data' | 'close' | 'udpVoice' | 'udpState' | 'udpResync', fn: (connId: string, ...args: any[]) => void): () => void;
+  udpSetup(connId: string, key: Uint8Array, cn: Uint8Array, sn: Uint8Array, protobuf: boolean): void;
+  udpNonce(connId: string, sn: Uint8Array): void;
+  udpSend(connId: string, bytes: Uint8Array): void;
+  udpClientNonce(connId: string): Promise<Uint8Array | null>;
 }
 
 // What Electron reports for a right-click without a custom menu
@@ -76,6 +80,7 @@ export class ElectronTransport implements Transport {
   onData: ((chunk: Uint8Array) => void) | null = null;
   onClose: ((reason: string) => void) | null = null;
   readonly secure: Promise<ServerCertInfo>;
+  udp: UdpChannel;
   private id = crypto.randomUUID();
   private offs: (() => void)[] = [];
   private api: NativeApi;
@@ -86,7 +91,19 @@ export class ElectronTransport implements Transport {
     let rejectSecure!: (e: Error) => void;
     this.secure = new Promise((res, rej) => { resolveSecure = res; rejectSecure = rej; });
     const id = this.id;
+    // UDP voice lives in the main process; this bridges it to the client's UdpChannel
+    const udp: UdpChannel = {
+      onVoice: null, onState: null, onResync: null,
+      setup: (k, c, s, p) => api.udpSetup(id, k, c, s, p),
+      setServerNonce: n => api.udpNonce(id, n),
+      clientNonce: () => api.udpClientNonce(id),
+      send: p => api.udpSend(id, p)
+    };
+    this.udp = udp;
     this.offs.push(
+      api.on('udpVoice', (cid, p) => { if (cid === id) udp.onVoice?.(p); }),
+      api.on('udpState', (cid, ok, rtt) => { if (cid === id) udp.onState?.(ok, rtt); }),
+      api.on('udpResync', cid => { if (cid === id) udp.onResync?.(); }),
       api.on('secure', (cid, info) => { if (cid === id) resolveSecure(info); }),
       api.on('data', (cid, chunk) => { if (cid === id) this.onData?.(chunk); }),
       api.on('close', (cid, reason) => {

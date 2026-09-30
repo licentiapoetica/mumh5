@@ -156,6 +156,7 @@ type ClientEvents = {
   reject: (type: number, reason: string) => void;
   voice: (packet: Uint8Array) => void;
   userStats: (stats: any) => void;
+  udp: (ok: boolean, rtt: number) => void;
   acl: (acl: ChannelAcl) => void;
   userNames: (names: Map<number, string>) => void;
   permissions: (channelId: number | null, bits: number) => void;
@@ -178,6 +179,11 @@ export class MumbleClient extends Emitter<ClientEvents> {
   serverVersion = '';
   // Numeric server version (major << 16 | minor << 8 | patch), 0 until known
   serverVersionNum = 0;
+  // Voice goes over encrypted UDP while the server answers our UDP pings, otherwise over TCP
+  udpOk = false;
+  udpRtt = 0;
+  // Force the TCP tunnel even when UDP would work (for networks that mangle UDP)
+  forceTcp = false;
   rtt = 0;
   config: ServerConfig = { allowHtml: true, messageLength: 5000, imageMessageLength: 131072, maxUsers: 0, recordingAllowed: true };
 
@@ -203,6 +209,18 @@ export class MumbleClient extends Emitter<ClientEvents> {
 
   connect(transport: Transport, opts: ConnectOptions): void {
     this.transport = transport;
+    const udp = transport.udp;
+    if (udp) {
+      udp.onVoice = plain => { if (!this.closed) this.emit('voice', plain); };
+      udp.onState = (ok, rtt) => {
+        const changed = ok !== this.udpOk;
+        this.udpOk = ok;
+        this.udpRtt = rtt;
+        if (changed) this.emit('udp', ok, rtt);
+      };
+      // Ask the server for a fresh nonce (an empty CryptSetup)
+      udp.onResync = () => this.send('CryptSetup', {});
+    }
     transport.onData = chunk => {
       try {
         this.reader.push(chunk, (id, body) => this.handleFrame(id, body));
@@ -409,6 +427,12 @@ export class MumbleClient extends Emitter<ClientEvents> {
     });
   }
 
+  // Voice over UDP when it works, else through the TCP tunnel
+  sendVoice(packet: Uint8Array): void {
+    if (this.udpOk && !this.forceTcp && this.transport?.udp) this.transport.udp.send(packet);
+    else this.sendVoiceTunnel(packet);
+  }
+
   // Voice over TCP: the UDPTunnel body is the raw voice packet, not a protobuf message
   sendVoiceTunnel(packet: Uint8Array): void {
     if (!this.transport || this.closed) return;
@@ -529,6 +553,19 @@ export class MumbleClient extends Emitter<ClientEvents> {
       case 'UserStats':
         this.emit('userStats', msg);
         break;
+      case 'CryptSetup': {
+        const udp = this.transport?.udp;
+        if (!udp || this.forceTcp) break;
+        if (msg.key?.length && msg.client_nonce?.length && msg.server_nonce?.length) {
+          udp.setup(msg.key, msg.client_nonce, msg.server_nonce, this.protobufVoice);
+        } else if (msg.server_nonce?.length) {
+          udp.setServerNonce(msg.server_nonce);
+        } else {
+          // The server asks for our nonce to resync its side
+          udp.clientNonce().then(n => { if (n) this.send('CryptSetup', { client_nonce: n }); });
+        }
+        break;
+      }
       case 'ACL': {
         // proto2 defaults: missing booleans are true
         const t = (v: unknown) => v !== false;

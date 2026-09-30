@@ -180,6 +180,13 @@ try {
   const statsText = await page.locator('.stats').textContent();
   const decoded = Number(/decoded (\d+)/.exec(statsText ?? '')?.[1]);
   assert.ok(decoded >= 20, `decoded frames reported: ${statsText}`);
+  // Voice runs over encrypted UDP once the server answers UDP pings
+  await page.locator('.stats', { hasText: /Transport: UDP, \d+ ms ping/ }).waitFor({ timeout: 10000 });
+  await page.getByLabel(/Send voice over TCP only/).check();
+  await page.locator('.stats', { hasText: 'Transport: TCP tunnel' }).waitFor();
+  await page.getByLabel(/Send voice over TCP only/).uncheck();
+  await page.locator('.stats', { hasText: /Transport: UDP/ }).waitFor();
+  console.log('ok: voice transport UDP, with a TCP-only switch');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log(`ok: ${decoded} frames decoded`);
   await setMode('Push to talk');

@@ -1,7 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 type Listener = (connId: string, ...args: any[]) => void;
-const listeners = { secure: new Set<Listener>(), data: new Set<Listener>(), close: new Set<Listener>() };
+const listeners = {
+  secure: new Set<Listener>(), data: new Set<Listener>(), close: new Set<Listener>(),
+  udpVoice: new Set<Listener>(), udpState: new Set<Listener>(), udpResync: new Set<Listener>()
+};
 for (const key of Object.keys(listeners) as (keyof typeof listeners)[]) {
   ipcRenderer.on(`mumble:${key}`, (_e, connId: string, ...args: any[]) => {
     for (const fn of listeners[key]) fn(connId, ...args);
@@ -34,6 +37,10 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   open: (connId: string, host: string, port: number, identityId?: string) => ipcRenderer.invoke('mumble:open', connId, host, port, identityId),
   send: (connId: string, bytes: Uint8Array) => ipcRenderer.send('mumble:send', connId, bytes),
   close: (connId: string) => ipcRenderer.send('mumble:close', connId),
+  udpSetup: (connId: string, key: Uint8Array, cn: Uint8Array, sn: Uint8Array, protobuf: boolean) => ipcRenderer.send('mumble:udpSetup', connId, key, cn, sn, protobuf),
+  udpNonce: (connId: string, sn: Uint8Array) => ipcRenderer.send('mumble:udpNonce', connId, sn),
+  udpSend: (connId: string, bytes: Uint8Array) => ipcRenderer.send('mumble:udpSend', connId, bytes),
+  udpClientNonce: (connId: string) => ipcRenderer.invoke('mumble:udpClientNonce', connId),
   on: (event: keyof typeof listeners, fn: Listener) => {
     listeners[event].add(fn);
     return () => listeners[event].delete(fn);

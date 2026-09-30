@@ -37,7 +37,7 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 
 ## Architecture
 
-- `electron/` (Node, main process): window, TLS sockets to Mumble servers (`tls-transport.ts`), identities and PKCS#12 (`identity.ts`, `identity-store.ts`), certificate parsing (`certs.ts`), tray (`tray.ts`). The renderer only gets the narrow `window.mumh5Native` API from `preload.ts` (context isolation, sandbox).
+- `electron/` (Node, main process): window, TLS sockets to Mumble servers (`tls-transport.ts`), encrypted UDP voice (`udp-voice.ts`, `ocb2.ts`, tested against Mumble's OCB2 vectors), identities and PKCS#12 (`identity.ts`, `identity-store.ts`), certificate parsing (`certs.ts`), tray (`tray.ts`). The renderer only gets the narrow `window.mumh5Native` API from `preload.ts` (context isolation, sandbox).
 - `src/core/` (browser-safe TypeScript, also runs in Node for tests): framing and codec (`proto.ts`), the Mumble client state machine (`client.ts`), voice packet formats (`voice-packet.ts`). No DOM, no Electron, no Node imports here.
 - `src/lib/`: app state. `session.svelte.ts` has one `Session` per server plus the `sessions` manager; `session` is a Proxy to the active one. `audio/voice.svelte.ts` is the voice engine (WebCodecs Opus, capture and playback AudioWorklets). `html.ts` sanitizes incoming HTML and serializes outgoing rich text.
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).

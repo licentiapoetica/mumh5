@@ -21,6 +21,7 @@ export interface VoiceSettings {
   bitrate: number;           // Opus bits per second
   frameMs: 10 | 20 | 40 | 60;
   jitterMs: number;
+  forceTcp: boolean;         // send voice through the TCP connection even when UDP works
   // Per-user local volume and mute, keyed by certificate hash (or name without one)
   userVolumes: Record<string, number>;
   localMutes: Record<string, boolean>;
@@ -41,6 +42,7 @@ const defaults: VoiceSettings = {
   bitrate: 40000,
   frameMs: 20,
   jitterMs: 60,
+  forceTcp: false,
   userVolumes: {},
   localMutes: {}
 };
@@ -337,7 +339,7 @@ class VoiceEngine {
   private sendPacket(opus: Uint8Array, last: boolean): void {
     const client = this.client;
     if (!client) return;
-    client.sendVoiceTunnel(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice));
+    client.sendVoice(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice));
     this.frameCounter += this.settings.frameMs / 10;
     this.stats.sent++;
   }
