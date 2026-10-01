@@ -175,6 +175,7 @@
     <button role="tab" aria-selected={kind === 'camera'} class:active={kind === 'camera'} onclick={() => setKind('camera')}>Camera</button>
   </div>
 
+  {#if !canScreen}<p class="help">This browser cannot capture the screen (no browser on Android or iOS can), so only a camera can be shared from here. Watching other people's screens works.</p>{/if}
   {#if kind === 'camera'}
     <label for="sh-cam">Camera</label>
     <select id="sh-cam" value={camera} onchange={e => showCamera(e.currentTarget.value)} disabled={!cameras.length}>
