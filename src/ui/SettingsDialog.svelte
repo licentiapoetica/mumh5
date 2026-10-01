@@ -84,6 +84,10 @@
     {#if stunChoice === 'custom'}
       <input class="stun-custom" bind:value={s.stunServer} onchange={() => store.saveSettings()} placeholder="stun.example.com:3478" autocomplete="off" aria-label="STUN server address" />
     {/if}
+    <label for="s-relay">Relay <span class="opt">(optional)</span></label>
+    <input id="s-relay" bind:value={s.relayServer} onchange={() => { s.relayServer = s.relayServer.trim(); store.saveSettings(); }}
+      placeholder={isWeb ? 'this site (automatic)' : 'https://voice.example.com'} autocomplete="off" />
+    <p class="help">The address of a mumh5 web version. When a direct connection is not possible (mobile data, strict company networks), the stream goes through that server instead, by itself. {isWeb ? 'Empty uses the site you are on.' : 'Its operator sees your IP address and carries the stream, but cannot watch it.'}</p>
     <p class="help">Screen sharing connects you directly to the people watching. Across the internet both sides need a STUN server to find a route; it learns your IP address but never sees the stream. {isWeb ? 'By default the site you are on provides it.' : 'With none, no outside server is contacted and streams only work on the same network.'} Networks that block direct connections, like many mobile ones, need more than STUN.</p>
   {:else if tab === 'sounds'}
     <SoundSettings />
@@ -146,6 +150,7 @@
   .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
   h3 { margin: 22px 0 0; font-size: 14px; }
   .stun-custom { margin-top: 6px; }
+  .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
   .help { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); }
   .row { display: flex; align-items: flex-end; gap: 8px; }
   .row > div { flex: 1; }

@@ -4,6 +4,7 @@ import { _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -45,6 +46,7 @@ async function join(page: Page, name: string) {
   await page.getByText(/Connected/).first().waitFor();
 }
 
+const cleanup: (() => void)[] = [];
 const alice = await launch();
 const bob = await launch();
 const aliceName = `share-a-${tag}`, bobName = `share-b-${tag}`;
@@ -243,6 +245,39 @@ try {
   assert.equal(await alice.page.locator('.stage .status').count(), 0);
   console.log('ok: stopping ends the stream for viewers');
 
+  // Camera instead of the screen, and a relay for networks without direct connections: both
+  // instances point at a mumh5 proxy, and the viewer is limited to the relay over TCP
+  const relayPort = 19000 + Math.floor(Math.random() * 500);
+  const relay = spawn(process.execPath, ['server/main.ts'], {
+    cwd: root, stdio: ['ignore', 'pipe', 'inherit'],
+    env: { ...env, MUMH5_PORT: String(relayPort), MUMH5_ALLOW_ANY: '1', MUMH5_ALLOW_PRIVATE: '1', MUMH5_STUN_PORT: String(relayPort + 500), MUMH5_STUN_BIND: '127.0.0.1', MUMH5_TURN_IP: '127.0.0.1' }
+  });
+  cleanup.push(() => relay.kill());
+  await new Promise<void>((res, rej) => { relay.stdout.on('data', d => { if (String(d).includes('listening')) res(); }); relay.on('exit', c => rej(new Error(`proxy exited with ${c}`))); });
+  for (const p of [alice.page, bob.page]) {
+    await p.getByTitle('Settings').click();
+    await p.getByLabel('Relay').fill(`http://127.0.0.1:${relayPort}`);
+    await p.getByLabel('Relay').blur();
+    await p.getByRole('button', { name: 'Done', exact: true }).click();
+  }
+  await bob.page.evaluate(() => localStorage.setItem('mumh5.iceDebug', 'relay-tcp'));
+
+  await shareBtn.click();
+  await picker.getByRole('tab', { name: 'Camera' }).click();
+  await alice.page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  assert.equal(await picker.getByLabel('Sound').count(), 0, 'no extra sound with a camera');
+  await startBtn.click();
+  await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your camera').waitFor();
+  const cam = bob.page.locator('.sidebar').getByRole('button', { name: `Watch the camera of ${aliceName}`, exact: true });
+  await cam.waitFor();
+  await cam.click();
+  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  const camStats = await nerd(bob.page, [/^relayed \(TURN\), reached over TCP/, /^0 direct, 0 through STUN, [1-9]\d* relayed/]);
+  await alice.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();
+  await cam.waitFor({ state: 'detached' });
+  await bob.page.evaluate(() => localStorage.removeItem('mumh5.iceDebug'));
+  console.log(`ok: camera shared, watched through the relay set in the desktop app (${camStats.match(/Picture \| [^|]+/)?.[0]})`);
+
   // A sharer who disconnects takes the stream with them
   await shareBtn.click();
   await pickAndStart();
@@ -260,6 +295,7 @@ try {
 
   console.log('SHARE E2E PASSED');
 } finally {
+  for (const c of cleanup) c();
   await alice.app.close().catch(() => {});
   await bob.app.close().catch(() => {});
 }

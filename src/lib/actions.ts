@@ -69,7 +69,7 @@ export function userMenu(u: User): MenuItem[] {
     );
     if (u.userId == null) items.push({ label: 'Register on this server', action: () => session.register(u.session) });
   } else {
-    if (session.sharing[u.session]) items.push({ label: 'Watch screen', action: () => share.watch(sessions.active, u.session) });
+    if (session.sharing[u.session]) items.push({ label: `Watch ${session.sharing[u.session]}`, action: () => share.watch(sessions.active, u.session) });
     items.push(
       { label: 'Send message', action: () => session.selectView(`dm:${u.session}`) },
       { label: 'Mute for me', checked: !!voice.settings.localMutes[userKey(u)], action: () => voice.setLocalMute(u, !voice.settings.localMutes[userKey(u)]) },

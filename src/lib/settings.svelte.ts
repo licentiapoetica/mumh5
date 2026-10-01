@@ -26,6 +26,7 @@ export interface Settings {
   arrangement: Arrangement;
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
   shareVolume: number;    // volume of streams we watch, 0 to 1
+  relayServer: string;    // a mumh5 web proxy whose STUN and relay to use for screen sharing
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
   shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
@@ -58,6 +59,7 @@ const defaults: Settings = {
   arrangement: 'side',
   shareQuality: 'medium',
   shareVolume: 1,
+  relayServer: '',
   stunServer: '',
   shareNoticeSeen: false,
   hints: false

@@ -169,14 +169,15 @@
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)}>{store.displayName(u)}</span>
             {#if u.userId != null}<span class="reg" title="Registered">R</span>{/if}
             {#if session.sharing[u.session]}
+              {@const kind = session.sharing[u.session]}
               {#if isSelf}
-                <span class="state sharing" title="You are sharing your screen"><Icon name="screen" size={14} /></span>
+                <span class="state sharing" title="You are sharing your {kind}"><Icon name={kind} size={14} /></span>
               {:else}
                 <!-- A button cannot sit inside the row's button -->
-                <span class="state sharing" role="button" tabindex="0" title="Sharing their screen. Click to watch" aria-label="Watch the screen of {store.displayName(u)}"
+                <span class="state sharing" role="button" tabindex="0" title="Sharing their {kind}. Click to watch" aria-label="Watch the {kind} of {store.displayName(u)}"
                   onclick={e => { e.stopPropagation(); clearTimeout(timer); share.watch(sessions.active, u.session); }}
                   ondblclick={e => e.stopPropagation()}
-                  onkeydown={e => { if (e.key === 'Enter') { e.stopPropagation(); share.watch(sessions.active, u.session); } }}><Icon name="screen" size={14} /></span>
+                  onkeydown={e => { if (e.key === 'Enter') { e.stopPropagation(); share.watch(sessions.active, u.session); } }}><Icon name={kind} size={14} /></span>
               {/if}
             {/if}
             {#if u.comment || u.commentHash}<span class="state" title="Has a description"><Icon name="message" size={12} /></span>{/if}

@@ -111,9 +111,12 @@ test('the proxy answers STUN over UDP and announces the port', async () => {
     // Relay credentials for people on this site: a username that expires and its password
     const base = `http://127.0.0.1:${proxy.port}`;
     assert.equal((await (await fetch(`${base}/api/config`)).json()).turn, true);
-    const cred = await (await post(base, 'turn', {})).json();
+    // What clients need for screen sharing: the port, and relay credentials that expire.
+    // Readable from any origin, since the desktop app asks from outside this site.
+    const res = await fetch(`${base}/api/relay`, { headers: { Origin: 'app://mumh5' } });
+    assert.equal(res.headers.get('access-control-allow-origin'), '*');
+    const cred = await res.json();
     assert.ok(Number(cred.username) > Date.now() / 1000 && cred.credential.length > 20 && cred.port === proxy.stunPort);
-    assert.equal((await post(base, 'turn', {}, { Origin: 'https://evil.example' })).status, 200, 'origins are open in this test');
     assert.deepEqual([...answer.subarray(28)].map((b, i) => b ^ [0x21, 0x12, 0xa4, 0x42][i]), [127, 0, 0, 1]);
     client.close();
   } finally {

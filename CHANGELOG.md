@@ -6,6 +6,8 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ### Added
 
+- Camera sharing, as a second source in the screen sharing dialog.
+- A relay for streams in the web proxy, used automatically by the browser version and, with its address entered in Settings, by the desktop app, for networks and browsers that allow no direct connection.
 - Screen sharing between mumh5 users in a channel: a dialog to choose the screen or window (with preview), the sound and the quality; sound from one program or the whole system on Linux through PipeWire. Viewers watch in the voice tiles, enlarge a stream like in a meeting and set its volume. Streams go directly between clients; a STUN server can be set in Settings, Voice.
 - Browser version: `npm run build:web` builds the web app and a small self-hosted proxy that bridges browsers to Mumble servers on an allowlist. Identities are kept in the browser, voice goes through the TCP tunnel. See "Browser version" in the README.
 - Link previews in chat: title, description and image for web links (up to two per message). By default they are fetched by your f0ckm upload host, so the linked sites never see your IP address. Can be switched to "fetched by this computer" or off in Settings, Chat and files.

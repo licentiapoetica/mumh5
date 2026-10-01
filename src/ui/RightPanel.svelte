@@ -128,8 +128,8 @@
 
       {#if session.sharing[user.session]}
         <div class="sharing">
-          <Icon name="screen" size={16} />
-          <span>{isSelf ? 'You are sharing your screen' : 'Sharing their screen'}</span>
+          <Icon name={session.sharing[user.session]} size={16} />
+          <span>{isSelf ? `You are sharing your ${session.sharing[user.session]}` : `Sharing their ${session.sharing[user.session]}`}</span>
           {#if isSelf}<button class="btn" onclick={() => share.stop()}>Stop sharing</button>
           {:else if share.watching?.session === user.session}<button class="btn" onclick={() => share.unwatch()}>Stop watching</button>
           {:else}<button class="btn primary" onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
