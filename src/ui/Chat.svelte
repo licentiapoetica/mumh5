@@ -3,7 +3,6 @@
   import ChatLog from './ChatLog.svelte';
   import Composer from './Composer.svelte';
   import VoiceStage from './VoiceStage.svelte';
-  import ShareView from './ShareView.svelte';
   import { ui } from '../lib/ui.svelte.ts';
   import { session } from '../lib/session.svelte.ts';
 
@@ -28,8 +27,7 @@
     <button class="icon-btn" onclick={onpanel} title="Members"><Icon name="users" /></button>
   </header>
 
-  {#if showStage && session.status === 'connected'}<VoiceStage />{/if}
-  {#if session.status === 'connected'}<ShareView />{/if}
+  {#if session.status === 'connected'}<VoiceStage always={showStage} />{/if}
 
   {#if session.status === 'idle' && session.disconnectInfo}
     {@const d = session.disconnectInfo}

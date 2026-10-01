@@ -31,8 +31,15 @@ interface NativeApi extends PlatformApi {
   editAction(action: string, arg?: unknown): void;
   // Screens and windows that can be shared; pick one before calling getDisplayMedia
   // chosen: the system's own picker already asked (Wayland), so `sources` is the one answer
-  screenSources(): Promise<{ sources: ScreenSource[]; chosen: boolean }>;
+  // Thumbnails are slower to get and can fail; ask for the names first
+  screenSources(thumbnails: boolean): Promise<{ sources: ScreenSource[]; chosen: boolean }>;
   pickScreenSource(id: string): void;
+  // portal: the system shows its own source picker (Wayland). audio: how other programs' sound can be captured.
+  shareInfo(): Promise<{ portal: boolean; audio: 'pipewire' | 'loopback' | 'none'; micLabel: string }>;
+  shareAudioApps(): Promise<string[]>;
+  // Linux: route one program, or everything but this app, into a virtual microphone named micLabel
+  shareAudioStart(target: { kind: 'all' } | { kind: 'app'; name: string }): Promise<void>;
+  shareAudioStop(): Promise<void>;
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;

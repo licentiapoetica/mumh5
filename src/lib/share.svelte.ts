@@ -5,13 +5,21 @@
 import { SHARE, SHARE_DATA_ID, encodeShare, ShareAssembler, type ShareType } from '../core/share-signal.ts';
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
-import { desktop, type ScreenSource } from './native.ts';
+import { desktop } from './native.ts';
 import { store } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 
 // Every viewer is a separate upload from the sharer
 const MAX_VIEWERS = 8;
-const MAX_BITRATE = 4_000_000;
+export const QUALITY = {
+  low: { label: 'Low (1 Mbit/s, 30 fps)', bitrate: 1_000_000, fps: 30 },
+  medium: { label: 'Medium (4 Mbit/s, 30 fps)', bitrate: 4_000_000, fps: 30 },
+  high: { label: 'High (8 Mbit/s, 60 fps)', bitrate: 8_000_000, fps: 60 }
+} as const;
+
+// Opus is negotiated as mono speech by default; shared sound is stereo and often music
+const stereo = (sdp: string) => sdp.replace(/a=fmtp:(\d+) ([^\r\n]*useinbandfec=1[^\r\n]*)/g,
+  (line, pt, rest) => rest.includes('stereo=1') ? line : `a=fmtp:${pt} ${rest};stereo=1;sprop-stereo=1;maxaveragebitrate=192000`);
 
 export interface Watching {
   host: Session;
@@ -27,8 +35,9 @@ class ScreenShare {
   viewers = $state(0);
   watching = $state.raw<Watching | null>(null);
   error = $state('');
-  // Source choice in the desktop app (the browser brings its own picker)
-  picker = $state.raw<{ sources: ScreenSource[]; choose: (id: string | null) => void } | null>(null);
+  // The server the start dialog is open for
+  dialog = $state.raw<Session | null>(null);
+  private usesVirtualMic = false;
 
   private peers = new Map<number, RTCPeerConnection>();
   private watchPc: RTCPeerConnection | null = null;
@@ -75,43 +84,41 @@ class ScreenShare {
     });
   }
 
-  private async capture(): Promise<MediaStream> {
-    if (desktop) {
-      const { sources, chosen } = await desktop.screenSources();
-      // Cancelled in the system's picker
-      if (!sources.length) throw new Error('');
-      const id = chosen ? sources[0].id
-        : await new Promise<string | null>(choose => { this.picker = { sources, choose }; });
-      this.picker = null;
-      if (!id) throw new Error('');
-      desktop.pickScreenSource(id);
-    }
-    return navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+  // Opens the dialog where the source, the sound and the quality are chosen
+  async start(s: Session): Promise<void> {
+    if (this.stream || this.dialog || !this.supported(s) || !(await this.notice())) return;
+    this.error = '';
+    this.dialog = s;
   }
 
-  async start(s: Session): Promise<void> {
-    if (this.stream || !this.supported(s) || !(await this.notice())) return;
-    this.error = '';
-    let stream: MediaStream;
-    try {
-      stream = await this.capture();
-    } catch (e) {
-      // Cancelling the picker is not an error worth showing
-      const msg = (e as Error).message;
-      if (msg && (e as Error).name !== 'NotAllowedError') this.error = `Could not capture the screen: ${msg}`;
+  // The dialog hands over what it captured
+  go(s: Session, stream: MediaStream, usesVirtualMic: boolean): void {
+    this.dialog = null;
+    // Disconnected while the dialog was open
+    if (!s.client || this.stream) {
+      stream.getTracks().forEach(t => t.stop());
+      if (usesVirtualMic) desktop?.shareAudioStop();
       return;
     }
-    // Disconnected while the picker was open
-    if (!s.client) return stream.getTracks().forEach(t => t.stop());
     for (const t of stream.getVideoTracks()) {
       t.contentHint = 'detail';
       // The system's "stop sharing" control
       t.addEventListener('ended', () => this.stop());
     }
+    this.usesVirtualMic = usesVirtualMic;
     this.host = s;
     this.stream = stream;
     this.send(s, this.others(s), SHARE.on);
     s.setSharing(s.client.session!, true);
+  }
+
+  private release(): void {
+    this.dropPeers();
+    this.stream?.getTracks().forEach(t => t.stop());
+    this.stream = null;
+    this.host = null;
+    if (this.usesVirtualMic) desktop?.shareAudioStop();
+    this.usesVirtualMic = false;
   }
 
   stop(): void {
@@ -120,10 +127,7 @@ class ScreenShare {
       this.send(s, this.others(s), SHARE.off);
       if (s.client.session != null) s.setSharing(s.client.session, false);
     }
-    this.dropPeers();
-    this.stream?.getTracks().forEach(t => t.stop());
-    this.stream = null;
-    this.host = null;
+    this.release();
   }
 
   private dropPeers(): void {
@@ -195,10 +199,10 @@ class ScreenShare {
       const params = sender.getParameters();
       // Keep the picture sharp and let the frame rate drop when the connection is tight
       params.degradationPreference = 'maintain-resolution';
-      for (const enc of params.encodings ?? []) enc.maxBitrate = MAX_BITRATE;
+      for (const enc of params.encodings ?? []) enc.maxBitrate = QUALITY[store.settings.shareQuality].bitrate;
       await sender.setParameters(params).catch(() => {});
     }
-    await pc.setLocalDescription(await pc.createOffer());
+    await pc.setLocalDescription({ type: 'offer', sdp: stereo((await pc.createOffer()).sdp ?? '') });
     await this.gathered(pc);
     if (this.peers.get(viewer) === pc && pc.localDescription) await this.send(s, [viewer], SHARE.offer, pc.localDescription.sdp);
   }
@@ -215,7 +219,7 @@ class ScreenShare {
     });
     try {
       await pc.setRemoteDescription({ type: 'offer', sdp });
-      await pc.setLocalDescription(await pc.createAnswer());
+      await pc.setLocalDescription({ type: 'answer', sdp: stereo((await pc.createAnswer()).sdp ?? '') });
       await this.gathered(pc);
       if (this.watchPc === pc && pc.localDescription) await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
     } catch {
@@ -275,12 +279,8 @@ class ScreenShare {
   }
 
   closed(s: Session): void {
-    if (this.host === s) {
-      this.dropPeers();
-      this.stream?.getTracks().forEach(t => t.stop());
-      this.stream = null;
-      this.host = null;
-    }
+    if (this.host === s) this.release();
+    if (this.dialog === s) this.dialog = null;
     if (this.watching?.host === s) this.endWatch();
   }
 }

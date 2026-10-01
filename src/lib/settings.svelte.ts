@@ -24,6 +24,8 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
+  shareVolume: number;    // volume of streams we watch, 0 to 1
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
   shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
@@ -54,6 +56,8 @@ const defaults: Settings = {
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'side',
+  shareQuality: 'medium',
+  shareVolume: 1,
   stunServer: '',
   shareNoticeSeen: false,
   hints: false

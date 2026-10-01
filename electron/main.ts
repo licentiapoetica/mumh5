@@ -9,6 +9,7 @@ import { fetchLinkPreview } from './link-preview.ts';
 import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
 import { udpChannel } from './udp-voice.ts';
+import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 
@@ -131,20 +132,39 @@ ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url
 // `chosen` tells the renderer not to ask a second time.
 let screenSources: Electron.DesktopCapturerSource[] = [];
 let pickedSource: string | null = null;
-ipcMain.handle('share:sources', async () => {
-  const wayland = process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
-    (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
-  const list = () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
-  screenSources = await list();
-  // The X11 capturer can come back empty on its first calls. Not on Wayland, where empty
-  // means the user cancelled the system's picker and asking again would reopen it.
-  for (let i = 0; i < 8 && !screenSources.length && !wayland; i++) {
+const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
+  (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+
+// Sound: PipeWire on Linux (one program or everything but this app), system loopback on Windows
+const shareAudio = new ShareAudio(() => app.getAppMetrics().map(m => m.pid));
+ipcMain.handle('share:info', async () => ({
+  portal: onWayland(),
+  audio: process.platform === 'win32' ? 'loopback' : (await pipewireAvailable()) ? 'pipewire' : 'none',
+  micLabel: VIRTUAL_MIC_LABEL
+}));
+ipcMain.handle('share:audioApps', () => shareAudio.apps().catch(() => []));
+ipcMain.handle('share:audioStart', (_e, target: AudioTarget) =>
+  shareAudio.start(target?.kind === 'app' ? { kind: 'app', name: String(target.name) } : { kind: 'all' }));
+ipcMain.handle('share:audioStop', () => shareAudio.stop());
+// The virtual microphone outlives the process otherwise
+app.on('will-quit', () => { shareAudio.stop(); });
+
+// Names first (fast and dependable), thumbnails in a second call: grabbing the pictures can be
+// slow and, under X11, can come back with nothing.
+ipcMain.handle('share:sources', async (_e, thumbnails: boolean) => {
+  const wayland = onWayland();
+  const size = thumbnails ? { width: 320, height: 180 } : { width: 0, height: 0 };
+  const list = () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: size });
+  let found = await list();
+  // Not on Wayland, where empty means the user cancelled the system's picker and asking again would reopen it
+  for (let i = 0; i < 3 && !found.length && !wayland; i++) {
     await new Promise(r => setTimeout(r, 250));
-    screenSources = await list();
+    found = await list();
   }
+  if (found.length || !thumbnails) screenSources = found;
   return {
-    chosen: wayland && screenSources.length === 1,
-    sources: screenSources.map(s => ({ id: s.id, name: s.name, thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() }))
+    chosen: wayland && found.length === 1,
+    sources: found.map(s => ({ id: s.id, name: s.name, thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() }))
   };
 });
 ipcMain.on('share:pick', (_e, id: string) => { pickedSource = String(id); });
@@ -224,11 +244,15 @@ app.whenReady().then(async () => {
     cb({ requestHeaders: details.requestHeaders });
   });
 
-  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const source = screenSources.find(s => s.id === pickedSource);
     pickedSource = null;
     // Without a picked source the request is refused
-    try { callback(source ? { video: source } : {}); } catch { /* refused */ }
+    try {
+      if (!source) callback({});
+      else if (request.audioRequested && process.platform === 'win32') callback({ video: source, audio: 'loopback' });
+      else callback({ video: source });
+    } catch { /* refused */ }
   });
 
   // Microphone, camera and screen capture for voice and video; nothing else

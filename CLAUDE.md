@@ -47,7 +47,7 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 - `src/core/` (browser-safe TypeScript, also runs in Node for tests): framing and codec (`proto.ts`), the Mumble client state machine (`client.ts`), voice packet formats (`voice-packet.ts`). No DOM, no Electron, no Node imports here.
 - `src/lib/native.ts`: `desktop` is the Electron preload API or null; `native` is what both platforms provide (identities, certificates), backed by `web.svelte.ts` in the browser build (`isWeb`, vite `--mode web`). Desktop-only features check `desktop`.
 - `src/lib/`: app state. `session.svelte.ts` has one `Session` per server plus the `sessions` manager; `session` is a Proxy to the active one. `audio/voice.svelte.ts` is the voice engine (WebCodecs Opus, capture and playback AudioWorklets). `html.ts` sanitizes incoming HTML and serializes outgoing rich text.
-- Screen sharing: `src/core/share-signal.ts` (signals as Mumble plugin data, id `mumh5.share`, compressed and chunked) and `src/lib/share.svelte.ts` (one WebRTC connection per viewer, candidates inside the description, no trickle). The desktop source picker is `share:sources` / `share:pick` in `electron/main.ts`.
+- Screen sharing: `src/core/share-signal.ts` (signals as Mumble plugin data, id `mumh5.share`, compressed and chunked) and `src/lib/share.svelte.ts` (one WebRTC connection per viewer, candidates inside the description, no trickle). The start dialog is `ShareDialog.svelte`, the tiles and the large view are `VoiceStage.svelte`. Desktop source listing is `share:sources` / `share:pick` in `electron/main.ts`; Linux sound is `electron/pipewire.ts` (a virtual microphone fed with pw-link, never with this app's own playback).
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
 
 Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
@@ -64,7 +64,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 
 - The CSP allows media only from `self`, `blob:` and http(s). `data:` audio is blocked silently: play user files through object URLs. Large user files go to IndexedDB (`src/lib/blobstore.ts`), not localStorage.
 - `window.prompt` does not exist in Electron; use `ui.prompt`.
-- `desktopCapturer.getSources` can return an empty list on its first calls under X11; main retries. On Wayland the call itself opens the system picker, so it is never repeated.
+- `desktopCapturer.getSources` can return an empty list on its first calls under X11 and takes seconds on the bare Xvfb test display; main retries and the dialog has Refresh. With `--use-fake-device-for-media-stream` the captured picture is Chromium's test pattern, not the screen. On Wayland the call itself opens the system picker, so it is never repeated.
 - A drop handler must read derived state before clearing the drag item it derives from.
 
 ## Svelte reactivity pitfalls (all hit before)

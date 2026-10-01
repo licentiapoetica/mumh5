@@ -13,6 +13,8 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
   import RichEditor from './RichEditor.svelte';
+  import { share } from '../lib/share.svelte.ts';
+  import { sessions } from '../lib/session.svelte.ts';
 
   let { onnavigate, onclose }: { onnavigate: () => void; onclose: () => void } = $props();
 
@@ -124,6 +126,16 @@
         </div>
       </div>
 
+      {#if session.sharing[user.session]}
+        <div class="sharing">
+          <Icon name="screen" size={16} />
+          <span>{isSelf ? 'You are sharing your screen' : 'Sharing their screen'}</span>
+          {#if isSelf}<button class="btn" onclick={() => share.stop()}>Stop sharing</button>
+          {:else if share.watching?.session === user.session}<button class="btn" onclick={() => share.unwatch()}>Stop watching</button>
+          {:else}<button class="btn primary" onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
+        </div>
+      {/if}
+
       {#if isSelf}
         <div class="actions"><button class="btn" onclick={() => changeNamePrompt(user)}>Change name</button></div>
       {/if}
@@ -158,6 +170,9 @@
 </aside>
 
 <style>
+  .sharing { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 10px; font-size: 13px; color: var(--speaking); border: 1px solid var(--line); background: var(--bg-0); }
+  .sharing span { flex: 1; min-width: 0; color: var(--text); }
+  .sharing .btn { padding: 4px 10px; font-size: 12px; }
   .panel { position: relative; max-width: 100%; height: 100%; flex: none; display: flex; flex-direction: column; background: var(--bg-1); border-left: 1px solid var(--line); min-height: 0; }
   header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
   h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

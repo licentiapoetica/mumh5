@@ -181,7 +181,8 @@ test('two clients talk through the proxy', { skip: !target }, async () => {
     const a = await connect(`proxy-a-${Date.now() % 100000}`);
     const b = await connect(`proxy-b-${Date.now() % 100000}`);
     const got = new Promise<string>(resolve => b.on('text', m => resolve(m.html)));
-    a.sendText({ channels: [0] }, 'hello through the proxy');
+    // A direct message, so other test files listening in the root channel are not disturbed
+    a.sendText({ users: [b.session!] }, 'hello through the proxy');
     assert.equal(await got, 'hello through the proxy');
     // No UDP in a browser: voice stays on the TCP tunnel
     assert.equal(a.udpOk, false);

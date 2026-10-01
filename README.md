@@ -78,11 +78,12 @@ mumh5 keeps the foundation and replaces the experience.
 
 ### Screen sharing
 
-- Share a screen or a window with the mumh5 users in your channel; they see an indicator next to your name and click it to watch
-- No server setup and no extra account: the setup messages travel through the Mumble server, the picture goes directly between the two clients (WebRTC)
-- Picture only for now, up to 8 viewers. Regular Mumble clients do not see streams
+- Share a screen or a window with the mumh5 users in your channel. A dialog lets you choose what to show, with a live preview, which sound goes with it and the quality, before anything is sent
+- Sound: on Linux one program or everything except mumh5 itself (through PipeWire, so viewers do not hear the voice chat twice); on Windows the whole system; in a browser what the browser offers
+- People in the channel see an indicator next to your name, on your tile and in your profile, and click to watch. Your tile shows the picture; a click makes it large with everyone else in a strip below, like a meeting. Viewers set the stream's volume
+- No server setup and no extra account: the setup messages travel through the Mumble server, the stream goes directly between the two clients (WebRTC), up to 8 viewers. Regular Mumble clients do not see streams
 - Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Behind most home routers a STUN server (Settings, Voice) is needed; none is contacted unless you enter one
-- Tested between two desktop instances on one machine; connections across the internet and the browser build are untested
+- Tested between two desktop instances on one machine with a test picture. Sound capture, real screens, connections across the internet, Windows and the browser build are untested
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
@@ -262,7 +263,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 - System-wide push to talk
 - Whisper and shout
 - Rich chat between mumh5 users: replies, reactions, edits, typing indicators
-- Screen sharing: sound (one application or the whole system, also on Linux through PipeWire), quality settings, and an optional self-hosted relay for many viewers
+- Screen sharing: several streams at once, and an optional self-hosted relay for many viewers
 - Release builds for all platforms
 
 ---

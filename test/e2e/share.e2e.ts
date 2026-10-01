@@ -56,45 +56,83 @@ try {
   await shareBtn.click();
   await alice.page.getByText(/You see each other's IP address/).waitFor();
   await alice.page.getByRole('button', { name: 'Continue' }).click();
+  // The dialog: pick a source, see the preview, then start
   const picker = alice.page.getByRole('dialog', { name: 'Share your screen' });
-  await picker.locator('.sources button').first().click();
+  const startBtn = picker.getByRole('button', { name: 'Start sharing' });
+  const pickAndStart = async () => {
+    assert.ok(await startBtn.isDisabled(), 'nothing can start before a source is chosen');
+    // Listing is slow on the bare test display and can come back empty the first time
+    for (let i = 0; i < 6 && !(await picker.locator('.sources button').count()); i++) {
+      await Promise.race([picker.locator('.sources button').first().waitFor({ timeout: 40000 }), picker.getByText('Nothing found').waitFor({ timeout: 40000 })]).catch(() => {});
+      if (await picker.getByText('Nothing found').count()) await picker.getByRole('button', { name: 'Refresh' }).click();
+    }
+    await picker.locator('.sources button').first().click();
+    await alice.page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+    await startBtn.click();
+  };
+  await picker.getByLabel('Quality').selectOption('low');
+  await pickAndStart();
   await alice.page.getByText('You are sharing your screen').waitFor();
   await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your screen').waitFor();
-  console.log('ok: sharing started from the picker');
+  // The sharer's own tile shows what is being sent; clicking it makes it large
+  await alice.page.waitForFunction(() => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  await alice.page.locator('.stage .tile.self').click();
+  const ownView = alice.page.getByRole('region', { name: 'Screen share' });
+  await ownView.getByText('Your screen').waitFor();
+  await ownView.getByRole('button', { name: 'Back to tiles' }).click();
+  await ownView.waitFor({ state: 'detached' });
+  console.log('ok: sharing started from the dialog, own tile shows the stream');
 
   // Bob connects afterwards and still learns about the stream
   await join(bob.page, bobName);
-  const watch = bob.page.getByRole("button", { name: `Watch the screen of ${aliceName}`, exact: true });
+  // Next to the name in the channel list, and on the tile above the chat
+  const watch = bob.page.locator('.sidebar').getByRole('button', { name: `Watch the screen of ${aliceName}`, exact: true });
   await watch.waitFor();
+  const tile = bob.page.locator('.stage .tile', { hasText: aliceName });
+  await tile.waitFor();
   console.log('ok: a late joiner sees who is sharing');
 
-  await watch.click();
+  await tile.click();
   await bob.page.getByRole('button', { name: 'Continue' }).click();
   const view = bob.page.getByRole('region', { name: 'Screen share' });
   await view.getByText(aliceName).waitFor();
-  await bob.page.waitForFunction(() => (document.querySelector('.watch video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
-  const size = await bob.page.evaluate(() => { const v = document.querySelector('.watch video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
+  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  const size = await bob.page.evaluate(() => { const v = document.querySelector('.spot video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
   await alice.page.getByText('You are sharing your screen, 1 watching').waitFor();
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
+
+  // Like a meeting: back to tiles keeps the picture in the tile, a click makes it large again
+  await view.getByRole('button', { name: 'Back to tiles' }).click();
+  await view.waitFor({ state: 'detached' });
+  await bob.page.waitForFunction(() => (document.querySelector('.stage .tile.video video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  await tile.click();
+  await view.waitFor();
+  console.log('ok: stream in the tile, large on click');
 
   // Leaving and coming back
   await view.getByRole('button', { name: 'Stop watching' }).click();
   await view.waitFor({ state: 'detached' });
   await alice.page.getByText('You are sharing your screen', { exact: true }).waitFor();
-  await watch.click();
-  await bob.page.waitForFunction(() => (document.querySelector('.watch video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
-  console.log('ok: stop watching and watch again');
+  // The sharer's profile says so and offers to watch
+  await bob.page.locator('.sidebar .row.user', { hasText: aliceName }).click();
+  const profile = bob.page.locator('.panel .sharing');
+  await profile.getByText('Sharing their screen').waitFor();
+  await profile.getByRole('button', { name: 'Watch' }).click();
+  await profile.getByRole('button', { name: 'Stop watching' }).waitFor();
+  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  console.log('ok: stop watching, watch again from the profile');
 
   // Alice stops: the view and the indicator go away
   await alice.page.locator('.me').getByRole('button', { name: 'Stop sharing your screen' }).click();
   await view.waitFor({ state: 'detached' });
   await watch.waitFor({ state: 'detached' });
+  await profile.waitFor({ state: 'detached' });
   assert.equal(await alice.page.getByText('You are sharing your screen').count(), 0);
   console.log('ok: stopping ends the stream for viewers');
 
   // A sharer who disconnects takes the stream with them
   await shareBtn.click();
-  await picker.locator('.sources button').first().click();
+  await pickAndStart();
   await watch.waitFor();
   await alice.page.getByTitle('Disconnect').click();
   await watch.waitFor({ state: 'detached' });
