@@ -188,6 +188,13 @@ try {
   await page2.getByRole('button', { name: 'Continue' }).click();
   await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
   await page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
+  // Phone-sized window: the picture still has room and frames
+  await page2.setViewportSize({ width: 390, height: 780 });
+  await page2.waitForFunction(() => {
+    const v = document.querySelector('.spot video') as HTMLVideoElement | null;
+    return !!v && v.videoWidth > 0 && !v.paused && v.getBoundingClientRect().height > 100 && v.getBoundingClientRect().width > 300;
+  }, null, { timeout: 15000 });
+  if (process.env.SHOTS_DIR) await page2.screenshot({ path: `${process.env.SHOTS_DIR}/phone.png` });
   console.log('ok: screen sharing between two browsers');
 
   console.log('WEB E2E PASSED');
