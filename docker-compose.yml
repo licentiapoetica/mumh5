@@ -8,7 +8,7 @@ services:
     # Host networking, so STUN sees each visitor's real address (through Docker's port
     # forwarding it would often see Docker's own) and a Mumble server on this machine is
     # reachable as localhost. The proxy listens on 127.0.0.1:8080 for nginx, on port 3478 (UDP and
-    # TCP) for STUN and the relay, and relays streams on UDP 49160-49359.
+    # TCP) for STUN and the relay, and relays streams on UDP 49160-49659.
     network_mode: host
     # Passed on from .env (or the shell); empty means the proxy's default. Written out one by
     # one because older docker-compose versions cannot mark an env_file as optional.
@@ -26,5 +26,7 @@ services:
       MUMH5_TURN: ${MUMH5_TURN:-}
       MUMH5_TURN_IP: ${MUMH5_TURN_IP:-}
       MUMH5_TURN_PORTS: ${MUMH5_TURN_PORTS:-}
+      MUMH5_TURN_MAX: ${MUMH5_TURN_MAX:-}
+      MUMH5_TURN_PER_ADDRESS: ${MUMH5_TURN_PER_ADDRESS:-}
       MUMH5_MAX_CONNECTIONS: ${MUMH5_MAX_CONNECTIONS:-}
       MUMH5_MAX_PER_ADDRESS: ${MUMH5_MAX_PER_ADDRESS:-}

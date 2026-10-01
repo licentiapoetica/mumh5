@@ -78,6 +78,7 @@ mumh5 keeps the foundation and replaces the experience.
 
 ### Screen sharing
 
+- Camera rounds: everyone who turns their camera on appears in the tiles at once, like a video meeting; one click joins or leaves the round, and a click on a tile enlarges that camera
 - Share a screen, a window or a camera with the mumh5 users in your channel. A dialog lets you choose what to show, with a live preview, which sound goes with it and the quality, before anything is sent
 - Sound: on Linux one program or everything except mumh5 itself (through PipeWire, so viewers do not hear the voice chat twice); on Windows the whole system; in a browser what the browser offers
 - People in the channel see an indicator next to your name, on your tile and in your profile, and click to watch. The tiles above the chat fill a stage you can drag taller or shorter. A stream opens large, with everyone as a strip of tiles below, like a meeting, and can move to a window of its own; in the stacked layout it is just the picture, as wide as the chat. Sounds announce streams and viewers. Viewers set the stream's volume
@@ -177,7 +178,7 @@ docker compose up -d --build
 
 The container uses the host's network: the proxy listens on `127.0.0.1:8080` for your reverse proxy, and a Mumble server on the same machine is reachable as `localhost`.
 
-For screen sharing, open these in the firewall (and forward them on a router in front of the server): port 3478 for UDP and TCP, and UDP 49160-49359. They carry STUN and the relay, which the browser version uses without any setting. Relayed streams pass through your server and use its bandwidth, a few Mbit/s per viewer; anyone who knows the site's address can get credentials for it (the desktop app asks from outside the site), limited by connection quotas per address; there is no bandwidth cap yet.
+For screen sharing, open these in the firewall (and forward them on a router in front of the server): port 3478 for UDP and TCP, and UDP 49160-49659. They carry STUN and the relay, which the browser version uses without any setting. Relayed streams pass through your server and use its bandwidth, a few Mbit/s per viewer; anyone who knows the site's address can get credentials for it (the desktop app asks from outside the site), limited by connection quotas per address; there is no bandwidth cap yet.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -189,7 +190,8 @@ For screen sharing, open these in the firewall (and forward them on a router in 
 | `MUMH5_SEND_PROXY` | off | Announce each visitor's address to the server with the PROXY protocol (see below). Breaks connections to a plain Mumble server |
 | `MUMH5_STUN_PORT`, `MUMH5_STUN_BIND` | `3478`, all addresses | Port for screen sharing between browser users: STUN over UDP, and the relay over UDP and TCP. Browsers reach it directly, not through nginx. `0` turns both off |
 | `MUMH5_TURN` | on | The relay (TURN) for people who cannot connect directly: mobile networks, strict company networks, browsers that forbid direct UDP such as Vanadium. `0` leaves only STUN |
-| `MUMH5_TURN_PORTS` | `49160-49359` | UDP ports the relayed streams use |
+| `MUMH5_TURN_PORTS` | `49160-49659` | UDP ports the relayed streams use, one per relayed route |
+| `MUMH5_TURN_MAX`, `MUMH5_TURN_PER_ADDRESS` | `500`, `64` | Relayed routes in total and per client address. A camera round uses several per person |
 | `MUMH5_TURN_IP` | found automatically | The server's public address, announced for relayed streams. Set it when the server sits behind a 1:1 NAT, as on many cloud hosts |
 | `MUMH5_STATIC` | `../dist-web` | Folder with the web build |
 | `MUMH5_MAX_CONNECTIONS`, `MUMH5_MAX_PER_ADDRESS` | `200`, `8` | Connection limits, in total and per client address |
@@ -278,7 +280,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 - System-wide push to talk
 - Whisper and shout
 - Rich chat between mumh5 users: replies, reactions, edits, typing indicators
-- Screen sharing: several streams at once, and an optional self-hosted relay for many viewers
+- Screen sharing: a media server for large rounds (today every sender uploads once per viewer, up to 8)
 - Release builds for all platforms
 
 ---

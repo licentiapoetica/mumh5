@@ -6,7 +6,8 @@
 
   // "Stats for nerds" over the stream: codecs, picture, bitrate and the network path, read
   // from the WebRTC connection once a second. own: our stream (one block per viewer).
-  let { own, onclose }: { own: boolean; onclose: () => void } = $props();
+  // session: whose stream, when it is one we watch
+  let { own, session: watched = null, onclose }: { own: boolean; session?: number | null; onclose: () => void } = $props();
 
   type Row = [string, string];
   let blocks = $state<{ title: string; rows: Row[] }[]>([]);
@@ -83,7 +84,7 @@
   }
 
   async function read() {
-    const reports = await share.reports(own);
+    const reports = await share.reports(own, watched ?? undefined);
     blocks = reports.map(r => {
       const user = r.viewer != null ? session.user(r.viewer) : undefined;
       return { title: r.viewer == null ? '' : `To ${user ? store.displayName(user) : `#${r.viewer}`}`, rows: describe(r.report, String(r.viewer)) };

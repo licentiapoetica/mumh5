@@ -13,6 +13,10 @@ import { sounds } from './audio/sounds.svelte.ts';
 
 // Every viewer is a separate upload from the sharer
 const MAX_VIEWERS = 8;
+// Cameras watched at once; each is a download and a decoder
+const MAX_CAMERAS = 12;
+// A face needs far less than a screen full of text
+const CAMERA_BITRATE = 1_200_000;
 export const QUALITY = {
   low: { label: 'Low (1 Mbit/s, 30 fps)', bitrate: 1_000_000, fps: 30 },
   medium: { label: 'Medium (4 Mbit/s, 30 fps)', bitrate: 4_000_000, fps: 30 },
@@ -29,6 +33,7 @@ export type ShareKind = 'screen' | 'camera';
 export interface Watching {
   host: Session;
   session: number;
+  kind: ShareKind;
   stream: MediaStream | null;
   state: 'connecting' | 'live' | 'failed';
 }
@@ -39,15 +44,19 @@ class ScreenShare {
   stream = $state.raw<MediaStream | null>(null);
   kind = $state<ShareKind>('screen');
   viewers = $state(0);
-  watching = $state.raw<Watching | null>(null);
+  // Streams we receive: one screen at a time, and any number of cameras next to it
+  watches = $state.raw<Watching[]>([]);
+  // In the camera round: everyone's camera in the channel is watched as it comes on
+  cams = $state(false);
+  private camHost: Session | null = null;
   error = $state('');
   // The server the start dialog is open for
   dialog = $state.raw<Session | null>(null);
   private usesVirtualMic = false;
 
   private peers = new Map<number, RTCPeerConnection>();
-  private watchPc: RTCPeerConnection | null = null;
-  private watchTimer: ReturnType<typeof setTimeout> | undefined;
+  private watchPcs = new Map<number, RTCPeerConnection>();
+  private watchTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private assemblers = new WeakMap<Session, ShareAssembler>();
   // Viewers whose connection came up, so leaving is only announced for those
   private live = new Set<number>();
@@ -139,6 +148,8 @@ class ScreenShare {
     this.send(s, this.others(s), SHARE.on, kind);
     s.setSharing(s.client.session!, kind);
     sounds.play('shareStarted');
+    // Turning the camera on joins the round
+    if (kind === 'camera') this.setCams(s, true);
   }
 
   private release(): void {
@@ -174,33 +185,63 @@ class ScreenShare {
     this.viewers = this.peers.size;
   }
 
+  // The screen being watched, if any (there is at most one)
+  get watching(): Watching | null {
+    return this.watches.find(w => w.kind === 'screen') ?? null;
+  }
+  watchOf(session: number): Watching | undefined {
+    return this.watches.find(w => w.session === session);
+  }
+
   async watch(s: Session, session: number): Promise<void> {
-    if (!this.supported(s) || !s.sharing[session] || !(await this.notice())) return;
-    this.unwatch();
-    this.watching = { host: s, session, stream: null, state: 'connecting' };
+    const kind = s.sharing[session];
+    if (!this.supported(s) || !kind || this.watchOf(session) || !(await this.notice())) return;
+    // Streams from another server, and another screen, make way
+    for (const w of this.watches) if (w.host !== s || (kind === 'screen' && w.kind === 'screen')) this.unwatch(w.session);
+    if (kind === 'camera' && this.watches.filter(w => w.kind === 'camera').length >= MAX_CAMERAS) return;
+    if (!s.sharing[session] || this.watchOf(session)) return;
+    this.watches = [...this.watches, { host: s, session, kind, stream: null, state: 'connecting' }];
     this.send(s, [session], SHARE.watch);
-    this.watchTimer = setTimeout(() => this.setWatchState('failed'), 20000);
+    this.watchTimers.set(session, setTimeout(() => this.setWatchState(session, 'failed'), 20000));
   }
 
-  unwatch(): void {
-    const w = this.watching;
-    if (!w) return;
-    if (w.host.client) this.send(w.host, [w.session], SHARE.leave);
-    this.endWatch();
+  // One stream, or all of them
+  unwatch(session?: number): void {
+    for (const w of this.watches) {
+      if (session != null && w.session !== session) continue;
+      if (w.host.client) this.send(w.host, [w.session], SHARE.leave);
+      this.endWatch(w.session);
+    }
   }
 
-  private endWatch(): void {
-    clearTimeout(this.watchTimer);
-    this.watchPc?.close();
-    this.watchPc = null;
-    this.watching = null;
+  private endWatch(session: number): void {
+    clearTimeout(this.watchTimers.get(session));
+    this.watchTimers.delete(session);
+    this.watchPcs.get(session)?.close();
+    this.watchPcs.delete(session);
+    this.watches = this.watches.filter(w => w.session !== session);
   }
 
-  private setWatchState(state: Watching['state'], stream?: MediaStream): void {
-    const w = this.watching;
-    if (!w) return;
-    if (state !== 'connecting') clearTimeout(this.watchTimer);
-    this.watching = { ...w, state, stream: stream ?? w.stream };
+  private setWatchState(session: number, state: Watching['state'], stream?: MediaStream): void {
+    if (!this.watchOf(session)) return;
+    if (state !== 'connecting') { clearTimeout(this.watchTimers.get(session)); this.watchTimers.delete(session); }
+    this.watches = this.watches.map(w => w.session === session ? { ...w, state, stream: stream ?? w.stream } : w);
+  }
+
+  // The camera round: watch every camera in the channel, now and as they come on
+  async setCams(s: Session, on: boolean): Promise<void> {
+    if (!on) {
+      this.cams = false;
+      this.camHost = null;
+      for (const w of this.watches) if (w.kind === 'camera') this.unwatch(w.session);
+      return;
+    }
+    if (!this.supported(s) || !(await this.notice())) return;
+    this.cams = true;
+    this.camHost = s;
+    for (const [session, kind] of Object.entries(s.sharing)) {
+      if (kind === 'camera' && Number(session) !== s.client?.session) this.watch(s, Number(session));
+    }
   }
 
   // Candidates travel inside the description, so wait for them instead of sending each one
@@ -237,7 +278,8 @@ class ScreenShare {
       const params = sender.getParameters();
       // Keep the picture sharp and let the frame rate drop when the connection is tight
       params.degradationPreference = this.kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
-      for (const enc of params.encodings ?? []) enc.maxBitrate = QUALITY[store.settings.shareQuality].bitrate;
+      const wanted = QUALITY[store.settings.shareQuality].bitrate;
+      for (const enc of params.encodings ?? []) enc.maxBitrate = this.kind === 'camera' ? Math.min(wanted, CAMERA_BITRATE) : wanted;
       await sender.setParameters(params).catch(() => {});
     }
     await pc.setLocalDescription({ type: 'offer', sdp: stereo((await pc.createOffer()).sdp ?? '') });
@@ -246,36 +288,40 @@ class ScreenShare {
   }
 
   private async answerTo(s: Session, sharer: number, sdp: string): Promise<void> {
-    const w = this.watching;
-    if (!w || w.host !== s || w.session !== sharer) return;
+    const mine = () => { const w = this.watchOf(sharer); return !!w && w.host === s; };
+    if (!mine()) return;
     const config = await this.rtcConfig();
-    if (this.watching?.host !== s || this.watching.session !== sharer) return;
-    this.watchPc?.close();
+    if (!mine()) return;
+    this.watchPcs.get(sharer)?.close();
     const pc = new RTCPeerConnection(config);
-    this.watchPc = pc;
+    this.watchPcs.set(sharer, pc);
+    const current = () => this.watchPcs.get(sharer) === pc;
     // The track is announced with the description, before any route exists: the stream only
     // counts as live once the connection is up, otherwise the viewer stares at a black picture
     pc.addEventListener('track', e => {
-      if (this.watchPc === pc) this.setWatchState(pc.connectionState === 'connected' ? 'live' : 'connecting', e.streams[0]);
+      if (current()) this.setWatchState(sharer, pc.connectionState === 'connected' ? 'live' : 'connecting', e.streams[0]);
     });
     pc.addEventListener('connectionstatechange', () => {
-      if (this.watchPc !== pc) return;
-      if (pc.connectionState === 'connected') this.setWatchState('live');
-      else if (pc.connectionState === 'failed') this.setWatchState('failed');
+      if (!current()) return;
+      if (pc.connectionState === 'connected') this.setWatchState(sharer, 'live');
+      else if (pc.connectionState === 'failed') this.setWatchState(sharer, 'failed');
     });
     try {
       await pc.setRemoteDescription({ type: 'offer', sdp });
       await pc.setLocalDescription({ type: 'answer', sdp: stereo((await pc.createAnswer()).sdp ?? '') });
       await this.gathered(pc);
-      if (this.watchPc === pc && pc.localDescription) await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
+      if (current() && pc.localDescription) await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
     } catch {
-      if (this.watchPc === pc) this.setWatchState('failed');
+      if (current()) this.setWatchState(sharer, 'failed');
     }
   }
 
-  // Raw WebRTC statistics for the overlay: of the stream we watch, or one per viewer of ours
-  async reports(own: boolean): Promise<{ viewer: number | null; report: RTCStatsReport }[]> {
-    if (!own) return this.watchPc ? [{ viewer: null, report: await this.watchPc.getStats() }] : [];
+  // Raw WebRTC statistics for the overlay: of a stream we watch, or one per viewer of ours
+  async reports(own: boolean, session?: number): Promise<{ viewer: number | null; report: RTCStatsReport }[]> {
+    if (!own) {
+      const pc = session != null ? this.watchPcs.get(session) : undefined;
+      return pc ? [{ viewer: null, report: await pc.getStats() }] : [];
+    }
     return Promise.all([...this.peers].map(async ([viewer, pc]) => ({ viewer, report: await pc.getStats() })));
   }
 
@@ -292,11 +338,12 @@ class ScreenShare {
       case SHARE.on:
         if (!s.sharing[sender] && Date.now() - (this.enteredAt.get(s) ?? 0) > 3000) sounds.play('shareStarted');
         s.setSharing(sender, msg.text === 'camera' ? 'camera' : 'screen');
+        if (msg.text === 'camera' && this.cams && this.camHost === s) this.watch(s, sender);
         break;
       case SHARE.off:
         if (s.sharing[sender]) sounds.play('shareStopped');
         s.setSharing(sender, false);
-        if (this.watching?.host === s && this.watching.session === sender) this.endWatch();
+        if (this.watchOf(sender)?.host === s) this.endWatch(sender);
         break;
       case SHARE.who: if (this.host === s) this.send(s, [sender], SHARE.on, this.kind); break;
       case SHARE.watch: if (this.host === s) this.offerTo(s, sender).catch(() => this.dropPeer(sender)); break;
@@ -314,7 +361,7 @@ class ScreenShare {
     const self = s.client!.session!;
     this.enteredAt.set(s, Date.now());
     s.clearSharing();
-    if (this.watching?.host === s) this.unwatch();
+    for (const w of this.watches) if (w.host === s) this.unwatch(w.session);
     if (this.host === s) {
       this.dropPeers();
       s.setSharing(self, this.kind);
@@ -334,13 +381,14 @@ class ScreenShare {
     if (s.sharing[user.session]) sounds.play('shareStopped');
     s.setSharing(user.session, false);
     if (this.host === s) this.dropPeer(user.session);
-    if (this.watching?.host === s && this.watching.session === user.session) this.endWatch();
+    if (this.watchOf(user.session)?.host === s) this.endWatch(user.session);
   }
 
   closed(s: Session): void {
     if (this.host === s) this.release();
     if (this.dialog === s) this.dialog = null;
-    if (this.watching?.host === s) this.endWatch();
+    for (const w of this.watches) if (w.host === s) this.endWatch(w.session);
+    if (this.camHost === s) { this.cams = false; this.camHost = null; }
   }
 }
 

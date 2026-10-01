@@ -13,8 +13,9 @@
   import ShareStats from './ShareStats.svelte';
 
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
-  // (always), and on any window while someone in the channel shares a screen. A stream is shown
-  // large above the tiles, which become a strip; the tiles themselves never carry the picture.
+  // (always), and on any window while someone in the channel shares something. A screen is shown
+  // large above the tiles, which become a strip; cameras play in the tiles themselves, as many
+  // as are on, and a click enlarges one.
   // videoOnly: just the picture, as wide as the chat (stacked layout, where the channel list
   // above already shows who is here)
   let { always = false, videoOnly = false }: { always?: boolean; videoOnly?: boolean } = $props();
@@ -24,20 +25,28 @@
   const inChannel = $derived(self ? session.usersIn(self.channelId) : []);
   const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
 
-  const watching = $derived(share.watching && here(share.watching.host) ? share.watching : null);
+  const watches = $derived(share.watches.filter(w => here(w.host)));
+  // The screen being watched; cameras are watched next to it
+  const watching = $derived(watches.find(w => w.kind === 'screen') ?? null);
+  const watchOf = (s: number) => watches.find(w => w.session === s);
   const mine = $derived(share.stream && here(share.host) ? share.stream : null);
   const anySharing = $derived(inChannel.some(u => session.sharing[u.session]));
-  const visible = $derived(!!self && (videoOnly ? !!watching || !!mine : always || anySharing || !!watching || !!mine));
+  const anyCamera = $derived(inChannel.some(u => session.sharing[u.session] === 'camera' && u.session !== self?.session));
+  const visible = $derived(!!self && (videoOnly ? watches.length > 0 || !!mine : always || anySharing || watches.length > 0 || !!mine));
 
-  // The picture a tile can show: our own stream, or the one we are watching
+  // The picture we have of someone: our own stream, or one we are watching
   function streamOf(s: number): MediaStream | null {
     if (s === self?.session) return mine;
-    return watching?.session === s ? watching.stream : null;
+    return watchOf(s)?.stream ?? null;
   }
+  // A camera plays in the person's tile; a screen never does
+  const camOf = (s: number) => session.sharing[s] === 'camera' ? streamOf(s) : null;
 
   // People with a stream we can show come first, then others who share
   const rank = (s: number) => streamOf(s) ? 0 : session.sharing[s] ? 1 : 2;
   const people = $derived([...inChannel].sort((a, b) => rank(a.session) - rank(b.session)));
+  // Who gets a tile: everyone, or in the stacked layout only the people whose camera we see
+  const shown = $derived(videoOnly ? people.filter(u => camOf(u.session)) : people);
 
   // Tile on the large stage
   let focus = $state<number | null>(null);
@@ -59,12 +68,17 @@
   let hadMine = false;
   $effect(() => {
     const has = !!mine;
-    if (has && !hadMine && focus == null && self) focus = self.session;
+    if (has && !hadMine && focus == null && self && share.kind === 'screen') focus = self.session;
     else if (!has && focus === self?.session) focus = null;
     hadMine = has;
   });
   // Without tiles there is nothing to choose: the watched stream, else our own
-  $effect(() => { if (videoOnly) focus = watching ? watching.session : mine ? self?.session ?? null : null; });
+  let lastSolo: number | null = null;
+  $effect(() => {
+    if (!videoOnly) return;
+    const solo = watching ? watching.session : mine && share.kind === 'screen' ? self?.session ?? null : null;
+    if (solo !== lastSolo) { focus = solo; lastSolo = solo; }
+  });
 
   // The stage is as tall as the user drags it; the tiles grow and shrink to fill it. The
   // meeting view (one picture large) remembers its own height.
@@ -79,7 +93,7 @@
   let gridW = $state(0), gridH = $state(0);
   const GAP = 8, PAD = 8;
   const cols = $derived.by(() => {
-    const n = people.length;
+    const n = shown.length;
     const w = gridW - PAD * 2, h = gridH - PAD * 2;
     if (n < 2 || w <= 0 || h <= 0) return 1;
     let best = 1, bestSize = 0;
@@ -93,9 +107,9 @@
   });
   // In the meeting view everyone sits in one row under the picture
   const rows = $derived.by(() => {
-    if (focused) return [people];
-    const out: (typeof people)[] = [];
-    for (let i = 0; i < people.length; i += cols) out.push(people.slice(i, i + cols));
+    if (focused) return [shown];
+    const out: (typeof shown)[] = [];
+    for (let i = 0; i < shown.length; i += cols) out.push(shown.slice(i, i + cols));
     return out;
   });
   const avatar = $derived.by(() => {
@@ -126,14 +140,17 @@
     return { update(next: MediaStream | null) { if (node.srcObject !== next) attach(next); } };
   }
 
-  // Sound comes from one hidden player, so it plays once however many pictures are shown
-  let player = $state<HTMLAudioElement>();
-  const hasSound = $derived(!!watching?.stream?.getAudioTracks().length);
-  $effect(() => {
-    if (!player) return;
-    player.volume = store.settings.shareVolume;
-    player.muted = store.settings.shareVolume === 0;
-  });
+  // Sound comes from hidden players, one per stream that has any, so it plays once however
+  // many pictures are shown. They all follow the stream volume.
+  const withSound = $derived(watches.filter(w => w.stream?.getAudioTracks().length));
+  const hasSound = $derived(focus != null && withSound.some(w => w.session === focus));
+  function loud(node: HTMLMediaElement) {
+    $effect(() => {
+      node.volume = store.settings.shareVolume;
+      node.muted = store.settings.shareVolume === 0;
+    });
+  }
+  const focusWatch = $derived(focus != null ? watchOf(focus) : undefined);
 
   function tileClick(session_: number) {
     if (streamOf(session_)) focus = focus === session_ ? null : session_;
@@ -236,12 +253,12 @@
           <button class="icon-btn" title="Open in a separate window" aria-label="Open in a separate window" onclick={popOut}><Icon name="popout" size={16} /></button>
           <button class="icon-btn" title="Full screen" aria-label="Full screen" onclick={fullscreen}><Icon name="expand" size={16} /></button>
         {/if}
-        {#if focus !== self.session}<button class="btn small" onclick={() => share.unwatch()}>Stop watching</button>
+        {#if focus !== self.session}<button class="btn small" onclick={() => { if (focus != null) share.unwatch(focus); }}>Stop watching</button>
         {:else if videoOnly}
           <span class="status" role="status" title="People watching your {share.kind}">{share.viewers} watching</span>
           <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
         {/if}
-        {#if !videoOnly}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
+        {#if !videoOnly || shown.length}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
       </div>
       <!-- svelte-ignore a11y_media_has_caption -->
       {#if popped}
@@ -250,28 +267,73 @@
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
           <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
-          {#if focus !== self.session && watching && watching.state !== 'live'}
-            <p class="pending" class:bad={watching.state === 'failed'}>{watching.state === 'failed'
+          {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
+            <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
               ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
               : 'Connecting to the stream...'}</p>
           {/if}
-          {#if showStats}<ShareStats own={focus === self.session} onclose={() => (showStats = false)} />{/if}
+          {#if showStats}<ShareStats own={focus === self.session} session={focus} onclose={() => (showStats = false)} />{/if}
         </div>
       {/if}
     </div>
   {/if}
 {/snippet}
 
+{#snippet tiles()}
+      <div class="tiles" class:strip={!!focused} role="group" aria-label="People in this channel" bind:clientWidth={gridW} bind:clientHeight={gridH}>
+        {#each rows as row, r (r)}
+          <div class="row" role="presentation">
+        {#each row as u (u.session)}
+          {@const stream = streamOf(u.session)}
+          {@const sharing = session.sharing[u.session]}
+          {@const isSelf = u.session === self?.session}
+          {@const cam = camOf(u.session)}
+          {@const w = watchOf(u.session)}
+          <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
+            onclick={() => tileClick(u.session)}
+            oncontextmenu={e => menu.show(e, userMenu(u))}
+            title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u)}
+            aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
+            {#if cam}
+              <!-- svelte-ignore a11y_media_has_caption -->
+              <video class:mirror={isSelf} use:media={cam} autoplay playsinline muted></video>
+            {:else}
+              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
+            {/if}
+            <span class="who">{store.displayName(u)}</span>
+            {#if w && w.state !== 'live'}
+              <span class="note">{w.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
+            {/if}
+            {#if sharing}<span class="badge live"><Icon name={sharing} size={13} /></span>
+            {:else if u.deaf || u.selfDeaf}
+              <span class="badge" class:admin={u.deaf}><Icon name="headphones-off" size={13} /></span>
+            {:else if u.mute || u.selfMute || u.suppress}
+              <span class="badge" class:admin={u.mute || u.suppress}><Icon name="mic-off" size={13} /></span>
+            {/if}
+          </button>
+        {/each}
+          </div>
+        {/each}
+      </div>
+{/snippet}
+
 {#if visible && self && videoOnly}
   <section class="stage solo" aria-label="Voice channel">
-    {#if watching?.stream}<audio bind:this={player} use:media={watching.stream} autoplay></audio>{/if}
+    {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud autoplay></audio>{/each}
     {#if focused}
       {@render spot()}
     {:else if watching}
       <p class="wait" class:bad={watching.state === 'failed'}>
         <span>{watching.state === 'failed' ? 'Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice.' : 'Connecting to the stream...'}</span>
-        <button class="btn small" onclick={() => share.unwatch()}>{watching.state === 'failed' ? 'Close' : 'Cancel'}</button>
+        <button class="btn small" onclick={() => share.unwatch(watching.session)}>{watching.state === 'failed' ? 'Close' : 'Cancel'}</button>
       </p>
+    {/if}
+    <!-- Cameras: a grid of just the pictures -->
+    {#if shown.length && !focused}
+      <div class="camgrid" style:height="{tilesHeight}px">
+        <ResizeHandle bind:width={tilesHeight} edge="bottom" min={110} max={maxHeight} initial={210} storageKey="mumh5.stageHeight" label="Resize the tiles" />
+        {@render tiles()}
+      </div>
     {/if}
   </section>
 {:else if visible && self}
@@ -295,6 +357,12 @@
           </span>
         {/if}
       </button>
+      {#if anyCamera || share.cams}
+        <button class="icon-btn" class:live={share.cams} aria-pressed={share.cams} title={share.cams ? 'Stop watching the cameras' : 'Watch everyone\'s camera'}
+          aria-label={share.cams ? 'Stop watching the cameras' : 'Watch all cameras'} onclick={() => share.setCams(sessions.active, !share.cams)}>
+          <Icon name="camera" size={18} />
+        </button>
+      {/if}
       {#if mine}
         <span class="status" role="status" title="People watching your {share.kind}"><Icon name={share.kind} size={14} />{share.viewers} watching</span>
         <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
@@ -309,40 +377,13 @@
       </button>
     </header>
 
-    {#if watching?.stream}<audio bind:this={player} use:media={watching.stream} autoplay></audio>{/if}
+    {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud autoplay></audio>{/each}
 
     {#if focused && focus != null && !collapsed}{@render spot()}{/if}
 
     {#if !collapsed}
-      <div class="tiles" class:strip={!!focused} role="group" aria-label="People in this channel" bind:clientWidth={gridW} bind:clientHeight={gridH}>
-        {#each rows as row, r (r)}
-          <div class="row" role="presentation">
-        {#each row as u (u.session)}
-          {@const stream = streamOf(u.session)}
-          {@const sharing = session.sharing[u.session]}
-          {@const isSelf = u.session === self.session}
-          <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
-            onclick={() => tileClick(u.session)}
-            oncontextmenu={e => menu.show(e, userMenu(u))}
-            title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u)}
-            aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
-            <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
-            <span class="who">{store.displayName(u)}</span>
-            {#if watching?.session === u.session && watching.state !== 'live'}
-              <span class="note">{watching.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
-            {/if}
-            {#if sharing}<span class="badge live"><Icon name={sharing} size={13} /></span>
-            {:else if u.deaf || u.selfDeaf}
-              <span class="badge" class:admin={u.deaf}><Icon name="headphones-off" size={13} /></span>
-            {:else if u.mute || u.selfMute || u.suppress}
-              <span class="badge" class:admin={u.mute || u.suppress}><Icon name="mic-off" size={13} /></span>
-            {/if}
-          </button>
-        {/each}
-          </div>
-        {/each}
-      </div>
-      {#if watching?.state === 'failed'}
+      {@render tiles()}
+      {#if watches.some(w => w.state === 'failed')}
         <p class="failed">Could not connect to the stream. Across the internet both of you need a STUN server, chosen in Settings, Voice (the person sharing has to restart the stream afterwards).</p>
       {/if}
     {/if}
@@ -368,6 +409,11 @@
   .tile:hover { background: var(--bg-hover); }
   .tile.talking { border-color: var(--speaking); box-shadow: 0 0 0 1px var(--speaking), 0 0 18px -4px var(--speaking); }
   .tile.focused { border-color: var(--accent); }
+  /* A camera fills its tile; your own is mirrored, the way a mirror shows you */
+  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  .tile video.mirror { transform: scaleX(-1); }
+  .icon-btn.live, .icon-btn.live:hover { color: var(--speaking); }
+  .camgrid { position: relative; display: flex; flex-direction: column; flex: none; }
   /* Name tag over the lower left corner */
   .who { position: absolute; left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 1px 6px; font-size: 12px; color: #fff; background: rgb(0 0 0 / 0.6);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
