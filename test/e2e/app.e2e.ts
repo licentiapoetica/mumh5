@@ -716,7 +716,15 @@ try {
     await page.locator('.channel .name', { hasText: 'Lobby' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Join channel' }).click();
     await page.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
-    console.log('ok: channel context menu joins');
+    // Messaging a channel from its menu opens the side chat, ready to type, without joining
+    await page.locator('.channel .name', { hasText: 'Games' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Send message to channel' }).click();
+    const sideInput = page.locator('.panel .composer [contenteditable]');
+    await sideInput.waitFor();
+    assert.equal(await sideInput.getAttribute('data-placeholder'), 'Message #Games');
+    await page.waitForFunction(() => document.activeElement === document.querySelector('.panel .composer [contenteditable]'), null, { timeout: 3000 });
+    await page.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
+    console.log('ok: channel context menu joins, and messages a channel from the side chat');
 
     // Side panel can be resized by dragging its left edge
     const panelBox = (await page.locator('aside.panel').boundingBox())!;
