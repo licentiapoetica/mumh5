@@ -72,7 +72,7 @@ try {
   };
   await picker.getByLabel('Quality').selectOption('low');
   await pickAndStart();
-  await alice.page.getByText('You are sharing your screen').waitFor();
+  await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your screen').waitFor();
   // The sharer's own tile shows what is being sent; clicking it makes it large
   await alice.page.waitForFunction(() => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
@@ -111,7 +111,7 @@ try {
   await view.getByText(aliceName).waitFor();
   await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
   const size = await bob.page.evaluate(() => { const v = document.querySelector('.spot video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
-  await alice.page.getByText('You are sharing your screen, 1 watching').waitFor();
+  await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
 
   if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(500); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/meeting.png` }); }
@@ -137,7 +137,7 @@ try {
   // Leaving and coming back
   await view.getByRole('button', { name: 'Stop watching' }).click();
   await view.waitFor({ state: 'detached' });
-  await alice.page.getByText('You are sharing your screen', { exact: true }).waitFor();
+  await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   // The sharer's profile says so and offers to watch
   await bob.page.locator('.sidebar .row.user', { hasText: aliceName }).click();
   const profile = bob.page.locator('.panel .sharing');
@@ -152,7 +152,7 @@ try {
   await view.waitFor({ state: 'detached' });
   await watch.waitFor({ state: 'detached' });
   await profile.waitFor({ state: 'detached' });
-  assert.equal(await alice.page.getByText('You are sharing your screen').count(), 0);
+  assert.equal(await alice.page.locator('.stage .status').count(), 0);
   console.log('ok: stopping ends the stream for viewers');
 
   // A sharer who disconnects takes the stream with them
@@ -162,6 +162,13 @@ try {
   await alice.page.getByTitle('Disconnect').click();
   await watch.waitFor({ state: 'detached' });
   console.log('ok: disconnecting ends the stream');
+
+  // Sounds: the sharer hears the stream start and stop and viewers come and go; the channel hears streams start and stop
+  const sounds = (p: Page) => p.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
+  const heardA = await sounds(alice.page), heardB = await sounds(bob.page);
+  for (const ev of ['shareStarted', 'viewerJoined', 'viewerLeft', 'shareStopped']) assert.ok(heardA.includes(ev), `sharer hears ${ev}: ${heardA}`);
+  for (const ev of ['shareStarted', 'shareStopped']) assert.ok(heardB.includes(ev), `viewer hears ${ev}: ${heardB}`);
+  console.log('ok: sounds for streams and viewers');
 
   console.log('SHARE E2E PASSED');
 } finally {

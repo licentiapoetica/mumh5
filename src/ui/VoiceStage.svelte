@@ -190,7 +190,7 @@
         {/if}
       </button>
       {#if mine}
-        <span class="status" role="status">You are sharing your screen{mine.getAudioTracks().length ? ' with sound' : ''}{share.viewers ? `, ${share.viewers} watching` : ''}</span>
+        <span class="status" role="status" title="People watching your screen"><Icon name="screen" size={14} />{share.viewers} watching</span>
         <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
       {/if}
       <button class="icon-btn" class:on={self.selfMute} aria-label={self.selfMute ? 'Unmute' : 'Mute'} title={self.selfMute ? 'Unmute' : 'Mute'}
@@ -306,7 +306,7 @@
   .bar span { flex: 1; min-width: 0; }
   .bar.bad { color: var(--danger); }
   .btn.small, .bar .btn { padding: 4px 10px; font-size: 12px; flex: none; }
-  .status { font-size: 12px; color: var(--speaking); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-right: 4px; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--speaking); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-right: 4px; }
 
   /* Meeting view: the chosen picture large, everyone in one row below */
   .spot { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
