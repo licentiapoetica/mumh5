@@ -71,24 +71,37 @@
   let meetingHeight = $state(stored('mumh5.stageHeightMeeting', 460));
   const maxHeight = () => Math.max(160, window.innerHeight - 220);
 
-  // Largest 16:9 tiles that fit everyone into the space, like a meeting's tile view
+  // The tiles fill the stage completely, like a meeting's tile view: rows of equal tiles, with
+  // the number of columns chosen so the tiles come closest to a 16:9 shape. A last row with
+  // fewer people stretches, so no space is left over. Measured live, so it follows every resize.
   let gridW = $state(0), gridH = $state(0);
-  const GAP = 8;
-  const tileW = $derived.by(() => {
+  const GAP = 8, PAD = 8;
+  const cols = $derived.by(() => {
     const n = people.length;
-    if (!n || !gridW || !gridH) return 160;
-    let best = 0;
-    for (let cols = 1; cols <= n; cols++) {
-      const rows = Math.ceil(n / cols);
-      const w = Math.min((gridW - GAP * (cols - 1)) / cols, ((gridH - GAP * (rows - 1)) / rows) * 16 / 9);
-      if (w > best) best = w;
+    const w = gridW - PAD * 2, h = gridH - PAD * 2;
+    if (n < 2 || w <= 0 || h <= 0) return 1;
+    let best = 1, bestSize = 0;
+    for (let c = 1; c <= n; c++) {
+      const r = Math.ceil(n / c);
+      // Width of the largest 16:9 picture that fits one cell
+      const size = Math.min((w - GAP * (c - 1)) / c, ((h - GAP * (r - 1)) / r) * 16 / 9);
+      if (size > bestSize + 0.5) { best = c; bestSize = size; }
     }
-    return Math.max(72, Math.floor(Math.min(best, 520)));
+    return best;
   });
-  // In the meeting view the tiles sit in one row of fixed height
-  const STRIP_W = 150;
-  const shownW = $derived(focused ? STRIP_W : tileW);
-  const avatar = $derived(Math.max(24, Math.min(96, Math.round(shownW * 9 / 16 * 0.45))));
+  // In the meeting view everyone sits in one row under the picture
+  const rows = $derived.by(() => {
+    if (focused) return [people];
+    const out: (typeof people)[] = [];
+    for (let i = 0; i < people.length; i += cols) out.push(people.slice(i, i + cols));
+    return out;
+  });
+  const avatar = $derived.by(() => {
+    if (focused) return 36;
+    const cellW = (gridW - PAD * 2 - GAP * (cols - 1)) / cols;
+    const cellH = (gridH - PAD * 2 - GAP * (rows.length - 1)) / Math.max(1, rows.length);
+    return Math.max(24, Math.min(128, Math.round(Math.min(cellH * 0.5, cellW * 0.34))));
+  });
 
   let collapsed = $state(load());
   function load(): boolean {
@@ -299,32 +312,34 @@
     {#if focused && focus != null && !collapsed}{@render spot()}{/if}
 
     {#if !collapsed}
-      <ul class="tiles" class:strip={!!focused} bind:clientWidth={gridW} bind:clientHeight={gridH}>
-        {#each people as u (u.session)}
+      <div class="tiles" class:strip={!!focused} role="group" aria-label="People in this channel" bind:clientWidth={gridW} bind:clientHeight={gridH}>
+        {#each rows as row, r (r)}
+          <div class="row" role="presentation">
+        {#each row as u (u.session)}
           {@const stream = streamOf(u.session)}
           {@const sharing = !!session.sharing[u.session]}
           {@const isSelf = u.session === self.session}
-          <li style:width="{shownW}px">
-            <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
-              onclick={() => tileClick(u.session)}
-              oncontextmenu={e => menu.show(e, userMenu(u))}
-              title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? 'Sharing their screen. Click to watch' : store.displayName(u)}
-              aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the screen of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the screen of ${store.displayName(u)}` : store.displayName(u)}>
-              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
-              <span class="who">{store.displayName(u)}</span>
-              {#if watching?.session === u.session && watching.state !== 'live'}
-                <span class="note">{watching.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
-              {/if}
-              {#if sharing}<span class="badge live"><Icon name="screen" size={13} /></span>
-              {:else if u.deaf || u.selfDeaf}
-                <span class="badge" class:admin={u.deaf}><Icon name="headphones-off" size={13} /></span>
-              {:else if u.mute || u.selfMute || u.suppress}
-                <span class="badge" class:admin={u.mute || u.suppress}><Icon name="mic-off" size={13} /></span>
-              {/if}
-            </button>
-          </li>
+          <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
+            onclick={() => tileClick(u.session)}
+            oncontextmenu={e => menu.show(e, userMenu(u))}
+            title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? 'Sharing their screen. Click to watch' : store.displayName(u)}
+            aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the screen of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the screen of ${store.displayName(u)}` : store.displayName(u)}>
+            <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
+            <span class="who">{store.displayName(u)}</span>
+            {#if watching?.session === u.session && watching.state !== 'live'}
+              <span class="note">{watching.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
+            {/if}
+            {#if sharing}<span class="badge live"><Icon name="screen" size={13} /></span>
+            {:else if u.deaf || u.selfDeaf}
+              <span class="badge" class:admin={u.deaf}><Icon name="headphones-off" size={13} /></span>
+            {:else if u.mute || u.selfMute || u.suppress}
+              <span class="badge" class:admin={u.mute || u.suppress}><Icon name="mic-off" size={13} /></span>
+            {/if}
+          </button>
         {/each}
-      </ul>
+          </div>
+        {/each}
+      </div>
       {#if watching?.state === 'failed'}
         <p class="failed">Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice (the person sharing has to restart the stream after setting it).</p>
       {/if}
@@ -344,12 +359,12 @@
   .mini { display: flex; gap: 3px; min-width: 0; overflow: hidden; margin-left: 4px; }
 
   /* Tile view: equal 16:9 tiles, centered, sized by the script to fill the stage */
-  .tiles { flex: 1; min-height: 0; list-style: none; margin: 0; padding: 8px; display: flex; flex-wrap: wrap; justify-content: flex-start; align-content: flex-start; gap: 8px; overflow: hidden; }
-  .tiles li { flex: none; }
-  .tile { position: relative; width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  .tiles { flex: 1; min-height: 0; padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+  .row { flex: 1 1 0; min-height: 0; display: flex; gap: 8px; }
+  .tile { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
     background: var(--bg-2); border: 2px solid transparent; transition: border-color 80ms; }
   .tile:hover { background: var(--bg-hover); }
-  .tile.talking { border-color: var(--speaking); }
+  .tile.talking { border-color: var(--speaking); box-shadow: 0 0 0 1px var(--speaking), 0 0 18px -4px var(--speaking); }
   .tile.focused { border-color: var(--accent); }
   /* Name tag over the lower left corner */
   .who { position: absolute; left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 1px 6px; font-size: 12px; color: #fff; background: rgb(0 0 0 / 0.6);
@@ -388,5 +403,7 @@
   .wait { margin: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; color: var(--text-dim); background: var(--bg-1); }
   .wait span { flex: 1; min-width: 0; }
   .wait.bad { color: var(--danger); }
-  .tiles.strip { flex: none; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overflow-y: hidden; padding: 6px 8px; }
+  /* One row of a fixed height; tiles share the width and scroll sideways when there are many */
+  .tiles.strip { flex: none; height: 92px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; }
+  .tiles.strip .tile { flex: 1 0 120px; max-width: 220px; }
 </style>
