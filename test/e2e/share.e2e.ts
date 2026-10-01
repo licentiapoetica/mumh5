@@ -169,7 +169,9 @@ try {
 
   // The large picture can move to a window of its own
   const opened = bob.app.waitForEvent('window');
-  await view.getByRole('button', { name: 'Open in a separate window' }).click();
+  // From the right-click menu on the picture
+  await bob.page.locator('.spot video').click({ button: 'right' });
+  await bob.page.getByRole('menuitem', { name: 'Open in a separate window' }).click();
   const streamWindow = await opened;
   await streamWindow.waitForFunction(() => (document.querySelector('video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
   await view.getByText('Shown in a separate window.').waitFor();

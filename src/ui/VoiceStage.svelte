@@ -124,7 +124,12 @@
 
   // Right-click on the picture
   let showStats = $state(false);
-  const streamMenu = (e: MouseEvent) => menu.show(e, [{ label: 'Stats for nerds', checked: showStats, action: () => (showStats = !showStats) }]);
+  const streamMenu = (e: MouseEvent) => menu.show(e, [
+    { label: 'Open in a separate window', action: popOut },
+    { label: 'Full screen', action: fullscreen },
+    { separator: true, label: '' },
+    { label: 'Stats for nerds', checked: showStats, action: () => (showStats = !showStats) }
+  ]);
 
   let frame = $state<HTMLElement>();
   function fullscreen() {
