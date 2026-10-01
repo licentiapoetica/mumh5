@@ -411,8 +411,9 @@
   .tile:hover { background: var(--bg-hover); }
   .tile.talking { border-color: var(--speaking); box-shadow: 0 0 0 1px var(--speaking), 0 0 18px -4px var(--speaking); }
   .tile.focused { border-color: var(--accent); }
-  /* A camera fills its tile; your own is mirrored, the way a mirror shows you */
-  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  /* A camera keeps its own shape inside the tile, whatever size the tile is: nothing is cut
+     off, a phone held upright gets bars at the sides. Your own is mirrored, like a mirror. */
+  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   .tile video.mirror { transform: scaleX(-1); }
   .icon-btn.live, .icon-btn.live:hover { color: var(--speaking); }
   .camgrid { position: relative; display: flex; flex-direction: column; flex: none; }

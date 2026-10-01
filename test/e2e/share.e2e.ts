@@ -294,6 +294,18 @@ try {
   await camsShown(bob.page, 2);
   await camsShown(alice.page, 2);
   assert.equal(await bob.page.locator('.stage .tile.self video.mirror').count(), 1, 'own camera is mirrored');
+  // The picture keeps its shape in the tile at any tile size: whole, not cropped
+  const shape = () => bob.page.evaluate(() => [...document.querySelectorAll('.stage .tile video')].map(v => {
+    const el = v as HTMLVideoElement, r = el.getBoundingClientRect();
+    const scale = Math.min(r.width / el.videoWidth, r.height / el.videoHeight);
+    return { fit: getComputedStyle(el).objectFit, inside: el.videoWidth * scale <= r.width + 1 && el.videoHeight * scale <= r.height + 1, box: r.width > 50 && r.height > 50 };
+  }));
+  for (const size of [{ width: 1280, height: 800 }, { width: 760, height: 620 }]) {
+    await bob.page.setViewportSize(size);
+    await camsShown(bob.page, 2);
+    assert.ok((await shape()).every(s => s.fit === 'contain' && s.inside && s.box), `cameras whole at ${size.width} wide`);
+  }
+  await bob.page.setViewportSize({ width: 1280, height: 800 });
   assert.equal(await bob.page.locator('.stage .tile:not(.self) video.mirror').count(), 0);
   await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   await bob.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
