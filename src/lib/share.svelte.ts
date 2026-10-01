@@ -9,6 +9,7 @@ import { desktop, isWeb } from './native.ts';
 import { proxyStun } from './web.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
+import { sounds } from './audio/sounds.svelte.ts';
 
 // Every viewer is a separate upload from the sharer
 const MAX_VIEWERS = 8;
@@ -44,6 +45,10 @@ class ScreenShare {
   private watchPc: RTCPeerConnection | null = null;
   private watchTimer: ReturnType<typeof setTimeout> | undefined;
   private assemblers = new WeakMap<Session, ShareAssembler>();
+  // Viewers whose connection came up, so leaving is only announced for those
+  private live = new Set<number>();
+  // When we entered the channel: streams already running there are not announced with a sound
+  private enteredAt = new WeakMap<Session, number>();
 
   // Plugin data needs a 1.4 server; older ones would not pass the signals on
   supported(s: Session): boolean {
@@ -81,7 +86,7 @@ class ScreenShare {
       let answered = false;
       ui.prompt = {
         title: 'Screen sharing', label: '', confirm: 'Continue', input: 'none',
-        text: 'Screen sharing connects you directly to the other person. You see each other\'s IP address, like in a video call. Only mumh5 users in your channel can watch.',
+        text: 'Screen sharing connects you directly to other participants in this channel. You see each other\'s IP address. Only mumh5 users in your channel can watch.',
         onsubmit: () => { answered = true; store.settings.shareNoticeSeen = true; store.saveSettings(); resolve(true); },
         oncancel: () => { if (!answered) resolve(false); }
       };
@@ -114,6 +119,7 @@ class ScreenShare {
     this.stream = stream;
     this.send(s, this.others(s), SHARE.on);
     s.setSharing(s.client.session!, true);
+    sounds.play('shareStarted');
   }
 
   private release(): void {
@@ -127,6 +133,7 @@ class ScreenShare {
 
   stop(): void {
     const s = this.host;
+    if (this.stream) sounds.play('shareStopped');
     if (s?.client) {
       this.send(s, this.others(s), SHARE.off);
       if (s.client.session != null) s.setSharing(s.client.session, false);
@@ -137,12 +144,14 @@ class ScreenShare {
   private dropPeers(): void {
     for (const pc of this.peers.values()) pc.close();
     this.peers.clear();
+    this.live.clear();
     this.viewers = 0;
   }
 
   private dropPeer(session: number): void {
     this.peers.get(session)?.close();
     this.peers.delete(session);
+    if (this.live.delete(session)) sounds.play('viewerLeft');
     this.viewers = this.peers.size;
   }
 
@@ -195,7 +204,11 @@ class ScreenShare {
     this.peers.set(viewer, pc);
     this.viewers = this.peers.size;
     pc.addEventListener('connectionstatechange', () => {
-      if ((pc.connectionState === 'failed' || pc.connectionState === 'closed') && this.peers.get(viewer) === pc) this.dropPeer(viewer);
+      if (this.peers.get(viewer) !== pc) return;
+      if (pc.connectionState === 'connected' && !this.live.has(viewer)) {
+        this.live.add(viewer);
+        sounds.play('viewerJoined');
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.dropPeer(viewer);
     });
     for (const track of stream.getTracks()) {
       const sender = pc.addTrack(track, stream);
@@ -241,8 +254,12 @@ class ScreenShare {
     // Only people in our channel take part
     if (!msg || !s.client || !this.inMyChannel(s, sender)) return;
     switch (msg.type) {
-      case SHARE.on: s.setSharing(sender, true); break;
+      case SHARE.on:
+        if (!s.sharing[sender] && Date.now() - (this.enteredAt.get(s) ?? 0) > 3000) sounds.play('shareStarted');
+        s.setSharing(sender, true);
+        break;
       case SHARE.off:
+        if (s.sharing[sender]) sounds.play('shareStopped');
         s.setSharing(sender, false);
         if (this.watching?.host === s && this.watching.session === sender) this.endWatch();
         break;
@@ -260,6 +277,7 @@ class ScreenShare {
   entered(s: Session): void {
     if (!this.supported(s)) return;
     const self = s.client!.session!;
+    this.enteredAt.set(s, Date.now());
     s.clearSharing();
     if (this.watching?.host === s) this.unwatch();
     if (this.host === s) {
@@ -277,6 +295,8 @@ class ScreenShare {
       if (this.host === s) this.send(s, [user.session], SHARE.on);
       return;
     }
+    // A sharer who left or disconnected: their stream is over for us
+    if (s.sharing[user.session]) sounds.play('shareStopped');
     s.setSharing(user.session, false);
     if (this.host === s) this.dropPeer(user.session);
     if (this.watching?.host === s && this.watching.session === user.session) this.endWatch();

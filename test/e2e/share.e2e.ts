@@ -72,16 +72,44 @@ try {
   };
   await picker.getByLabel('Quality').selectOption('low');
   await pickAndStart();
-  await alice.page.getByText('You are sharing your screen').waitFor();
+  await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your screen').waitFor();
-  // The sharer's own tile shows what is being sent; clicking it makes it large
-  await alice.page.waitForFunction(() => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
-  await alice.page.locator('.stage .tile.self').click();
+  // The sharer sees what is being sent, large by default; the tiles themselves never carry the picture
   const ownView = alice.page.getByRole('region', { name: 'Screen share' });
   await ownView.getByText('Your screen').waitFor();
+  await alice.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  assert.equal(await alice.page.locator('.stage .tile video').count(), 0);
   await ownView.getByRole('button', { name: 'Back to tiles' }).click();
   await ownView.waitFor({ state: 'detached' });
-  console.log('ok: sharing started from the dialog, own tile shows the stream');
+  await alice.page.locator('.stage .tile.self').click();
+  await ownView.waitFor();
+  console.log('ok: sharing started from the dialog, own stream shown large');
+
+  // Stacked layout: only the picture, as wide as the chat, and the layout stays stacked on narrow windows
+  const setLayout = async (name: string) => {
+    await alice.page.getByTitle('Settings').click();
+    await alice.page.getByRole('tab', { name: 'Appearance' }).click();
+    await alice.page.getByRole('radio', { name }).click();
+    await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  };
+  await setLayout('Stacked');
+  await alice.page.locator('.app.stacked .stage.solo').waitFor();
+  assert.equal(await alice.page.locator('.stage .tiles').count(), 0, 'no participant tiles in the stacked layout');
+  const fits = () => alice.page.evaluate(() => {
+    const v = document.querySelector('.stage.solo video') as HTMLVideoElement, c = document.querySelector('.chat')!;
+    return v.videoWidth > 0 && Math.abs(v.getBoundingClientRect().width - c.getBoundingClientRect().width) < 2;
+  });
+  await alice.page.waitForFunction(() => (document.querySelector('.stage.solo video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  assert.ok(await fits(), 'picture as wide as the chat');
+  await alice.page.setViewportSize({ width: 600, height: 800 });
+  await alice.page.locator('.app.stacked .stage.solo video').waitFor();
+  assert.ok(await fits(), 'still as wide as the chat on a narrow window');
+  if (process.env.SHOTS_DIR) await alice.page.screenshot({ path: `${process.env.SHOTS_DIR}/stacked.png` });
+  await alice.page.getByText('0 watching').waitFor();
+  await alice.page.setViewportSize({ width: 1280, height: 800 });
+  await setLayout('Modern');
+  await alice.page.locator('.stage .tiles').waitFor();
+  console.log('ok: stacked layout shows only the picture and stays stacked when narrow');
 
   // Bob connects afterwards and still learns about the stream
   await join(bob.page, bobName);
@@ -92,27 +120,52 @@ try {
   await tile.waitFor();
   console.log('ok: a late joiner sees who is sharing');
 
+  // The tiles fill the stage, and the stage can be made taller or shorter
+  const tileWidth = async () => Math.round((await tile.boundingBox())!.width);
+  const before = await tileWidth();
+  const handle = bob.page.getByRole('separator', { name: 'Resize the tiles' });
+  await handle.focus();
+  for (let i = 0; i < 8; i++) await bob.page.keyboard.press('ArrowDown');
+  await bob.page.waitForFunction(w => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().width) > w, before);
+  const taller = await tileWidth();
+  for (let i = 0; i < 8; i++) await bob.page.keyboard.press('ArrowUp');
+  await bob.page.waitForFunction(w => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().width) < w, taller);
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/tiles.png` });
+  console.log(`ok: tiles scale with the stage height (${before} to ${taller} px wide)`);
+
   await tile.click();
   await bob.page.getByRole('button', { name: 'Continue' }).click();
   const view = bob.page.getByRole('region', { name: 'Screen share' });
   await view.getByText(aliceName).waitFor();
   await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
   const size = await bob.page.evaluate(() => { const v = document.querySelector('.spot video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
-  await alice.page.getByText('You are sharing your screen, 1 watching').waitFor();
+  await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
 
-  // Like a meeting: back to tiles keeps the picture in the tile, a click makes it large again
+  if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(500); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/meeting.png` }); }
+  // The large picture can move to a window of its own
+  const opened = bob.app.waitForEvent('window');
+  await view.getByRole('button', { name: 'Open in a separate window' }).click();
+  const streamWindow = await opened;
+  await streamWindow.waitForFunction(() => (document.querySelector('video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  await view.getByText('Shown in a separate window.').waitFor();
+  await streamWindow.close();
+  await view.getByRole('button', { name: 'Open in a separate window' }).waitFor();
+  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  console.log('ok: stream in a separate window, back when it is closed');
+
+  // Back to tiles hides the picture; the sharer's tile brings it back
   await view.getByRole('button', { name: 'Back to tiles' }).click();
   await view.waitFor({ state: 'detached' });
-  await bob.page.waitForFunction(() => (document.querySelector('.stage .tile.video video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  assert.equal(await bob.page.locator('.stage .tile video').count(), 0);
   await tile.click();
   await view.waitFor();
-  console.log('ok: stream in the tile, large on click');
+  console.log('ok: large view hidden and shown again from the tile');
 
   // Leaving and coming back
   await view.getByRole('button', { name: 'Stop watching' }).click();
   await view.waitFor({ state: 'detached' });
-  await alice.page.getByText('You are sharing your screen', { exact: true }).waitFor();
+  await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   // The sharer's profile says so and offers to watch
   await bob.page.locator('.sidebar .row.user', { hasText: aliceName }).click();
   const profile = bob.page.locator('.panel .sharing');
@@ -127,7 +180,7 @@ try {
   await view.waitFor({ state: 'detached' });
   await watch.waitFor({ state: 'detached' });
   await profile.waitFor({ state: 'detached' });
-  assert.equal(await alice.page.getByText('You are sharing your screen').count(), 0);
+  assert.equal(await alice.page.locator('.stage .status').count(), 0);
   console.log('ok: stopping ends the stream for viewers');
 
   // A sharer who disconnects takes the stream with them
@@ -137,6 +190,13 @@ try {
   await alice.page.getByTitle('Disconnect').click();
   await watch.waitFor({ state: 'detached' });
   console.log('ok: disconnecting ends the stream');
+
+  // Sounds: the sharer hears the stream start and stop and viewers come and go; the channel hears streams start and stop
+  const sounds = (p: Page) => p.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
+  const heardA = await sounds(alice.page), heardB = await sounds(bob.page);
+  for (const ev of ['shareStarted', 'viewerJoined', 'viewerLeft', 'shareStopped']) assert.ok(heardA.includes(ev), `sharer hears ${ev}: ${heardA}`);
+  for (const ev of ['shareStarted', 'shareStopped']) assert.ok(heardB.includes(ev), `viewer hears ${ev}: ${heardB}`);
+  console.log('ok: sounds for streams and viewers');
 
   console.log('SHARE E2E PASSED');
 } finally {

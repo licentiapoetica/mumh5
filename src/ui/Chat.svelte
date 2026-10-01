@@ -7,7 +7,8 @@
   import { session } from '../lib/session.svelte.ts';
 
   // showStage: voice tiles above the chat when the window is too narrow for the member list
-  let { onmenu, onpanel, showMenu, showStage = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean } = $props();
+  // videoOnly: streams as a plain picture without the tiles (stacked layout)
+  let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean } = $props();
 
   const isDm = $derived(session.view.startsWith('dm:'));
   const title = $derived(session.status === 'connected' ? session.viewTitle() : 'mumh5');
@@ -27,7 +28,7 @@
     <button class="icon-btn" onclick={onpanel} title="Members"><Icon name="users" /></button>
   </header>
 
-  {#if session.status === 'connected'}<VoiceStage always={showStage} />{/if}
+  {#if session.status === 'connected'}<VoiceStage always={showStage} {videoOnly} />{/if}
 
   {#if session.status === 'idle' && session.disconnectInfo}
     {@const d = session.disconnectInfo}

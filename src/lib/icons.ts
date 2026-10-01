@@ -7,6 +7,7 @@ export const ICON_PATHS: Record<string, string> = {
   settings: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
   plus: 'M12 5v14M5 12h14',
   screen: 'M3 4h18v12H3zM8 20h8M12 16v4',
+  popout: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   filter: 'M3 4h18l-7 8v7l-4 2v-9z',
   info: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 11v6M12 7h.01',

@@ -183,11 +183,11 @@ try {
   await dialog.getByRole('button', { name: 'Choose a screen or window...' }).click();
   await page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 60000 });
   await dialog.getByRole('button', { name: 'Start sharing' }).click();
-  await page.getByText('You are sharing your screen').waitFor();
+  await page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   await page2.locator('.stage .tile', { hasText: name }).click();
   await page2.getByRole('button', { name: 'Continue' }).click();
   await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
-  await page.getByText('You are sharing your screen, 1 watching').waitFor();
+  await page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   console.log('ok: screen sharing between two browsers');
 
   console.log('WEB E2E PASSED');
