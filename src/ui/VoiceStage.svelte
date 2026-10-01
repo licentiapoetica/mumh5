@@ -169,7 +169,7 @@
         {/each}
       </ul>
       {#if watching?.state === 'failed'}
-        <p class="failed">Could not connect to the stream. You and the other person may both be behind routers that block direct connections; a STUN server in Settings, Voice can help.</p>
+        <p class="failed">Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice (the person sharing has to restart the stream after setting it).</p>
       {/if}
     {/if}
   </section>

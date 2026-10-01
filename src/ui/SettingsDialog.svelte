@@ -62,7 +62,7 @@
     <h3>Screen sharing</h3>
     <label for="s-stun">STUN server <span class="opt">(optional)</span></label>
     <input id="s-stun" bind:value={s.stunServer} onchange={() => store.saveSettings()} placeholder="stun.example.com:3478" autocomplete="off" />
-    <p class="help">Screen sharing connects you directly to the people watching. Behind most home routers that needs a STUN server to find a route; it learns your IP address but never sees the stream. Empty means no outside server is contacted, which works on the same network and often over IPv6.</p>
+    <p class="help">Screen sharing connects you directly to the people watching. Across the internet both the person sharing and the people watching need a STUN server here to find a route; it learns your IP address but never sees the stream. Empty means no outside server is contacted, which only works on the same network.</p>
   {:else if tab === 'sounds'}
     <SoundSettings />
   {:else if tab === 'appearance'}
