@@ -201,7 +201,11 @@ function createWindow() {
   });
 
   // Links from chat open in the system browser, never inside the app
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    // The stream window: an empty page the app fills with the video itself
+    if (frameName === 'mumh5-stream' && (url === 'about:blank' || url === '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 960, height: 600, minWidth: 320, minHeight: 200, backgroundColor: '#000000', autoHideMenuBar: true, title: 'mumh5' } };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });

@@ -92,6 +92,19 @@ try {
   await tile.waitFor();
   console.log('ok: a late joiner sees who is sharing');
 
+  // The tiles fill the stage, and the stage can be made taller or shorter
+  const tileWidth = async () => Math.round((await tile.boundingBox())!.width);
+  const before = await tileWidth();
+  const handle = bob.page.getByRole('separator', { name: 'Resize the tiles' });
+  await handle.focus();
+  for (let i = 0; i < 8; i++) await bob.page.keyboard.press('ArrowDown');
+  await bob.page.waitForFunction(w => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().width) > w, before);
+  const taller = await tileWidth();
+  for (let i = 0; i < 8; i++) await bob.page.keyboard.press('ArrowUp');
+  await bob.page.waitForFunction(w => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().width) < w, taller);
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/tiles.png` });
+  console.log(`ok: tiles scale with the stage height (${before} to ${taller} px wide)`);
+
   await tile.click();
   await bob.page.getByRole('button', { name: 'Continue' }).click();
   const view = bob.page.getByRole('region', { name: 'Screen share' });
@@ -100,6 +113,18 @@ try {
   const size = await bob.page.evaluate(() => { const v = document.querySelector('.spot video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
   await alice.page.getByText('You are sharing your screen, 1 watching').waitFor();
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
+
+  if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(500); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/meeting.png` }); }
+  // The large picture can move to a window of its own
+  const opened = bob.app.waitForEvent('window');
+  await view.getByRole('button', { name: 'Open in a separate window' }).click();
+  const streamWindow = await opened;
+  await streamWindow.waitForFunction(() => (document.querySelector('video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  await view.getByText('Shown in a separate window.').waitFor();
+  await streamWindow.close();
+  await view.getByRole('button', { name: 'Open in a separate window' }).waitFor();
+  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  console.log('ok: stream in a separate window, back when it is closed');
 
   // Like a meeting: back to tiles keeps the picture in the tile, a click makes it large again
   await view.getByRole('button', { name: 'Back to tiles' }).click();

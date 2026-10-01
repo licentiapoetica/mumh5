@@ -9,6 +9,7 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
+  import ResizeHandle from './ResizeHandle.svelte';
 
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
   // (always), and on any window while someone in the channel shares a screen: a sharer's tile
@@ -17,12 +18,12 @@
 
   const self = $derived(session.self);
   const channel = $derived(self ? session.channel(self.channelId) : undefined);
-  const people = $derived(self ? session.usersIn(self.channelId) : []);
+  const inChannel = $derived(self ? session.usersIn(self.channelId) : []);
   const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
 
   const watching = $derived(share.watching && here(share.watching.host) ? share.watching : null);
   const mine = $derived(share.stream && here(share.host) ? share.stream : null);
-  const anySharing = $derived(people.some(u => session.sharing[u.session]));
+  const anySharing = $derived(inChannel.some(u => session.sharing[u.session]));
   const visible = $derived(!!self && (always || anySharing || !!watching || !!mine));
 
   // The picture a tile can show: our own stream, or the one we are watching
@@ -30,6 +31,10 @@
     if (s === self?.session) return mine;
     return watching?.session === s ? watching.stream : null;
   }
+
+  // Tiles with a picture come first, then other people who share, so streams sit at the top left
+  const rank = (s: number) => streamOf(s) ? 0 : session.sharing[s] ? 1 : 2;
+  const people = $derived([...inChannel].sort((a, b) => rank(a.session) - rank(b.session)));
 
   // Tile on the large stage
   let focus = $state<number | null>(null);
@@ -46,6 +51,32 @@
     }
   });
   $effect(() => { if (focus === self?.session && !mine) focus = null; });
+
+  // The stage is as tall as the user drags it; the tiles grow and shrink to fill it. The
+  // meeting view (one picture large) remembers its own height.
+  const stored = (key: string, fallback: number) => { try { return Number(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
+  let tilesHeight = $state(stored('mumh5.stageHeight', 210));
+  let meetingHeight = $state(stored('mumh5.stageHeightMeeting', 460));
+  const maxHeight = () => Math.max(160, window.innerHeight - 220);
+
+  // Largest 16:9 tiles that fit everyone into the space, like a meeting's tile view
+  let gridW = $state(0), gridH = $state(0);
+  const GAP = 8;
+  const tileW = $derived.by(() => {
+    const n = people.length;
+    if (!n || !gridW || !gridH) return 160;
+    let best = 0;
+    for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols);
+      const w = Math.min((gridW - GAP * (cols - 1)) / cols, ((gridH - GAP * (rows - 1)) / rows) * 16 / 9);
+      if (w > best) best = w;
+    }
+    return Math.max(72, Math.floor(Math.min(best, 520)));
+  });
+  // In the meeting view the tiles sit in one row of fixed height
+  const STRIP_W = 150;
+  const shownW = $derived(focused ? STRIP_W : tileW);
+  const avatar = $derived(Math.max(24, Math.min(96, Math.round(shownW * 9 / 16 * 0.45))));
 
   let collapsed = $state(load());
   function load(): boolean {
@@ -84,12 +115,59 @@
     if (document.fullscreenElement) document.exitFullscreen();
     else frame?.requestFullscreen().catch(() => {});
   }
+
+  // The large picture in a window of its own, to put on another screen. The window is an
+  // empty page that gets the same stream; sound keeps coming from the main window.
+  let popup: Window | null = null;
+  let popVideo: HTMLVideoElement | null = null;
+  let popped = $state(false);
+  function popOut() {
+    if (popup && !popup.closed) return popup.focus();
+    const w = window.open('', 'mumh5-stream', 'popup,width=960,height=600');
+    if (!w) { share.error = 'The window could not be opened. Allow pop-ups for this page.'; return; }
+    popup = w;
+    popped = true;
+    w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+    const v = w.document.createElement('video');
+    v.autoplay = true;
+    v.muted = true;
+    v.playsInline = true;
+    v.style.cssText = 'width:100vw;height:100vh;object-fit:contain;display:block';
+    v.ondblclick = () => { if (w.document.fullscreenElement) w.document.exitFullscreen(); else v.requestFullscreen().catch(() => {}); };
+    w.document.body.replaceChildren(v);
+    popVideo = v;
+    w.addEventListener('pagehide', () => { if (popup === w) { popup = null; popVideo = null; popped = false; } });
+  }
+  function popIn() {
+    popup?.close();
+    popup = null;
+    popVideo = null;
+    popped = false;
+  }
+  // The window follows the picture on the stage and closes with it
+  $effect(() => {
+    const stream = focused;
+    const title = focus === self?.session ? 'Your screen' : focusUser ? store.displayName(focusUser) : 'Screen share';
+    if (!popped) return;
+    if (!stream) return popIn();
+    if (popVideo && popVideo.srcObject !== stream) popVideo.srcObject = stream;
+    if (popup) popup.document.title = `${title} - mumh5`;
+  });
+  $effect(() => () => popup?.close());
 </script>
 
 {#if share.error}<div class="bar bad" role="alert"><span>{share.error}</span><button class="btn" onclick={() => (share.error = '')}>Dismiss</button></div>{/if}
 
 {#if visible && self}
-  <section class="stage" class:meeting={!!focused} aria-label="Voice channel">
+  <section class="stage" class:meeting={!!focused} class:collapsed aria-label="Voice channel"
+    style:height={collapsed ? undefined : `${focused ? meetingHeight : tilesHeight}px`}>
+    {#if !collapsed}
+      {#if focused}
+        <ResizeHandle bind:width={meetingHeight} edge="bottom" min={240} max={maxHeight} initial={460} storageKey="mumh5.stageHeightMeeting" label="Resize the meeting view" />
+      {:else}
+        <ResizeHandle bind:width={tilesHeight} edge="bottom" min={110} max={maxHeight} initial={210} storageKey="mumh5.stageHeight" label="Resize the tiles" />
+      {/if}
+    {/if}
     <header>
       <button class="title" onclick={toggle} aria-expanded={!collapsed}>
         <svg class="caret" class:collapsed width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3l3 4 3-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
@@ -117,7 +195,7 @@
 
     {#if watching?.stream}<audio bind:this={player} use:media={watching.stream} autoplay></audio>{/if}
 
-    {#if focused && focus != null}
+    {#if focused && focus != null && !collapsed}
       <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
         <div class="spot-head">
           <Icon name="screen" size={16} />
@@ -127,22 +205,31 @@
             <input class="vol" type="range" min="0" max="1" step="0.01" bind:value={store.settings.shareVolume} onchange={() => store.saveSettings()}
               aria-label="Stream volume" title="Stream volume" />
           {/if}
-          <button class="icon-btn" title="Full screen" aria-label="Full screen" onclick={fullscreen}><Icon name="expand" size={16} /></button>
+          {#if popped}
+            <button class="btn small" onclick={popIn}>Bring back</button>
+          {:else}
+            <button class="icon-btn" title="Open in a separate window" aria-label="Open in a separate window" onclick={popOut}><Icon name="popout" size={16} /></button>
+            <button class="icon-btn" title="Full screen" aria-label="Full screen" onclick={fullscreen}><Icon name="expand" size={16} /></button>
+          {/if}
           {#if focus !== self.session}<button class="btn small" onclick={() => share.unwatch()}>Stop watching</button>{/if}
           <button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>
         </div>
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+        {#if popped}
+          <p class="away">Shown in a separate window.</p>
+        {:else}
+          <video use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+        {/if}
       </div>
     {/if}
 
     {#if !collapsed}
-      <ul class="tiles" class:strip={!!focused}>
+      <ul class="tiles" class:strip={!!focused} bind:clientWidth={gridW} bind:clientHeight={gridH}>
         {#each people as u (u.session)}
           {@const stream = streamOf(u.session)}
           {@const sharing = !!session.sharing[u.session]}
           {@const isSelf = u.session === self.session}
-          <li class:wide={!!stream}>
+          <li style:width="{shownW}px">
             <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:video={!!stream} class:focused={focus === u.session}
               onclick={() => tileClick(u.session)}
               oncontextmenu={e => menu.show(e, userMenu(u))}
@@ -152,7 +239,7 @@
                 <!-- svelte-ignore a11y_media_has_caption -->
                 <video use:media={stream} autoplay playsinline muted></video>
               {:else}
-                <Avatar name={u.name} size={44} speaking={talking(u.session)} />
+                <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
               {/if}
               <span class="who">{store.displayName(u)}</span>
               {#if watching?.session === u.session && watching.state !== 'live'}
@@ -176,8 +263,8 @@
 {/if}
 
 <style>
-  .stage { flex: none; border-bottom: 1px solid var(--line); background: var(--bg-1); }
-  header { display: flex; align-items: center; gap: 2px; padding: 4px 8px 4px 4px; }
+  .stage { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--line); background: var(--bg-0); }
+  header { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px 4px 4px; background: var(--bg-1); }
   .title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; }
   .title:hover { background: var(--bg-hover); }
   .caret { flex: none; color: var(--text-faint); }
@@ -185,38 +272,39 @@
   .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .count { font-size: 12px; color: var(--text-faint); }
   .mini { display: flex; gap: 3px; min-width: 0; overflow: hidden; margin-left: 4px; }
-  .tiles { list-style: none; margin: 0; padding: 0 10px 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px;
-    max-height: 40vh; overflow-y: auto; }
-  .tile { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px 8px;
-    background: var(--bg-2); border: 1px solid var(--line); transition: border-color 80ms, box-shadow 80ms; }
+
+  /* Tile view: equal 16:9 tiles, centered, sized by the script to fill the stage */
+  .tiles { flex: 1; min-height: 0; list-style: none; margin: 0; padding: 8px; display: flex; flex-wrap: wrap; justify-content: flex-start; align-content: flex-start; gap: 8px; overflow: hidden; }
+  .tiles li { flex: none; }
+  .tile { position: relative; width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; overflow: hidden;
+    background: var(--bg-2); border: 2px solid transparent; transition: border-color 80ms; }
   .tile:hover { background: var(--bg-hover); }
-  .tile.talking { border-color: var(--speaking); box-shadow: inset 0 0 0 1px var(--speaking); }
-  .who { max-width: 100%; font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tile.self .who { color: var(--text); font-weight: 600; }
-  .badge { position: absolute; top: 4px; right: 4px; display: inline-flex; color: var(--text-faint); }
+  .tile.talking { border-color: var(--speaking); }
+  .tile.focused { border-color: var(--accent); }
+  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  /* Name tag over the lower left corner */
+  .who { position: absolute; left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 1px 6px; font-size: 12px; color: #fff; background: rgb(0 0 0 / 0.6);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile.self .who { font-weight: 600; }
+  .note { position: absolute; left: 0; right: 0; top: 4px; text-align: center; font-size: 11px; color: var(--text-dim); }
+  .badge { position: absolute; top: 4px; right: 4px; display: inline-flex; padding: 2px; color: #fff; background: rgb(0 0 0 / 0.6); }
   .badge.admin { color: var(--danger); }
   .badge.live { color: var(--speaking); }
+  .failed { flex: none; margin: 0; padding: 0 12px 8px; font-size: 12px; color: var(--danger); }
 
-  /* Streams */
   .bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 13px; background: var(--bg-1); border-bottom: 1px solid var(--line); }
   .bar span { flex: 1; min-width: 0; }
   .bar.bad { color: var(--danger); }
   .btn.small, .bar .btn { padding: 4px 10px; font-size: 12px; flex: none; }
   .status { font-size: 12px; color: var(--speaking); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; margin-right: 4px; }
-  .tiles li.wide { grid-column: span 2; }
-  .tile.video { padding: 0 0 6px; overflow: hidden; }
-  .tile.video video { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; display: block; }
-  .tile.focused { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-  .note { font-size: 11px; color: var(--text-faint); }
-  .failed { margin: 0; padding: 0 12px 10px; font-size: 12px; color: var(--danger); }
-  /* Meeting view: the chosen picture large, everyone else in one row below */
-  .stage.meeting { display: flex; flex-direction: column; max-height: 72%; min-height: 220px; }
+
+  /* Meeting view: the chosen picture large, everyone in one row below */
   .spot { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
   .spot-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 2px 6px 2px 12px; background: var(--bg-0); color: var(--text-dim); font-size: 13px; }
   .spot-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
   .spot video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; display: block; }
+  .spot:fullscreen video { height: 100%; }
+  .away { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .vol { width: 110px; flex: none; padding: 0; }
-  .tiles.strip { flex: none; display: flex; overflow-x: auto; overflow-y: hidden; padding-top: 8px; max-height: none; }
-  .tiles.strip li { flex: 0 0 96px; }
-  .tiles.strip li.wide { flex-basis: 150px; }
+  .tiles.strip { flex: none; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overflow-y: hidden; padding: 6px 8px; }
 </style>
