@@ -143,6 +143,22 @@ try {
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
 
   if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(500); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/meeting.png` }); }
+  // Right-click on the picture: statistics for both sides
+  const nerd = async (page: Page, expect: RegExp[]) => {
+    await page.locator('.spot video').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Stats for nerds' }).click();
+    const box = page.getByRole('status', { name: 'Stream statistics' });
+    for (const e of expect) await box.getByText(e).first().waitFor({ timeout: 8000 });
+    const text = (await box.innerText()).replace(/\n+/g, ' | ');
+    await box.getByRole('button', { name: 'Close statistics' }).click();
+    await box.waitFor({ state: 'detached' });
+    return text;
+  };
+  const viewerStats = await nerd(bob.page, [/^(VP8|VP9|H264|AV1)/, /^\d+x\d+/, /^\d+ kbit\/s$/, /^direct/]);
+  const sharerStats = await nerd(alice.page, [new RegExp(`To ${bobName}`), /^(VP8|VP9|H264|AV1)/, /^\d+ kbit\/s$/]);
+  console.log(`ok: stats for nerds (viewer: ${viewerStats.slice(0, 200)}...)`);
+  assert.ok(sharerStats.includes('Round trip'));
+
   // The large picture can move to a window of its own
   const opened = bob.app.waitForEvent('window');
   await view.getByRole('button', { name: 'Open in a separate window' }).click();

@@ -10,6 +10,7 @@
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
   import ResizeHandle from './ResizeHandle.svelte';
+  import ShareStats from './ShareStats.svelte';
 
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
   // (always), and on any window while someone in the channel shares a screen. A stream is shown
@@ -121,6 +122,10 @@
     else { session.showUser(session_); ui.panelOpen = true; }
   }
 
+  // Right-click on the picture
+  let showStats = $state(false);
+  const streamMenu = (e: MouseEvent) => menu.show(e, [{ label: 'Stats for nerds', checked: showStats, action: () => (showStats = !showStats) }]);
+
   let frame = $state<HTMLElement>();
   function fullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
@@ -207,7 +212,10 @@
       {#if popped}
         <p class="away">Shown in a separate window.</p>
       {:else}
-        <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+        <div class="pic" role="presentation" oncontextmenu={streamMenu}>
+          <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+          {#if showStats}<ShareStats own={focus === self.session} onclose={() => (showStats = false)} />{/if}
+        </div>
       {/if}
     </div>
   {/if}
@@ -337,14 +345,15 @@
   .spot { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
   .spot-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 2px 6px 2px 12px; background: var(--bg-0); color: var(--text-dim); font-size: 13px; }
   .spot-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
-  .spot video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; display: block; }
-  .spot:fullscreen video { height: 100%; }
+  .pic { position: relative; flex: 1; min-height: 0; display: flex; }
+  .spot video { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .away { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .vol { width: 110px; flex: none; padding: 0; }
   /* Video only: the picture as wide as the chat, as tall as its shape asks */
   .stage.solo { background: #000; }
   .stage.solo .spot { flex: none; }
-  .stage.solo .spot video { flex: none; height: auto; max-height: 62vh; }
+  .stage.solo .pic { flex: none; display: block; }
+  .stage.solo .spot video { height: auto; max-height: 62vh; }
   .stage.solo .away { flex: none; padding: 24px; }
   .wait { margin: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; color: var(--text-dim); background: var(--bg-1); }
   .wait span { flex: 1; min-width: 0; }

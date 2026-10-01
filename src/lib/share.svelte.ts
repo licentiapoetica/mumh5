@@ -244,6 +244,12 @@ class ScreenShare {
     }
   }
 
+  // Raw WebRTC statistics for the overlay: of the stream we watch, or one per viewer of ours
+  async reports(own: boolean): Promise<{ viewer: number | null; report: RTCStatsReport }[]> {
+    if (!own) return this.watchPc ? [{ viewer: null, report: await this.watchPc.getStats() }] : [];
+    return Promise.all([...this.peers].map(async ([viewer, pc]) => ({ viewer, report: await pc.getStats() })));
+  }
+
   // ─── Called by the session ────────────────────────────────────────────────
 
   async receive(s: Session, sender: number, dataId: string, data: Uint8Array): Promise<void> {
