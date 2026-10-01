@@ -5,7 +5,8 @@
 import { SHARE, SHARE_DATA_ID, encodeShare, ShareAssembler, type ShareType } from '../core/share-signal.ts';
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
-import { desktop } from './native.ts';
+import { desktop, isWeb } from './native.ts';
+import { proxyStun } from './web.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 
@@ -51,7 +52,10 @@ class ScreenShare {
 
   private iceServers(): RTCIceServer[] {
     const stun = store.settings.stunServer.trim();
-    return stun ? [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }] : [];
+    if (stun) return [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }];
+    // The browser build falls back to the proxy it is served from
+    const own = isWeb ? proxyStun() : null;
+    return own ? [{ urls: own }] : [];
   }
 
   private others(s: Session): number[] {

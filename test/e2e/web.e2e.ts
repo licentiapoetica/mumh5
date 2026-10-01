@@ -42,7 +42,7 @@ function within<T>(p: Promise<T>, label: string, ms = 10000): Promise<T> {
 const proxyPort = 18000 + Math.floor(Math.random() * 1000);
 const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
 const proxy = spawn(process.execPath, [path.join(root, 'dist-proxy/proxy.mjs')], {
-  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server` }, stdio: ['ignore', 'pipe', 'inherit']
+  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit']
 });
 await within(new Promise<void>((res, rej) => {
   proxy.stdout.on('data', d => { if (String(d).includes('listening')) res(); });
@@ -50,12 +50,14 @@ await within(new Promise<void>((res, rej) => {
 }), 'proxy start');
 
 const downloads = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-dl-'));
-const app = await electron.launch({
+const browser = () => electron.launch({
   executablePath: electronPath as unknown as string,
   args: [path.join(root, 'test/e2e/web-shell.cjs'), `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
     '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
   env: { ...env, MUMH5_WEB_URL: `http://127.0.0.1:${proxyPort}/`, MUMH5_DOWNLOADS: downloads } as Record<string, string>
 });
+const app = await browser();
+let second: Awaited<ReturnType<typeof browser>> | null = null;
 const bob = await headless('bob');
 const name = `webalice${Date.now() % 100000}`;
 try {
@@ -160,9 +162,38 @@ try {
   assert.equal(hash(), before, 'same certificate after a reload');
   console.log('ok: identity kept across a reload');
 
+  // Screen sharing between two browsers: the proxy's own STUN is used without any setting
+  assert.equal((await (await fetch(`http://127.0.0.1:${proxyPort}/api/config`)).json()).stun, proxyPort + 1000);
+  second = await browser();
+  const page2 = await second.firstWindow();
+  page2.on('console', m => { if (m.type() === 'error') console.log('[page2]', m.text()); });
+  await page2.setViewportSize({ width: 1280, height: 800 });
+  await page2.getByRole('button', { name: /Create a new identity/ }).click();
+  await page2.getByLabel('Name', { exact: true }).fill(`webcarol${Date.now() % 100000}`);
+  await page2.getByRole('button', { name: 'Create', exact: true }).click();
+  await page2.getByRole('button', { name: 'Skip for now' }).click();
+  await page2.getByRole('button', { name: 'Done' }).click();
+  await page2.getByTitle('Add a server').click();
+  await page2.getByRole('button', { name: 'Save and connect' }).click();
+  await page2.getByText(/Connected/).first().waitFor();
+
+  await page.locator('.me').getByRole('button', { name: 'Share your screen' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Share your screen' });
+  await dialog.getByRole('button', { name: 'Choose a screen or window...' }).click();
+  await page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 60000 });
+  await dialog.getByRole('button', { name: 'Start sharing' }).click();
+  await page.getByText('You are sharing your screen').waitFor();
+  await page2.locator('.stage .tile', { hasText: name }).click();
+  await page2.getByRole('button', { name: 'Continue' }).click();
+  await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
+  await page.getByText('You are sharing your screen, 1 watching').waitFor();
+  console.log('ok: screen sharing between two browsers');
+
   console.log('WEB E2E PASSED');
 } finally {
   bob.disconnect();
   await app.close().catch(() => {});
+  await second?.close().catch(() => {});
   proxy.kill();
 }
