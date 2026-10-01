@@ -268,13 +268,20 @@ try {
   assert.equal(await picker.getByLabel('Sound').count(), 0, 'no extra sound with a camera');
   await startBtn.click();
   await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your camera').waitFor();
-  // Cameras play in the tiles. Bob joins the camera round with one click and sees Alice's
+  // Cameras play in the tiles and come on by themselves, like in a video call
   const cam = bob.page.locator('.sidebar').getByRole('button', { name: `Watch the camera of ${aliceName}`, exact: true });
   await cam.waitFor();
   const liveCams = (p: Page) => p.evaluate(() => [...document.querySelectorAll('.stage .tile video')].filter(v => (v as HTMLVideoElement).videoWidth > 0).length);
   const camsShown = (p: Page, n: number) => p.waitForFunction(
     want => [...document.querySelectorAll('.stage .tile video')].filter(v => (v as HTMLVideoElement).videoWidth > 0).length === want, n, { timeout: 30000 });
-  await bob.page.locator('.stage').getByRole('button', { name: 'Watch all cameras' }).click();
+  await camsShown(bob.page, 1);
+  // One person's camera can be hidden, and shown again
+  await bob.page.locator('.stage .tile', { hasText: aliceName }).click({ button: 'right' });
+  await bob.page.getByRole('menuitem', { name: 'Hide camera' }).click();
+  await camsShown(bob.page, 0);
+  await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
+  await bob.page.locator('.stage .tile', { hasText: aliceName }).click({ button: 'right' });
+  await bob.page.getByRole('menuitem', { name: 'Show camera' }).click();
   await camsShown(bob.page, 1);
   assert.equal(await bob.page.getByRole('region', { name: 'Screen share' }).count(), 0, 'a camera does not take over the stage by itself');
 
@@ -295,13 +302,17 @@ try {
   // A click enlarges one camera; the statistics show it came through the relay
   await bob.page.locator('.stage .tile', { hasText: aliceName }).click();
   await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  assert.equal(await bob.page.locator('.stage .tile', { hasText: aliceName }).locator('video').count(), 0, 'the enlarged camera is not also in its tile');
+  assert.equal(await bob.page.locator('.stage .tile.self video').count(), 1, 'the other tiles keep theirs');
   const camStats = await nerd(bob.page, [/^relayed \(TURN\), reached over TCP/, /^0 direct, 0 through STUN, [1-9]\d* relayed/]);
   await bob.page.getByRole('region', { name: 'Screen share' }).getByRole('button', { name: 'Back to tiles' }).click();
 
-  // Leaving the round keeps Bob's own camera on and drops the others
-  await bob.page.locator('.stage').getByRole('button', { name: 'Stop watching the cameras' }).click();
+  // Everyone's cameras off at once keeps Bob's own camera on and drops the others; on again brings them back
+  await bob.page.locator('.stage').getByRole('button', { name: 'Hide all cameras' }).click();
   await camsShown(bob.page, 1);
   await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
+  await bob.page.locator('.stage').getByRole('button', { name: 'Show all cameras' }).click();
+  await camsShown(bob.page, 2);
   await bob.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();
   await camsShown(alice.page, 1);
   await alice.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();

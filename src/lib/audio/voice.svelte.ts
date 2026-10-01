@@ -1,3 +1,5 @@
+import { WasmEncoder, WasmDecoder, type Opus } from './opus-wasm.ts';
+import { loadOpus } from './opus-load.ts';
 import captureUrl from './capture.worklet.ts?worker&url';
 import playbackUrl from './playback.worklet.ts?worker&url';
 import { encodeVoice, decodeVoice } from '../../core/voice-packet.ts';
@@ -77,8 +79,10 @@ class VoiceEngine {
   private outputGainNode: GainNode | null = null;
   private capture: AudioWorkletNode | null = null;
   private playback: AudioWorkletNode | null = null;
-  private encoder: AudioEncoder | null = null;
-  private decoders = new Map<number, { decoder: AudioDecoder; lastFrame: number; timer: ReturnType<typeof setTimeout> | null }>();
+  // The browser's Opus codec (WebCodecs), or our own in WebAssembly where the browser has none
+  private opus: Opus | null = null;
+  private encoder: AudioEncoder | WasmEncoder | null = null;
+  private decoders = new Map<number, { decoder: AudioDecoder | WasmDecoder; lastFrame: number; timer: ReturnType<typeof setTimeout> | null }>();
   private client: MumbleClient | null = null;
   private sessionGains = new Map<number, number>();
   private unsubscribe: (() => void)[] = [];
@@ -139,8 +143,18 @@ class VoiceEngine {
     if (this.ctx) return;
     this.error = '';
     try {
-      if (typeof AudioEncoder === 'undefined' || !(await AudioEncoder.isConfigSupported(this.encoderConfig())).supported) {
-        throw new Error('This browser cannot encode Opus audio (WebCodecs is missing), so you cannot talk or hear others here. Chromium-based browsers and the desktop app can.');
+      const builtIn = typeof AudioEncoder !== 'undefined' && typeof AudioDecoder !== 'undefined' &&
+        (await AudioEncoder.isConfigSupported(this.encoderConfig()).catch(() => ({ supported: false }))).supported;
+      // mumh5.forceWasmOpus in localStorage: use the built-in codec regardless, for testing it
+      let forced = false;
+      try { forced = localStorage.getItem('mumh5.forceWasmOpus') === '1'; } catch { /* storage unavailable */ }
+      if (!builtIn || forced) {
+        // Firefox on Android, for one, has no audio codec for pages; bring our own
+        try {
+          this.opus = await loadOpus();
+        } catch (e) {
+          throw new Error(`This browser has no Opus audio codec, and the built-in one could not be loaded (${(e as Error).message})`);
+        }
       }
       const ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
       this.ctx = ctx;
@@ -281,11 +295,16 @@ class VoiceEngine {
     this.effectiveBitrate = this.allowedBitrate();
     if (!this.ctx) return;
     try { this.encoder?.close(); } catch { /* closed */ }
-    this.encoder = new AudioEncoder({
+    if (this.opus) {
+      this.encoder = new WasmEncoder(this.opus, this.effectiveBitrate, this.settings.frameMs, packet => this.onPacket(packet));
+      return;
+    }
+    const encoder = new AudioEncoder({
       output: chunk => this.onEncoded(chunk),
       error: e => { this.error = `Encoder: ${e.message}`; }
     });
-    this.encoder.configure(this.encoderConfig());
+    encoder.configure(this.encoderConfig());
+    this.encoder = encoder;
   }
 
   private canTalk(): boolean {
@@ -320,18 +339,24 @@ class VoiceEngine {
     if (!wanted && this.open) { this.endTransmission(); return; }
     if (!this.open) return;
 
+    const encoder = this.encoder!;
+    if (encoder instanceof WasmEncoder) return encoder.push(frame);
     const data = new AudioData({
       format: 'f32-planar', sampleRate: SAMPLE_RATE, numberOfFrames: FRAME, numberOfChannels: 1,
       timestamp: this.sampleTime, data: frame
     });
     this.sampleTime += 10000;
-    this.encoder!.encode(data);
+    encoder.encode(data);
     data.close();
   }
 
   private onEncoded(chunk: EncodedAudioChunk): void {
     const opus = new Uint8Array(chunk.byteLength);
     chunk.copyTo(opus);
+    this.onPacket(opus);
+  }
+
+  private onPacket(opus: Uint8Array): void {
     if (this.stopping) { this.held.push(opus); return; }
     this.sendPacket(opus, false);
   }
@@ -389,11 +414,15 @@ class VoiceEngine {
     let d = this.decoders.get(p.session);
     if (!d) {
       const session = p.session;
-      const decoder = new AudioDecoder({
-        output: data => this.onDecoded(session, data),
-        error: () => this.dropSession(session)
-      });
-      decoder.configure({ codec: 'opus', sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
+      let decoder: AudioDecoder | WasmDecoder;
+      if (this.opus) decoder = new WasmDecoder(this.opus);
+      else {
+        decoder = new AudioDecoder({
+          output: data => this.onDecoded(session, data),
+          error: () => this.dropSession(session)
+        });
+        decoder.configure({ codec: 'opus', sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
+      }
       d = { decoder, lastFrame: -1, timer: null };
       this.decoders.set(session, d);
       if (user) this.setSessionGain(session, this.settings.userVolumes[userKey(user)] ?? 1);
@@ -402,7 +431,13 @@ class VoiceEngine {
     d.lastFrame = p.frame;
 
     if (p.opus.length) {
-      d.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: p.frame * 10000, data: p.opus }));
+      if (d.decoder instanceof WasmDecoder) {
+        const pcm = d.decoder.decode(p.opus);
+        if (pcm) {
+          this.stats.decoded++;
+          this.playback?.port.postMessage({ session: p.session, pcm }, [pcm.buffer]);
+        }
+      } else d.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: p.frame * 10000, data: p.opus }));
     }
     if (!this.talking[p.session]) this.talking[p.session] = true;
     if (d.timer) clearTimeout(d.timer);

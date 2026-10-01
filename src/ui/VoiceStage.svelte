@@ -288,7 +288,8 @@
           {@const stream = streamOf(u.session)}
           {@const sharing = session.sharing[u.session]}
           {@const isSelf = u.session === self?.session}
-          {@const cam = camOf(u.session)}
+          <!-- While a camera is shown large, its tile goes back to the avatar: one picture, not two -->
+          {@const cam = focus === u.session ? null : camOf(u.session)}
           {@const w = watchOf(u.session)}
           <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
             onclick={() => tileClick(u.session)}
@@ -359,8 +360,8 @@
         {/if}
       </button>
       {#if anyCamera || share.cams}
-        <button class="icon-btn" class:live={share.cams} aria-pressed={share.cams} title={share.cams ? 'Stop watching the cameras' : 'Watch everyone\'s camera'}
-          aria-label={share.cams ? 'Stop watching the cameras' : 'Watch all cameras'} onclick={() => share.setCams(sessions.active, !share.cams)}>
+        <button class="icon-btn" class:live={share.cams} aria-pressed={share.cams} title={share.cams ? 'Hide everyone\'s camera' : 'Show everyone\'s camera'}
+          aria-label={share.cams ? 'Hide all cameras' : 'Show all cameras'} onclick={() => share.setCams(sessions.active, !share.cams)}>
           <Icon name="camera" size={18} />
         </button>
       {/if}

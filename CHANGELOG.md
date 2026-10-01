@@ -6,6 +6,8 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ### Added
 
+- Voice in browsers without an audio codec of their own (Firefox on Android): a built-in Opus codec takes over there.
+- Cameras of people in your channel show by themselves, like in a video call; each one can be hidden from its right-click menu, and all of them switched off with one button.
 - Camera sharing, as a second source in the screen sharing dialog, and camera rounds: several people's cameras at once in the voice tiles.
 - A relay for streams in the web proxy, used automatically by the browser version and, with its address entered in Settings, by the desktop app, for networks and browsers that allow no direct connection.
 - Screen sharing between mumh5 users in a channel: a dialog to choose the screen or window (with preview), the sound and the quality; sound from one program or the whole system on Linux through PipeWire. Viewers watch in the voice tiles, enlarge a stream like in a meeting and set its volume. Streams go directly between clients; a STUN server can be set in Settings, Voice.
