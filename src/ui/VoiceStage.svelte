@@ -267,7 +267,7 @@
       {:else}
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
-          <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+          <video bind:this={spotVideo} class:mirror={focus === self.session && share.mirror} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
           {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
             <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
               ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
@@ -298,7 +298,7 @@
             aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
             {#if cam}
               <!-- svelte-ignore a11y_media_has_caption -->
-              <video class:mirror={isSelf} use:media={cam} autoplay playsinline muted></video>
+              <video class:mirror={isSelf && share.mirror} use:media={cam} autoplay playsinline muted></video>
             {:else}
               <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
             {/if}
@@ -414,7 +414,7 @@
   /* A camera keeps its own shape inside the tile, whatever size the tile is: nothing is cut
      off, a phone held upright gets bars at the sides. Your own is mirrored, like a mirror. */
   .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-  .tile video.mirror { transform: scaleX(-1); }
+  .tile video.mirror, .spot video.mirror { transform: scaleX(-1); }
   .icon-btn.live, .icon-btn.live:hover { color: var(--speaking); }
   .camgrid { position: relative; display: flex; flex-direction: column; flex: none; }
   /* Name tag over the lower left corner */

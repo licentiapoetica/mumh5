@@ -220,7 +220,7 @@
   <span class="label">Preview</span>
   <div class="preview">
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={video} autoplay playsinline muted></video>
+    <video bind:this={video} class:mirror={kind === 'camera' && preview?.getVideoTracks()[0]?.getSettings().facingMode !== 'environment'} autoplay playsinline muted></video>
     {#if !preview}<p>Nothing chosen yet</p>{/if}
   </div>
 
@@ -280,6 +280,8 @@
   .name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .preview { position: relative; background: #000; aspect-ratio: 16 / 9; max-height: 240px; margin: 0 auto; width: 100%; }
   .preview video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  /* Your own camera as a mirror shows you; a camera facing away is left as it is */
+  .preview video.mirror { transform: scaleX(-1); }
   .preview p { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 12px; }
   .check input { width: auto; }

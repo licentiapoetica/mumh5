@@ -43,6 +43,9 @@ class ScreenShare {
   host = $state.raw<Session | null>(null);
   stream = $state.raw<MediaStream | null>(null);
   kind = $state<ShareKind>('screen');
+  // Show our own camera mirrored to ourselves, as a mirror would. Not a camera pointing away
+  // from us (a phone's back camera), and never what the others get.
+  mirror = $state(false);
   viewers = $state(0);
   // Streams we receive: one screen at a time, and any number of cameras next to it
   watches = $state.raw<Watching[]>([]);
@@ -142,6 +145,7 @@ class ScreenShare {
     }
     this.usesVirtualMic = usesVirtualMic;
     this.kind = kind;
+    this.mirror = kind === 'camera' && stream.getVideoTracks()[0]?.getSettings().facingMode !== 'environment';
     this.host = s;
     this.stream = stream;
     this.send(s, this.others(s), SHARE.on, kind);
