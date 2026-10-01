@@ -74,14 +74,16 @@ try {
   await pickAndStart();
   await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your screen').waitFor();
-  // The sharer's own tile shows what is being sent; clicking it makes it large
-  await alice.page.waitForFunction(() => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
-  await alice.page.locator('.stage .tile.self').click();
+  // The sharer sees what is being sent, large by default; the tiles themselves never carry the picture
   const ownView = alice.page.getByRole('region', { name: 'Screen share' });
   await ownView.getByText('Your screen').waitFor();
+  await alice.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  assert.equal(await alice.page.locator('.stage .tile video').count(), 0);
   await ownView.getByRole('button', { name: 'Back to tiles' }).click();
   await ownView.waitFor({ state: 'detached' });
-  console.log('ok: sharing started from the dialog, own tile shows the stream');
+  await alice.page.locator('.stage .tile.self').click();
+  await ownView.waitFor();
+  console.log('ok: sharing started from the dialog, own stream shown large');
 
   // Stacked layout: only the picture, as wide as the chat, and the layout stays stacked on narrow windows
   const setLayout = async (name: string) => {
@@ -152,13 +154,13 @@ try {
   await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0);
   console.log('ok: stream in a separate window, back when it is closed');
 
-  // Like a meeting: back to tiles keeps the picture in the tile, a click makes it large again
+  // Back to tiles hides the picture; the sharer's tile brings it back
   await view.getByRole('button', { name: 'Back to tiles' }).click();
   await view.waitFor({ state: 'detached' });
-  await bob.page.waitForFunction(() => (document.querySelector('.stage .tile.video video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  assert.equal(await bob.page.locator('.stage .tile video').count(), 0);
   await tile.click();
   await view.waitFor();
-  console.log('ok: stream in the tile, large on click');
+  console.log('ok: large view hidden and shown again from the tile');
 
   // Leaving and coming back
   await view.getByRole('button', { name: 'Stop watching' }).click();

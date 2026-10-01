@@ -12,8 +12,8 @@
   import ResizeHandle from './ResizeHandle.svelte';
 
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
-  // (always), and on any window while someone in the channel shares a screen: a sharer's tile
-  // carries the picture, and clicking it puts it on a large stage with the tiles as a strip.
+  // (always), and on any window while someone in the channel shares a screen. A stream is shown
+  // large above the tiles, which become a strip; the tiles themselves never carry the picture.
   // videoOnly: just the picture, as wide as the chat (stacked layout, where the channel list
   // above already shows who is here)
   let { always = false, videoOnly = false }: { always?: boolean; videoOnly?: boolean } = $props();
@@ -34,7 +34,7 @@
     return watching?.session === s ? watching.stream : null;
   }
 
-  // Tiles with a picture come first, then other people who share, so streams sit at the top left
+  // People with a stream we can show come first, then others who share
   const rank = (s: number) => streamOf(s) ? 0 : session.sharing[s] ? 1 : 2;
   const people = $derived([...inChannel].sort((a, b) => rank(a.session) - rank(b.session)));
 
@@ -52,7 +52,14 @@
       lastWatch = now;
     }
   });
-  $effect(() => { if (focus === self?.session && !mine) focus = null; });
+  // Our own stream opens large when it starts, unless another one is on the stage
+  let hadMine = false;
+  $effect(() => {
+    const has = !!mine;
+    if (has && !hadMine && focus == null && self) focus = self.session;
+    else if (!has && focus === self?.session) focus = null;
+    hadMine = has;
+  });
   // Without tiles there is nothing to choose: the watched stream, else our own
   $effect(() => { if (videoOnly) focus = watching ? watching.session : mine ? self?.session ?? null : null; });
 
@@ -264,17 +271,12 @@
           {@const sharing = !!session.sharing[u.session]}
           {@const isSelf = u.session === self.session}
           <li style:width="{shownW}px">
-            <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:video={!!stream} class:focused={focus === u.session}
+            <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
               onclick={() => tileClick(u.session)}
               oncontextmenu={e => menu.show(e, userMenu(u))}
-              title={stream ? (focus === u.session ? 'Back to tiles' : 'Show large') : sharing && !isSelf ? 'Sharing their screen. Click to watch' : store.displayName(u)}
-              aria-label={stream ? `${focus === u.session ? 'Shrink' : 'Enlarge'} the screen of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the screen of ${store.displayName(u)}` : store.displayName(u)}>
-              {#if stream}
-                <!-- svelte-ignore a11y_media_has_caption -->
-                <video use:media={stream} autoplay playsinline muted></video>
-              {:else}
-                <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
-              {/if}
+              title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? 'Sharing their screen. Click to watch' : store.displayName(u)}
+              aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the screen of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the screen of ${store.displayName(u)}` : store.displayName(u)}>
+              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
               <span class="who">{store.displayName(u)}</span>
               {#if watching?.session === u.session && watching.state !== 'live'}
                 <span class="note">{watching.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
@@ -315,7 +317,6 @@
   .tile:hover { background: var(--bg-hover); }
   .tile.talking { border-color: var(--speaking); }
   .tile.focused { border-color: var(--accent); }
-  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   /* Name tag over the lower left corner */
   .who { position: absolute; left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 1px 6px; font-size: 12px; color: #fff; background: rgb(0 0 0 / 0.6);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
