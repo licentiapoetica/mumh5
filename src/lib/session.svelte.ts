@@ -161,6 +161,14 @@ export class Session {
     this.expanded = all;
   }
 
+  // What the server told us about itself, for the server information dialog
+  get serverInfo() {
+    void this.tick;
+    const c = this.client;
+    if (!c) return null;
+    return { version: c.serverVersion, maxBandwidth: c.maxBandwidth, config: { ...c.config }, users: c.users.size, channels: c.channels.size };
+  }
+
   // How voice travels right now
   get voiceTransport(): { udp: boolean; rtt: number } {
     void this.tick;
@@ -663,8 +671,17 @@ export class Session {
 
   // ─── Voice state and moderation ─────────────────────────────────────────────
 
-  setSelfMute(v: boolean) { this.client?.setSelfMute(v); }
-  setSelfDeaf(v: boolean) { this.client?.setSelfDeaf(v); }
+  // The choice is remembered, so it also works while disconnected and carries to the next connect
+  setSelfMute(v: boolean) {
+    sessions.mute = v;
+    if (!v) sessions.deaf = false;
+    this.client?.setSelfMute(v);
+  }
+  setSelfDeaf(v: boolean) {
+    sessions.deaf = v;
+    if (v) sessions.mute = true;
+    this.client?.setSelfDeaf(v);
+  }
 
   kick(session: number, reason: string, ban = false) { this.client?.kick(session, reason, ban); }
   setServerMute(session: number, v: boolean) { this.client?.setUserState(session, { mute: v }); }
@@ -683,6 +700,10 @@ class Sessions {
   activeId = $state<string | null>(null);
   voiceId = $state<string | null>(null);
   private idle = new Session();
+  // Self mute/deaf as the user last chose it, like the desktop client: shown and toggled
+  // while disconnected and applied to servers when they connect
+  mute = $state(false);
+  deaf = $state(false);
   // Self mute/deaf before we deafened a background server, to restore later
   private saved = new Map<Session, { mute: boolean; deaf: boolean }>();
 
@@ -725,8 +746,15 @@ class Sessions {
   }
 
   onSynced(s: Session): void {
-    if (!this.voiceId || !this.voiceSession?.client) this.setVoice(s, true);
-    else this.toBackground(s);
+    const want = { mute: this.mute, deaf: this.deaf };
+    if (!this.voiceId || !this.voiceSession?.client) {
+      this.setVoice(s, true);
+      if (want.mute) s.client?.send('UserState', { self_mute: true, self_deaf: want.deaf });
+    } else {
+      this.toBackground(s);
+      // A fresh login is unmuted; restore the user's choice when voice comes here
+      if (this.saved.has(s)) this.saved.set(s, want);
+    }
   }
 
   onClosed(s: Session): void {

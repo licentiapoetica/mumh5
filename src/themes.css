@@ -164,6 +164,8 @@
   box-shadow: var(--sunken);
 }
 :root[data-theme="win95"] .composer .box textarea { box-shadow: none; }
+/* Raised frame in the window face color around the sunken input */
+:root[data-theme="win95"] .composer { border: 2px outset #c0c0c0; }
 :root[data-theme="win95"] .rich .area, :root[data-theme="win95"] .rich textarea { box-shadow: none; }
 :root[data-theme="win95"] input[type=range] { accent-color: #000080; }
 

@@ -46,7 +46,7 @@ const defaults: Settings = {
   embedHosts: [],
   sendThumbnails: true,
   compact: false,
-  youtube: 'click',
+  youtube: 'off',
   linkPreviews: 'host',
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',

@@ -92,6 +92,18 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: welcome page without composer, manage identities');
 
+  // Mute and deafen are there without a connection
+  const me = page.locator('.me');
+  await me.getByText('Not connected').waitFor();
+  assert.ok(await me.getByRole('button', { name: 'Server information' }).isDisabled());
+  await me.getByRole('button', { name: 'Deafen', exact: true }).click();
+  await me.getByRole('button', { name: 'Unmute', exact: true }).waitFor();
+  await me.getByText('Deafened').waitFor();
+  await me.getByRole('button', { name: 'Unmute', exact: true }).click();
+  await me.getByRole('button', { name: 'Deafen', exact: true }).waitFor();
+  await me.getByRole('button', { name: 'Mute', exact: true }).waitFor();
+  console.log('ok: mute and deafen shown while disconnected');
+
   // Settings: upload host + key
   if (process.env.UPLOAD_HOST && process.env.UPLOAD_KEY) {
     await page.getByTitle('Settings').click();
@@ -256,15 +268,23 @@ try {
   await page.locator('.chat .composer').getByRole('button', { name: 'Text formatting' }).click();
   console.log('ok: formatted message from the toolbar');
 
-  // YouTube links become a click-to-play card; nothing loads from YouTube before the click
+  // YouTube links are plain links by default
   bob.sendText({ channels: [0] }, 'watch <a href="https://youtu.be/dQw4w9WgXcQ?t=1m30s">https://youtu.be/dQw4w9WgXcQ?t=1m30s</a>');
-  const card = page.locator('.msg', { hasText: 'watch' }).locator('.yt');
+  const ytMsg = page.locator('.msg', { hasText: 'watch' });
+  await ytMsg.getByRole('link', { name: 'https://youtu.be/dQw4w9WgXcQ?t=1m30s' }).waitFor();
+  assert.equal(await ytMsg.locator('.yt').count(), 0, 'no YouTube card by default');
+  // Turned on, they become a click-to-play card; nothing loads from YouTube before the click
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Chat and files' }).click();
+  await page.getByLabel('YouTube links').selectOption('click');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const card = ytMsg.locator('.yt');
   await card.getByText('from 1:30, click to play').waitFor();
   assert.equal(await card.locator('iframe').count(), 0);
-  assert.equal(await card.locator('.facade').evaluate(el => getComputedStyle(el).backgroundImage), 'none', 'no thumbnail request by default');
+  assert.equal(await card.locator('.facade').evaluate(el => getComputedStyle(el).backgroundImage), 'none', 'no thumbnail request in click mode');
   await card.locator('.facade').click();
   assert.equal(await card.locator('iframe').getAttribute('src'), 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&start=90');
-  console.log('ok: YouTube link embedded as click-to-play');
+  console.log('ok: YouTube link plain by default, click-to-play when turned on');
 
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;
@@ -359,6 +379,15 @@ try {
   const row = pub.locator('tr', { hasText: 'E2E Murmur' });
   await row.getByText(/^\d+ \/ \d+$/).waitFor({ timeout: 8000 });
   await row.getByText(/ms$/).waitFor();
+  await row.getByRole('button', { name: 'Connect' }).waitFor();
+  // Column headers sort; a second click reverses
+  const firstRow = pub.locator('tbody tr').first();
+  await pub.getByRole('button', { name: 'Server', exact: true }).click();
+  await firstRow.getByText('E2E Murmur').waitFor();
+  await pub.getByRole('button', { name: 'Server', exact: true }).click();
+  await firstRow.getByText('Offline one').waitFor();
+  await pub.getByRole('button', { name: 'People', exact: true }).click();
+  await firstRow.getByText('E2E Murmur').waitFor();
   await row.getByRole('button', { name: 'Add' }).click();
   assert.equal(await page.getByLabel('Address').inputValue(), host);
   assert.equal(await page.getByLabel('Port').inputValue(), port);
@@ -531,6 +560,16 @@ try {
   await page.getByRole('menuitem', { name: 'View profile' }).click();
   await page.locator('.panel h3', { hasText: 'bob' }).waitFor();
   console.log('ok: user context menu and profile');
+
+  // Server information from the button next to mute
+  await page.locator('.me').getByRole('button', { name: 'Server information' }).click();
+  const srvInfo = page.getByRole('dialog', { name: 'Server information' });
+  await srvInfo.getByText(`${host}:${port}`).waitFor();
+  await srvInfo.getByText(/^\d+ of \d+$/).waitFor();
+  await srvInfo.getByText(/^\d+ characters$/).first().waitFor();
+  await srvInfo.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await srvInfo.waitFor({ state: 'detached' });
+  console.log('ok: server information dialog');
 
   // Information: own connection shows client details and the full certificate
   await page.locator('.sidebar .user.self').click({ button: 'right' });
@@ -729,6 +768,11 @@ try {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Chat and files' }).click();
   await page.getByLabel('Upload host').fill('');
+  // Settings that need the upload host are disabled and previews show as off
+  assert.ok(await page.getByLabel('Files expire after').isDisabled());
+  assert.ok(await page.getByLabel('Send image previews for regular Mumble clients').isDisabled());
+  assert.equal(await page.getByLabel('Link previews').inputValue(), 'off');
+  assert.ok(await page.getByLabel('Link previews').locator('option[value=host]').isDisabled());
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   const big = path.join(userData, 'big.png');
   writeFileSync(big, testPng(1600, 1200));

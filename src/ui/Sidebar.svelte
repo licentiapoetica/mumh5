@@ -22,6 +22,9 @@
 
   const roots = $derived(session.childrenOf(null));
   const self = $derived(session.self);
+  // Without a connection the buttons show the remembered choice, applied at the next connect
+  const muted = $derived(self ? self.selfMute : sessions.mute);
+  const deafened = $derived(self ? self.selfDeaf : sessions.deaf);
   const cert = $derived(session.serverCert);
   const trusted = $derived(!!cert?.authorized);
 
@@ -111,8 +114,8 @@
       <button class="btn" onclick={() => sessions.setVoice(sessions.active)}>Talk here</button>
     </div>
   {/if}
-  {#if self}
-    <footer class="me">
+  <footer class="me">
+    {#if self}
       <button class="profile" title="Your profile" onclick={() => { session.showUser(self.session); ui.panelOpen = true; }}
         oncontextmenu={e => menu.show(e, userMenu(self))}>
         <Avatar name={self.name} size={32} speaking={voice.transmitting} />
@@ -121,18 +124,27 @@
           <span>{voice.error ? 'Voice unavailable' : voice.settings.mode === 'ptt' && !self.selfMute ? (voice.pttDown ? 'Talking' : 'Push to talk') : session.channel(self.channelId)?.name || 'Root'}</span>
         </span>
       </button>
-      <button class="icon-btn" class:on={self.selfMute} title={self.selfMute ? 'Unmute (right-click for microphone options)' : 'Mute (right-click for microphone options)'}
-        aria-label={self.selfMute ? 'Unmute' : 'Mute'}
-        onclick={() => session.setSelfMute(!self.selfMute)} oncontextmenu={e => openQuick(e, 'input')}>
-        <Icon name={self.selfMute ? 'mic-off' : 'mic'} size={18} />
-      </button>
-      <button class="icon-btn" class:on={self.selfDeaf} title={self.selfDeaf ? 'Undeafen (right-click for output options)' : 'Deafen (right-click for output options)'}
-        aria-label={self.selfDeaf ? 'Undeafen' : 'Deafen'}
-        onclick={() => session.setSelfDeaf(!self.selfDeaf)} oncontextmenu={e => openQuick(e, 'output')}>
-        <Icon name={self.selfDeaf ? 'headphones-off' : 'headphones'} size={18} />
-      </button>
-    </footer>
-  {/if}
+    {:else}
+      <span class="who offline-who" title="Mute and deafen apply when you connect">
+        <strong>{session.status === 'connecting' ? 'Connecting...' : 'Not connected'}</strong>
+        <span>{deafened ? 'Deafened' : muted ? 'Muted' : 'Microphone on'}</span>
+      </span>
+    {/if}
+    <button class="icon-btn info" title="Server information" aria-label="Server information"
+      disabled={session.status !== 'connected'} onclick={() => (ui.serverInfo = true)}>
+      <Icon name="info" size={18} />
+    </button>
+    <button class="icon-btn" class:on={muted} title={muted ? 'Unmute (right-click for microphone options)' : 'Mute (right-click for microphone options)'}
+      aria-label={muted ? 'Unmute' : 'Mute'}
+      onclick={() => session.setSelfMute(!muted)} oncontextmenu={e => openQuick(e, 'input')}>
+      <Icon name={muted ? 'mic-off' : 'mic'} size={18} />
+    </button>
+    <button class="icon-btn" class:on={deafened} title={deafened ? 'Undeafen (right-click for output options)' : 'Deafen (right-click for output options)'}
+      aria-label={deafened ? 'Undeafen' : 'Deafen'}
+      onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
+      <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
+    </button>
+  </footer>
 </aside>
 
 <style>
@@ -163,9 +175,14 @@
   .elsewhere span { flex: 1; min-width: 0; }
   .elsewhere .btn { padding: 4px 10px; font-size: 12px; }
   .me { flex: none; height: var(--footer-h); display: flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--bg-0); }
+  /* Stacked layout: the bar leads the stack, like the desktop client's toolbar */
+  .sidebar.fill .me { order: -1; border-bottom: 1px solid var(--line); }
+  .sidebar.fill .me .profile, .sidebar.fill .me .offline-who { display: none; }
   .profile { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 2px; text-align: left; }
   .profile:hover { background: var(--bg-hover); }
   .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
   .who strong, .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .who span { font-size: 12px; color: var(--text-dim); }
+  .info, .info:hover { color: var(--warn); }
+  .offline-who { padding: 2px 2px 2px 6px; color: var(--text-dim); }
 </style>

@@ -20,7 +20,7 @@ mumh5 keeps the foundation and replaces the experience.
 - **Feels familiar.** A server rail, a channel tree, a real chat with message grouping, profiles, right-click menus everywhere. Anyone who has used Discord knows where things are.
 - **Chat that is actually useful.** Drop in files, paste screenshots, share videos and YouTube links. Formatting works, links work, and everything stays compatible with the desktop client.
 - **Several servers at once.** Stay in the text chat of every server you like, with unread badges, while voice runs where you actually are.
-- **Private by default.** Opening a chat never contacts servers you didn't choose. No remote images or trackers, and YouTube stays click-to-play.
+- **Private by default.** Opening a chat never contacts servers you didn't choose. No remote images or trackers, and YouTube links stay plain links unless you turn on the click-to-play player.
 - **Runs everywhere.** Windows, macOS and Linux, with a layout that also works on narrow windows and small screens.
 
 ### mumh5 compared to the Mumble desktop client
@@ -30,7 +30,7 @@ mumh5 keeps the foundation and replaces the experience.
 | Interface | Qt widgets, dense dialogs | Modern layout (server rail, channel tree, chat, side panels), or the classic and stacked layouts of the desktop client |
 | Several servers at the same time | One connection | Many; voice on one, text on all, unread badges |
 | Sharing files | Images only, pasted inline and heavily limited | Any allowed file through your own [f0ckm](#file-sharing-with-f0ckm) host, inline players for images, video and audio. Images still work without one |
-| YouTube links | Plain links | Click-to-play player (privacy mode), optional thumbnails |
+| YouTube links | Plain links | Plain links by default; optional click-to-play player (privacy mode) and thumbnails |
 | Link previews | None | Title, description and image, fetched by your upload host so linked sites never see your IP |
 | Chat per channel | One shared log for everything | Separate chats per channel and person, plus a side chat for any channel next to your own |
 | Descriptions | Rich text editor | Rich text editor with pictures, and a live size counter against the server limit |
@@ -80,7 +80,7 @@ mumh5 keeps the foundation and replaces the experience.
 - Messages grouped by author, direct messages, unread badges
 - File sharing: drag and drop, paste, or the attach button, with upload progress
 - Inline images, video and audio players for shared media
-- YouTube links as click-to-play players
+- YouTube links as click-to-play players (off by default)
 - Link previews with title, description and image; fetched by your upload host by default, so posting a link cannot reveal who reads it
 - Incoming HTML is sanitized; remote images from unknown hosts are never loaded
 - Messages stay compatible with the desktop client, including picture previews
@@ -169,7 +169,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 
 - **Your identity is a certificate** that stays on your computer, stored with owner-only permissions. mumh5 reminds you to back it up.
 - **Server certificates are pinned** the first time you connect. If one changes, mumh5 stops before sending your password and asks you.
-- **Chats don't phone home.** Media is only loaded from your upload host and hosts you add yourself. YouTube is click-to-play in privacy mode.
+- **Chats don't phone home.** Media is only loaded from your upload host and hosts you add yourself. YouTube players are off by default and click-to-play in privacy mode when enabled.
 - **Strict content security policy** in the app, and all message HTML is sanitized.
 
 ---

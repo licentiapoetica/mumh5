@@ -7,6 +7,7 @@
   import { store } from '../lib/settings.svelte.ts';
   import { native } from '../lib/native.ts';
   import { fetchUploadInfo } from '../lib/upload.ts';
+  import { previewMode } from '../lib/preview.ts';
 
   let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'files' | 'identities' } = $props();
 
@@ -15,6 +16,9 @@
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
   let testResult = $state('');
+  // Settings that only work through the upload host are disabled until it is set up
+  const hasUpload = $derived(!!(s.uploadHost.trim() && s.uploadKey.trim()));
+  const needsUpload = $derived(hasUpload ? undefined : 'Needs an upload host and key');
 
   // Changes apply right away
   function saveFiles() {
@@ -65,36 +69,36 @@
     <label for="s-key">Upload key</label>
     <input id="s-key" type="password" bind:value={s.uploadKey} onchange={saveFiles} placeholder="cu_..." autocomplete="off" />
     <div class="row">
-      <div>
-        <label for="s-exp">Files expire after</label>
-        <select id="s-exp" bind:value={s.uploadExpiry} onchange={saveFiles}>
+      <div title={needsUpload}>
+        <label for="s-exp" class:off={!hasUpload}>Files expire after</label>
+        <select id="s-exp" bind:value={s.uploadExpiry} onchange={saveFiles} disabled={!hasUpload}>
           <option value="1h">1 hour</option>
           <option value="24h">24 hours</option>
           <option value="7d">7 days</option>
           <option value="30d">30 days</option>
         </select>
       </div>
-      <button class="btn" disabled={!s.uploadHost || !s.uploadKey} onclick={test}>Test key</button>
+      <button class="btn" disabled={!hasUpload} title={needsUpload} onclick={test}>Test key</button>
     </div>
     {#if testResult}<p class="help">{testResult}</p>{/if}
-    <label class="check"><input type="checkbox" bind:checked={s.sendThumbnails} onchange={saveFiles} /> Send image previews for regular Mumble clients</label>
+    <label class="check" class:off={!hasUpload} title={needsUpload}><input type="checkbox" bind:checked={s.sendThumbnails} onchange={saveFiles} disabled={!hasUpload} /> Send image previews for regular Mumble clients</label>
 
     <h3>Embeds</h3>
     <label for="s-embed">Also show media inline from these hosts</label>
     <textarea id="s-embed" bind:value={embedHosts} onchange={saveFiles} rows="3" placeholder="one host per line, e.g. i.example.com"></textarea>
     <p class="help">Links from other hosts stay plain links, so opening a chat never contacts servers you did not choose.</p>
     <label for="s-lp">Link previews</label>
-    <select id="s-lp" bind:value={s.linkPreviews} onchange={saveFiles}>
-      <option value="host">Fetched by the upload host (keeps your IP private)</option>
+    <!-- Shows the mode in effect; a stored "upload host" choice comes back once the key is set -->
+    <select id="s-lp" value={previewMode()} onchange={e => { s.linkPreviews = e.currentTarget.value as typeof s.linkPreviews; saveFiles(); }}>
+      <option value="host" disabled={!hasUpload}>Fetched by the upload host (keeps your IP private){hasUpload ? '' : ' - needs an upload host and key'}</option>
       <option value="direct">Fetched by this computer (linked sites see your IP)</option>
       <option value="off">Off</option>
     </select>
-    {#if s.linkPreviews === 'host' && !(s.uploadHost && s.uploadKey)}<p class="help">Needs an upload host and key above; until then no previews are shown.</p>{/if}
     <label for="s-yt">YouTube links</label>
     <select id="s-yt" bind:value={s.youtube} onchange={saveFiles}>
+      <option value="off">Plain links</option>
       <option value="click">Player card, loads from YouTube when clicked</option>
       <option value="thumbnail">Player card with thumbnail (loads the thumbnail from YouTube)</option>
-      <option value="off">Plain links</option>
     </select>
   {:else}
     <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.</p>
@@ -116,5 +120,7 @@
   .row > div { flex: 1; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
   .check input { width: auto; }
+  .off { color: var(--text-faint); }
+  select:disabled, input:disabled { opacity: 0.5; }
   textarea { resize: vertical; }
 </style>

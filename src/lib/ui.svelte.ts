@@ -27,6 +27,7 @@ class Ui {
   quickAudio = $state<{ kind: 'input' | 'output'; x: number; y: number } | null>(null);
   settingsTab = $state<'voice' | 'sounds' | 'appearance' | 'files' | 'identities'>('voice');
   publicServers = $state(false);
+  serverInfo = $state(false);
   // Add-server dialog, optionally prefilled (from the public list)
   addServer = $state<{ host?: string; port?: number; label?: string } | null>(null);
   // Channel dialog: create a subchannel of `parent`, or edit channel `id`

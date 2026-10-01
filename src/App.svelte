@@ -14,6 +14,7 @@
   import UserInfoDialog from './ui/UserInfoDialog.svelte';
   import ChannelDialog from './ui/ChannelDialog.svelte';
   import PublicServers from './ui/PublicServers.svelte';
+  import ServerInfoDialog from './ui/ServerInfoDialog.svelte';
   import ResizeHandle from './ui/ResizeHandle.svelte';
   import { identities } from './lib/identities.svelte.ts';
   import { session } from './lib/session.svelte.ts';
@@ -115,6 +116,7 @@
 {#if editing}<ConnectDialog server={editing.server} onclose={() => (editing = null)} />{/if}
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
 {#if ui.publicServers}<PublicServers onclose={() => (ui.publicServers = false)} />{/if}
+{#if ui.serverInfo && session.status === 'connected'}<ServerInfoDialog onclose={() => (ui.serverInfo = false)} />{/if}
 {#if ui.settingsOpen}<SettingsDialog tab={ui.settingsTab} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
 {#if ui.quickAudio}<QuickAudio />{/if}
 {#if ui.userInfo != null && session.status === 'connected'}

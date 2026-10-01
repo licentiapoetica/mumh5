@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import Modal from './Modal.svelte';
+  import Icon from './Icon.svelte';
   import { native, type PublicServer, type PingResult } from '../lib/native.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
+  import { sessions } from '../lib/session.svelte.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -12,7 +14,10 @@
   let error = $state('');
   let search = $state('');
   let continent = $state('');
-  let sort = $state<'users' | 'ping' | 'name' | 'country'>('users');
+  type Sort = 'users' | 'ping' | 'name' | 'country';
+  let sort = $state<Sort>('users');
+  // Each column has a natural order (most people, lowest ping, A to Z); a second click flips it
+  let reversed = $state(false);
   let pings = $state<Record<string, PingResult | null>>({});
   let alive = true;
   // Ping queue; the generation drops answers from a previous list
@@ -53,13 +58,23 @@
     const list = servers.filter(s => (!continent || s.continent === continent) &&
       (!q || s.name.toLowerCase().includes(q) || s.country.toLowerCase().includes(q) || s.host.toLowerCase().includes(q)));
     const p = (s: PublicServer) => pings[key(s)];
+    const dir = reversed ? -1 : 1;
     return list.sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name);
-      if (sort === 'country') return a.country.localeCompare(b.country) || a.name.localeCompare(b.name);
-      if (sort === 'ping') return (p(a)?.ping ?? 1e9) - (p(b)?.ping ?? 1e9);
-      return (p(b)?.users ?? -1) - (p(a)?.users ?? -1);
+      if (sort === 'name') return dir * a.name.localeCompare(b.name);
+      if (sort === 'country') return dir * a.country.localeCompare(b.country) || a.name.localeCompare(b.name);
+      // Servers that have not answered stay at the bottom in both directions
+      const pa = p(a), pb = p(b);
+      if (!pa || !pb) return pa ? -1 : pb ? 1 : 0;
+      return dir * (sort === 'ping' ? pa.ping - pb.ping : pb.users - pa.users);
     }).slice(0, 300);
   });
+
+  function sortBy(col: Sort) {
+    reversed = sort === col && !reversed;
+    sort = col;
+  }
+  // Most people first counts as descending, the other columns start ascending
+  const ariaSort = (col: Sort) => sort !== col ? 'none' : reversed === (col === 'users') ? 'ascending' : 'descending';
 
   // Ping what the filter shows, a few at a time; each answer fills in users and latency
   function pingVisible() {
@@ -78,6 +93,18 @@
       running--;
       next();
     });
+  }
+
+  // Connects right away with the name used last; the server is saved so it shows in the rail.
+  // Without a name to reuse, the add dialog asks for one.
+  function connect(s: PublicServer) {
+    const saved = store.servers.find(x => x.host === s.host && x.port === s.port);
+    const username = store.servers.at(-1)?.username;
+    if (!saved && !username) return add(s);
+    const server = saved ?? { id: crypto.randomUUID(), label: s.name || s.host, host: s.host, port: s.port, username: username!, password: '' };
+    if (!saved) store.upsertServer(server);
+    sessions.open(server);
+    onclose();
   }
 
   function add(s: PublicServer) {
@@ -106,7 +133,7 @@
       <option value="">All continents</option>
       {#each Object.entries(CONTINENTS) as [code, name] (code)}<option value={code}>{name}</option>{/each}
     </select>
-    <select bind:value={sort} aria-label="Sort by">
+    <select bind:value={sort} onchange={() => (reversed = false)} aria-label="Sort by">
       <option value="users">Most people</option>
       <option value="ping">Lowest ping</option>
       <option value="name">Name</option>
@@ -121,7 +148,14 @@
     <div class="row"><button class="btn" onclick={load}>Try again</button><button class="btn" onclick={changeSource}>Use another list...</button></div>
   {:else}
     <table>
-      <thead><tr><th>Server</th><th>Country</th><th class="num">People</th><th class="num">Ping</th><th></th></tr></thead>
+      <thead><tr>
+        {#each [['name', 'Server'], ['country', 'Country'], ['users', 'People'], ['ping', 'Ping']] as const as [col, text] (col)}
+          <th class:num={col === 'users' || col === 'ping'} aria-sort={ariaSort(col)}>
+            <button class="sort" class:on={sort === col} title="Sort by {text.toLowerCase()}" onclick={() => sortBy(col)}>{text}<span class="caret" class:up={ariaSort(col) === 'ascending'}></span></button>
+          </th>
+        {/each}
+        <th></th>
+      </tr></thead>
       <tbody>
         {#each shown as s (key(s))}
           {@const p = pings[key(s)]}
@@ -134,7 +168,12 @@
             <td>{s.country}</td>
             <td class="num">{p ? `${p.users} / ${p.maxUsers}` : key(s) in pings && p === null ? '...' : ''}</td>
             <td class="num" class:good={p && p.ping < 60} class:bad={p && p.ping > 180}>{p ? `${Math.round(p.ping)} ms` : ''}</td>
-            <td class="act"><button class="btn" onclick={() => add(s)}>Add</button></td>
+            <td class="act">
+              <span class="acts">
+                <button class="icon-btn" title="Add to your servers" aria-label="Add" onclick={() => add(s)}><Icon name="plus" size={18} /></button>
+                <button class="icon-btn go" title="Connect" aria-label="Connect" onclick={() => connect(s)}><Icon name="arrow-right" size={18} /></button>
+              </span>
+            </td>
           </tr>
         {:else}
           <tr><td colspan="5" class="dim">No servers match.</td></tr>
@@ -157,6 +196,12 @@
   .bar select { width: auto; flex: 0 0 auto; }
   table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
   th { text-align: left; font-size: 12px; color: var(--text-faint); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg-1); }
+  .sort { font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 6px; }
+  .sort:hover, .sort.on { color: var(--text); }
+  /* Triangle from borders; only the active column shows it */
+  .caret { border: 4px solid transparent; border-top-color: currentColor; margin-top: 4px; visibility: hidden; }
+  .caret.up { border-top-color: transparent; border-bottom-color: currentColor; margin-top: -4px; }
+  .sort.on .caret { visibility: visible; }
   td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   tr:hover td { background: var(--bg-hover); }
   .name { max-width: 360px; }
@@ -167,7 +212,8 @@
   .good { color: var(--speaking); }
   .bad { color: var(--warn); }
   .act { width: 1%; }
-  .act .btn { padding: 4px 12px; font-size: 13px; }
+  .acts { display: flex; gap: 4px; }
+  .go, .go:hover { color: var(--speaking); }
   .dim { color: var(--text-dim); }
   .small { font-size: 12px; margin-top: 10px; }
   .error { color: var(--danger); }

@@ -132,11 +132,11 @@
 </div>
 
 <style>
-  /* Same height as the user panel at the bottom of the sidebar; grows for longer messages */
-  .composer { flex: none; min-height: var(--footer-h); display: flex; flex-direction: column; justify-content: flex-end; padding: 0; background: var(--bg-0); }
-  .frame { background: var(--bg-3); }
+  /* Same height as the bar at the bottom of the sidebar, buttons centered like there; grows for longer messages */
+  .composer { flex: none; min-height: var(--footer-h); display: flex; flex-direction: column; justify-content: flex-end; padding: 0; background: var(--bg-0); border: 1px solid var(--line); }
+  .frame { flex: 1; display: flex; flex-direction: column; background: var(--bg-3); }
   .frame :global(.toolbar) { background: var(--bg-2); }
-  .box { display: flex; align-items: flex-end; gap: 4px; min-height: var(--footer-h); padding: 6px 4px; }
+  .box { flex: 1; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
   .input { position: relative; flex: 1; min-width: 0; padding: 8px 4px; max-height: 200px; overflow-y: auto; line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
   .input.blank::before { content: attr(data-placeholder); position: absolute; left: 4px; top: 8px; color: var(--text-faint); pointer-events: none; }
   .input :global(img) { max-height: 120px; }
