@@ -4,6 +4,8 @@
   import { sessions } from '../lib/session.svelte.ts';
   import { identities } from '../lib/identities.svelte.ts';
   import { makeServerIcon } from '../lib/upload.ts';
+  import { isWeb } from '../lib/native.ts';
+  import { proxyInfo } from '../lib/web.svelte.ts';
 
   // prefill: values for a new server, e.g. picked from the public list
   let { server, prefill, onclose }: { server: SavedServer | null; prefill?: { host?: string; port?: number; label?: string }; onclose: () => void } = $props();
@@ -15,13 +17,40 @@
   let label = $state(initial?.label ?? pre.label ?? '');
   let host = $state(initial?.host ?? pre.host ?? '');
   let port = $state(initial?.port ?? pre.port ?? 64738);
-  // New servers start with the name you used last
-  let username = $state(initial?.username ?? store.servers.at(-1)?.username ?? '');
   let password = $state(initial?.password ?? '');
   let identityId = $state(initial?.identityId ?? '');
+  // The name chosen for an identity when it was created, if any
+  const identityName = (id: string) => store.identityNames[identities.byId(id || undefined)?.id ?? ''] ?? '';
+  // New servers start with the identity's name, else the name you used last
+  const firstName = initial?.username ?? (identityName('') || store.servers.at(-1)?.username || '');
+  let username = $state(firstName);
+  // Picking another identity swaps the suggestion, unless the name was typed by hand
+  let suggested = firstName;
+  function identityChanged() {
+    const next = identityName(identityId);
+    if (next && (!username.trim() || username === suggested)) username = suggested = next;
+  }
   let icon = $state(initial?.icon ?? '');
   let iconError = $state('');
   let iconPicker: HTMLInputElement;
+
+  // In the browser the proxy decides which servers can be reached; offer those instead of free text
+  const listed = $derived(isWeb && !proxyInfo.any ? proxyInfo.servers : null);
+  const pick = $derived(listed ? `${host}:${port}` : '');
+  function choose(value: string) {
+    const s = listed?.find(x => `${x.host}:${x.port}` === value);
+    if (!s) return;
+    // Keep a label the user typed; replace one that came from the previous choice
+    if (!label.trim() || listed?.some(x => x.label === label)) label = s.label;
+    host = s.host;
+    port = s.port;
+  }
+  // Refreshed per dialog, so a changed allowlist shows up without a reload
+  if (isWeb) proxyInfo.load();
+  // A new server starts on the first one the proxy offers
+  $effect(() => {
+    if (!initial && listed?.length && !listed.some(x => x.host === host && x.port === port)) choose(`${listed[0].host}:${listed[0].port}`);
+  });
 
   async function pickIcon() {
     const file = iconPicker.files?.[0];
@@ -62,18 +91,27 @@
 
 <Modal title={initial ? 'Edit server' : 'Add a server'} {onclose}>
   <form id="connect" onsubmit={saveAndConnect}>
-    <label for="c-host">Address</label>
-    <div class="row">
-      <input id="c-host" bind:value={host} placeholder="mumble.example.com" autocomplete="off" required />
-      <input class="port" type="number" bind:value={port} min="1" max="65535" aria-label="Port" />
-    </div>
+    {#if listed}
+      <label for="c-host">Server</label>
+      <select id="c-host" value={pick} onchange={e => choose(e.currentTarget.value)}>
+        {#each listed as s (`${s.host}:${s.port}`)}<option value={`${s.host}:${s.port}`}>{s.label === s.host ? '' : `${s.label} - `}{s.host}{s.port !== 64738 ? `:${s.port}` : ''}</option>{/each}
+      </select>
+      <p class="note">This proxy connects to the servers listed here.</p>
+    {:else}
+      <label for="c-host">Address</label>
+      <div class="row">
+        <input id="c-host" bind:value={host} placeholder="mumble.example.com" autocomplete="off" required />
+        <input class="port" type="number" bind:value={port} min="1" max="65535" aria-label="Port" />
+      </div>
+    {/if}
+    {#if isWeb && proxyInfo.error}<p class="err">{proxyInfo.error}</p>{/if}
     <label for="c-user">Username</label>
     <input id="c-user" bind:value={username} autocomplete="username" required />
     <label for="c-pass">Password <span class="opt">(optional)</span></label>
     <input id="c-pass" type="password" bind:value={password} autocomplete="current-password" />
     {#if identities.list.length > 1}
       <label for="c-id">Identity</label>
-      <select id="c-id" bind:value={identityId}>
+      <select id="c-id" bind:value={identityId} onchange={identityChanged}>
         <option value="">Default ({identities.default?.name})</option>
         {#each identities.list as i (i.id)}<option value={i.id}>{i.name}</option>{/each}
       </select>
@@ -104,6 +142,7 @@
   .icon-row { display: flex; align-items: center; gap: 8px; }
   .preview { width: 44px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--bg-3); font-weight: 700; overflow: hidden; }
   .preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .note { margin: 6px 0 0; font-size: 13px; color: var(--text-dim); }
   .err { color: var(--danger); font-size: 13px; margin: 6px 0 0; }
   .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
 </style>

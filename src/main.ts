@@ -5,7 +5,13 @@ import App from './App.svelte';
 import './themes.css';
 import { startTray } from './lib/tray.svelte.ts';
 import { startTextMenu } from './lib/text-menu.ts';
+import { startHints } from './lib/hints.ts';
+import { isWeb } from './lib/native.ts';
+import { proxyInfo } from './lib/web.svelte.ts';
+
+if (isWeb) proxyInfo.load();
 
 mount(App, { target: document.getElementById('app')! });
 startTray();
 startTextMenu();
+startHints();

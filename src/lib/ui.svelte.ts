@@ -25,9 +25,11 @@ class Ui {
   wizard = $state<'setup' | 'add' | null>(null);
   // Quick audio popover from right-clicking mute (input) or deafen (output)
   quickAudio = $state<{ kind: 'input' | 'output'; x: number; y: number } | null>(null);
-  settingsTab = $state<'voice' | 'sounds' | 'appearance' | 'files' | 'identities'>('voice');
+  settingsTab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities'>('voice');
   publicServers = $state(false);
   serverInfo = $state(false);
+  // Set by the toolbar to open the own profile with the description editor
+  editDescription = $state(false);
   // Add-server dialog, optionally prefilled (from the public list)
   addServer = $state<{ host?: string; port?: number; label?: string } | null>(null);
   // Channel dialog: create a subchannel of `parent`, or edit channel `id`

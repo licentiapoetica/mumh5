@@ -1,8 +1,27 @@
 import type { Transport, ServerCertInfo, CertDetails, UdpChannel } from '../core/transport.ts';
+import { webApi, openWebTransport } from './web.svelte.ts';
 
-interface NativeApi {
+// What both the desktop app and the browser build (through the web proxy) provide
+export interface PlatformApi {
   platformInfo(): Promise<{ os: string; osVersion: string }>;
   describeCerts(ders: Uint8Array[]): Promise<CertDetails[]>;
+  identities: {
+    list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean }>;
+    create(name: string, email: string): Promise<IdentitySummary>;
+    importP12(bytes: Uint8Array, password: string, name: string): Promise<IdentitySummary>;
+    findMumble(): Promise<{ name: string } | null>;
+    importMumble(name: string): Promise<IdentitySummary>;
+    // Where the backup was saved, or null when cancelled
+    exportP12(id: string, password: string): Promise<string | null>;
+    setDefault(id: string): Promise<void>;
+    rename(id: string, name: string): Promise<void>;
+    remove(id: string): Promise<void>;
+    finishSetup(): Promise<void>;
+  };
+}
+
+// The desktop app's preload API
+interface NativeApi extends PlatformApi {
   updateTray(state: { icon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
   onTrayAction(fn: (action: string) => void): void;
   linkPreview(url: string): Promise<LinkPreviewData | null>;
@@ -10,18 +29,6 @@ interface NativeApi {
   pingServer(host: string, port: number): Promise<PingResult | null>;
   onContextMenu(fn: (params: ContextParams) => void): void;
   editAction(action: string, arg?: unknown): void;
-  identities: {
-    list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean }>;
-    create(name: string, email: string): Promise<IdentitySummary>;
-    importP12(bytes: Uint8Array, password: string, name: string): Promise<IdentitySummary>;
-    findMumble(): Promise<{ name: string } | null>;
-    importMumble(name: string): Promise<IdentitySummary>;
-    exportP12(id: string, password: string): Promise<string | null>;
-    setDefault(id: string): Promise<void>;
-    rename(id: string, name: string): Promise<void>;
-    remove(id: string): Promise<void>;
-    finishSetup(): Promise<void>;
-  };
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;
@@ -71,7 +78,18 @@ declare global {
   interface Window { mumh5Native?: NativeApi }
 }
 
-export const native: NativeApi | null = typeof window !== 'undefined' ? window.mumh5Native ?? null : null;
+// Desktop-only features (tray, UDP voice, public list, direct link previews) check `desktop`
+export const desktop: NativeApi | null = typeof window !== 'undefined' ? window.mumh5Native ?? null : null;
+// The browser build (vite --mode web) talks to the web proxy instead
+export const isWeb = !desktop && import.meta.env?.MODE === 'web';
+export const native: PlatformApi | null = desktop ?? (isWeb ? webApi : null);
+
+// A connection to a Mumble server: TLS in the desktop app, the proxy's WebSocket in the browser
+export async function openTransport(host: string, port: number, identityId?: string): Promise<(Transport & { secure: Promise<ServerCertInfo> }) | null> {
+  if (desktop) return new ElectronTransport(desktop, host, port, identityId);
+  if (isWeb) return openWebTransport(host, port, identityId);
+  return null;
+}
 
 // Transport backed by a TLS socket in the Electron main process.
 // `secure` resolves once the TLS handshake is done, before any Mumble data is sent,

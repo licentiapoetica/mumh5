@@ -3,6 +3,7 @@
   import { store, type SavedServer } from '../lib/settings.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
+  import { desktop } from '../lib/native.ts';
   import { makeServerIcon } from '../lib/upload.ts';
 
   let { onadd, onedit, onsettings, onbrowse }:
@@ -88,7 +89,8 @@
   {#if dropIndex === store.servers.length && dragging}<div class="drop-line"></div>{/if}
   <input bind:this={iconPicker} type="file" accept="image/*" hidden onchange={pickIcon} />
   <button class="tile add" title="Add a server" onclick={onadd}><Icon name="plus" /></button>
-  <button class="tile add" title="Browse public servers" onclick={onbrowse}><Icon name="globe" /></button>
+  <!-- The public list and its pings need the desktop app -->
+  {#if desktop}<button class="tile add" title="Browse public servers" onclick={onbrowse}><Icon name="globe" /></button>{/if}
   <div class="spacer"></div>
   <button class="tile ghost" title="Settings" onclick={onsettings}><Icon name="settings" /></button>
 </nav>

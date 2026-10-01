@@ -23,6 +23,11 @@
 
   const client = session.client;
   const user = $derived(session.user(who));
+  const isSelf = who === session.self?.session;
+  // Browser build: our address as the web proxy saw it
+  // A proxy on this same machine connects from our own address, so what the server sees is ours
+  const viaProxy = session.serverCert?.clientAddress ?? '';
+  const ownAddress = /^(127\.|::1$|localhost$)/.test(viaProxy) ? '' : viaProxy;
 
   const off = client?.on('userStats', msg => {
     if (msg.session !== who) return;
@@ -84,7 +89,13 @@
       <dt>Ping (UDP)</dt><dd>{stats.udp_packets ? ping(stats.udp_ping_avg, stats.udp_ping_var) : 'n/a'}</dd>
       <dt>Pings received</dt><dd>{stats.tcp_packets ?? 0} over TCP, {stats.udp_packets ?? 0} over UDP</dd>
       {#if stats.bandwidth != null}<dt>Bandwidth</dt><dd>{formatBytes(stats.bandwidth)}/s</dd>{/if}
-      {#if stats.address?.length}<dt>Address</dt><dd class="mono">{address(stats.address)}</dd>{/if}
+      {#if isSelf && ownAddress}
+        <!-- Through the web proxy the server only knows the proxy's address -->
+        <dt>Address</dt><dd class="mono">{ownAddress}</dd>
+        {#if stats.address?.length && address(stats.address) !== ownAddress}<dt>Seen by the server</dt><dd><span class="mono">{address(stats.address)}</span> (the web proxy)</dd>{/if}
+      {:else if stats.address?.length}
+        <dt>Address</dt><dd class="mono">{address(stats.address)}</dd>
+      {/if}
     </dl>
 
     {#if stats.version}

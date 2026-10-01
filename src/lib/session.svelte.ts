@@ -1,6 +1,6 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
-import { native, ElectronTransport } from './native.ts';
+import { native, openTransport } from './native.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
@@ -155,9 +155,10 @@ export class Session {
     this.expanded[id] = !this.isExpanded(id);
   }
 
+  // Collapsing goes back to the default: channels with people in them stay open
   setAllExpanded(open: boolean): void {
     const all: Record<number, boolean> = {};
-    for (const id of this.client?.channels.keys() ?? []) all[id] = open;
+    if (open) for (const id of this.client?.channels.keys() ?? []) all[id] = true;
     this.expanded = all;
   }
 
@@ -224,13 +225,16 @@ export class Session {
     this.status = 'connecting';
 
     if (!native) {
-      this.fail('Connecting needs the desktop app for now. The web version will connect through a proxy.');
+      this.fail('Connecting needs the desktop app or the web build served by a mumh5 proxy.');
       return;
     }
 
-    const transport = new ElectronTransport(native, server.host, server.port, server.identityId);
+    let transport;
     let info;
     try {
+      transport = (await openTransport(server.host, server.port, server.identityId))!;
+      // Superseded while the identity was being prepared
+      if (attempt !== this.attempt) return transport.close();
       info = await transport.secure;
     } catch (e) {
       if (attempt === this.attempt) this.fail((e as Error).message);

@@ -43,6 +43,20 @@
     ]);
   }
 
+  function editDescription() {
+    if (!self) return;
+    session.showUser(self.session);
+    ui.editDescription = true;
+    ui.panelOpen = true;
+  }
+
+  // One button for the whole tree: open everything, then close everything
+  let allOpen = $state(false);
+  function toggleAll() {
+    allOpen = !allOpen;
+    session.setAllExpanded(allOpen);
+  }
+
   function openQuick(e: MouseEvent, kind: 'input' | 'output') {
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -130,6 +144,7 @@
         <span>{deafened ? 'Deafened' : muted ? 'Muted' : 'Microphone on'}</span>
       </span>
     {/if}
+    <div class="tools">
     <button class="icon-btn info" title="Server information" aria-label="Server information"
       disabled={session.status !== 'connected'} onclick={() => (ui.serverInfo = true)}>
       <Icon name="info" size={18} />
@@ -144,6 +159,20 @@
       onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
       <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
     </button>
+    <span class="sep"></span>
+    <button class="icon-btn" title="Change your description" aria-label="Change your description" disabled={!self} onclick={editDescription}>
+      <Icon name="message" size={18} />
+    </button>
+    <span class="sep"></span>
+    <button class="icon-btn" title="Configure" aria-label="Configure" onclick={() => (ui.settingsOpen = true)}>
+      <Icon name="settings" size={18} />
+    </button>
+    <span class="sep"></span>
+    <button class="icon-btn" title={allOpen ? 'Collapse all channels' : 'Expand all channels'} aria-label={allOpen ? 'Collapse all channels' : 'Expand all channels'}
+      disabled={session.status !== 'connected'} onclick={toggleAll}>
+      <Icon name="filter" size={18} />
+    </button>
+    </div>
   </footer>
 </aside>
 
@@ -174,15 +203,18 @@
   .elsewhere { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; color: var(--text-dim); background: var(--bg-0); border-top: 1px solid var(--line); }
   .elsewhere span { flex: 1; min-width: 0; }
   .elsewhere .btn { padding: 4px 10px; font-size: 12px; }
-  .me { flex: none; height: var(--footer-h); display: flex; align-items: center; gap: 8px; padding: 0 8px; background: var(--bg-0); }
+  /* One row when the sidebar is wide enough, otherwise the buttons go under the profile */
+  .me { flex: none; min-height: var(--footer-h); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 8px; background: var(--bg-0); }
+  .tools { flex: none; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+  .sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
   /* Stacked layout: the bar leads the stack, like the desktop client's toolbar */
   .sidebar.fill .me { order: -1; border-bottom: 1px solid var(--line); }
   .sidebar.fill .me .profile, .sidebar.fill .me .offline-who { display: none; }
-  .profile { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 2px; text-align: left; }
+  .profile { flex: 1 1 110px; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 2px; text-align: left; }
   .profile:hover { background: var(--bg-hover); }
   .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
   .who strong, .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .who span { font-size: 12px; color: var(--text-dim); }
   .info, .info:hover { color: var(--warn); }
-  .offline-who { padding: 2px 2px 2px 6px; color: var(--text-dim); }
+  .offline-who { flex: 1 1 110px; padding: 2px 2px 2px 6px; color: var(--text-dim); }
 </style>

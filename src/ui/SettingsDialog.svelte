@@ -5,14 +5,14 @@
   import AppearanceSettings from './AppearanceSettings.svelte';
   import SoundSettings from './SoundSettings.svelte';
   import { store } from '../lib/settings.svelte.ts';
-  import { native } from '../lib/native.ts';
+  import { native, desktop, isWeb } from '../lib/native.ts';
   import { fetchUploadInfo } from '../lib/upload.ts';
   import { previewMode } from '../lib/preview.ts';
 
-  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'files' | 'identities' } = $props();
+  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' } = $props();
 
   // svelte-ignore state_referenced_locally
-  let tab = $state<'voice' | 'sounds' | 'appearance' | 'files' | 'identities'>(initialTab);
+  let tab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities'>(initialTab);
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
   let testResult = $state('');
@@ -39,11 +39,12 @@
     }
   }
 
-  type Tab = 'voice' | 'sounds' | 'appearance' | 'files' | 'identities';
+  type Tab = 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities';
   const tabs: { id: Tab; label: string }[] = [
     { id: 'voice', label: 'Voice' },
     { id: 'sounds', label: 'Sounds' },
     { id: 'appearance', label: 'Appearance' },
+    { id: 'accessibility', label: 'Accessibility' },
     { id: 'files', label: 'Chat and files' },
     ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : [])
   ];
@@ -62,6 +63,9 @@
     <SoundSettings />
   {:else if tab === 'appearance'}
     <AppearanceSettings />
+  {:else if tab === 'accessibility'}
+    <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> Show hints when the pointer rests on buttons and icons</label>
+    <p class="help">Hints are the small labels that appear on hover. Screen readers get the names either way.</p>
   {:else if tab === 'files'}
     <p class="help">Files go to a f0ckm instance and are posted as links. Other mumh5 users see them inline; regular Mumble users get a link and a small preview. Without an upload host you can still send images, inline and scaled to the server's limit.</p>
     <label for="s-host">Upload host</label>
@@ -91,7 +95,7 @@
     <!-- Shows the mode in effect; a stored "upload host" choice comes back once the key is set -->
     <select id="s-lp" value={previewMode()} onchange={e => { s.linkPreviews = e.currentTarget.value as typeof s.linkPreviews; saveFiles(); }}>
       <option value="host" disabled={!hasUpload}>Fetched by the upload host (keeps your IP private){hasUpload ? '' : ' - needs an upload host and key'}</option>
-      <option value="direct">Fetched by this computer (linked sites see your IP)</option>
+      <option value="direct" disabled={!desktop}>Fetched by this computer (linked sites see your IP){desktop ? '' : ' - needs the desktop app'}</option>
       <option value="off">Off</option>
     </select>
     <label for="s-yt">YouTube links</label>
@@ -101,7 +105,7 @@
       <option value="thumbnail">Player card with thumbnail (loads the thumbnail from YouTube)</option>
     </select>
   {:else}
-    <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.</p>
+    <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.{isWeb ? ' Certificates are kept in this browser and passed to the proxy when you connect.' : ''}</p>
     <IdentityList />
   {/if}
 

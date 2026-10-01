@@ -78,7 +78,8 @@ try {
   // First start: identity setup wizard
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor();
   await page.getByRole('button', { name: /Create a new identity/ }).click();
-  await page.getByLabel('Name').fill('alice');
+  await page.getByLabel('Name', { exact: true }).fill('alice');
+  assert.ok(await page.getByLabel('Use this name as my username').isChecked());
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await page.getByRole('button', { name: 'Done' }).click();
@@ -119,7 +120,7 @@ try {
   await page.getByTitle('Add a server').click();
   await page.getByLabel('Address').fill(host);
   await page.getByLabel('Port').fill(port);
-  await page.getByLabel('Username').fill('alice');
+  assert.equal(await page.getByLabel('Username').inputValue(), 'alice', 'username suggested from the identity');
   await page.getByLabel('Label').fill('Test Server');
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
@@ -331,8 +332,28 @@ try {
   assert.equal(await page.locator('.rail').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 128, 128)');
   await page.getByRole('radio', { name: 'Dark' }).click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined);
+  // Hints are off by default: the title under the pointer is set aside while hovered, and back afterwards
+  const hintTarget = page.locator('.rail').getByRole('button', { name: 'Add a server' });
+  const titleOf = () => page.locator('.rail .tile.add').first().getAttribute('title');
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  assert.equal(await page.getByLabel('Show hints when the pointer rests').isChecked(), false);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  console.log('ok: color schemes');
+  await hintTarget.hover();
+  assert.equal(await titleOf(), null, 'no tooltip while hints are off');
+  await page.mouse.move(700, 400);
+  assert.equal(await titleOf(), 'Add a server');
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  await page.getByLabel('Show hints when the pointer rests').check();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await hintTarget.hover();
+  assert.equal(await titleOf(), 'Add a server', 'tooltip kept while hints are on');
+  await page.mouse.move(700, 400);
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  await page.getByLabel('Show hints when the pointer rests').uncheck();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: color schemes, hints off by default and can be turned on');
 
   // Layouts like the desktop client: classic (channels right of chat), stacked (channels above)
   const box = (sel: string) => page.locator(sel).first().boundingBox().then(b => b!);
@@ -571,6 +592,15 @@ try {
   await srvInfo.waitFor({ state: 'detached' });
   console.log('ok: server information dialog');
 
+  // Toolbar: description editor and settings
+  await page.locator('.me').getByRole('button', { name: 'Change your description' }).click();
+  await page.locator('.panel .rich').waitFor();
+  await page.locator('.panel').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('.me').getByRole('button', { name: 'Configure' }).click();
+  await page.getByRole('dialog', { name: 'Settings' }).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: toolbar opens the description editor and settings');
+
   // Information: own connection shows client details and the full certificate
   await page.locator('.sidebar .user.self').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Information' }).click();
@@ -628,6 +658,29 @@ try {
     await page.locator('.panel .html', { hasText: 'Welcome to the lobby' }).waitFor();
     assert.equal(await page.locator('.me .who span').textContent(), 'Root');
     console.log('ok: single click shows description without joining');
+
+    // Description marker: only on channels that have one. Resting on the row previews, clicking the marker opens the panel
+    const marker = page.locator('.channel', { hasText: 'Lobby' }).getByRole('button', { name: 'Show description of Lobby' });
+    assert.equal(await page.locator('.channel', { hasText: 'Games' }).locator('.desc').count(), 0);
+    await page.locator('.panel').getByRole('button', { name: 'Close' }).click();
+    await page.locator('.channel .name', { hasText: 'Games' }).hover();
+    await page.waitForTimeout(2000);
+    assert.equal(await page.locator('.desc-pop').count(), 0, 'no preview for a channel without description');
+    for (const spot of [page.locator('.channel .name', { hasText: 'Lobby' }), marker]) {
+      await spot.hover();
+      await page.waitForTimeout(500);
+      assert.equal(await page.locator('.desc-pop').count(), 0, 'no preview before 1 second');
+      await page.locator('.desc-pop .html', { hasText: 'Welcome to the lobby' }).waitFor({ timeout: 3000 });
+      // Opens at the pointer
+      const at = (await spot.boundingBox())!;
+      const pop = (await page.locator('.desc-pop').boundingBox())!;
+      assert.ok(Math.abs(pop.x - (at.x + at.width / 2 + 12)) < 3 && Math.abs(pop.y - (at.y + at.height / 2 + 12)) < 3, 'preview at the pointer');
+      await page.mouse.move(700, 400);
+      await page.locator('.desc-pop').waitFor({ state: 'detached' });
+    }
+    await marker.click();
+    await page.locator('.panel .html', { hasText: 'Welcome to the lobby' }).waitFor();
+    console.log('ok: description previews on hover, marker opens it on click');
 
     // Side chat sends to that channel while staying in Root
     const lobby = [...bob.channels.values()].find(c => c.name === 'Lobby')!;
@@ -760,6 +813,16 @@ try {
     await page.getByRole('button', { name: 'Delete channel' }).click();
     await bobSees('deleted', () => !chByName('Team Room'));
     console.log('ok: channel deleted');
+
+    // Toolbar: expand and collapse the whole tree
+    await page.locator('.me').getByRole('button', { name: 'Expand all channels' }).click();
+    await page.locator('.channel', { hasText: 'Minecraft' }).waitFor();
+    await page.locator('.me').getByRole('button', { name: 'Collapse all channels' }).click();
+    await page.locator('.channel', { hasText: 'Minecraft' }).waitFor({ state: 'detached' });
+    // Channels with people in them stay open
+    assert.notEqual(await page.locator('.me .who span').textContent(), 'Root');
+    await page.locator('.sidebar .row.user.self').waitFor();
+    console.log('ok: toolbar expands and collapses all channels, occupied ones stay open');
   }
 
   // Without an upload host, images are sent inline within Mumble's image limit

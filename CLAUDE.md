@@ -9,7 +9,7 @@
 
 ## Project overview
 
-mumh5 is a Mumble client: Electron desktop app (Windows, macOS, Linux), Svelte 5 + TypeScript + Vite UI, Discord-like layout, responsive down to phone width. It must stay compatible with stock Murmur servers and with people on the desktop Mumble client. A browser build (through a self-hosted WebSocket proxy with a server allowlist) is planned.
+mumh5 is a Mumble client: Electron desktop app (Windows, macOS, Linux), Svelte 5 + TypeScript + Vite UI, Discord-like layout, responsive down to phone width. It must stay compatible with stock Murmur servers and with people on the desktop Mumble client. There is also a browser build that connects through a self-hosted WebSocket proxy with a server allowlist (`server/`).
 
 File sharing uploads to a f0ckm instance (`../f0ckm`, `src/chat_upload_handler.mjs` there) with an upload-only key; links are posted in chat.
 
@@ -22,6 +22,10 @@ npm test               # unit tests; server tests too when MUMBLE_TEST_HOST is s
 npm run build          # renderer to dist/, main+preload to dist-electron/ (esbuild)
 npm run test:e2e       # drives the built app (needs npm run build first)
 npm run screenshots    # regenerates docs/screenshots (see test/e2e/screenshots.ts)
+npm run build:web      # browser build to dist-web/, proxy bundle to dist-proxy/proxy.mjs
+npm run dev:web        # browser build with hot reload: starts the proxy (any server allowed) and Vite
+npm run proxy          # run the proxy from source (MUMH5_SERVERS=host:port required)
+npm run test:e2e:web   # drives the browser build through the proxy (needs npm run build:web first)
 npm run proto          # regenerate src/core/mumble-pb.js and mumble-udp-pb.js from proto/
 ```
 
@@ -38,7 +42,9 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 ## Architecture
 
 - `electron/` (Node, main process): window, TLS sockets to Mumble servers (`tls-transport.ts`), encrypted UDP voice (`udp-voice.ts`, `ocb2.ts`, tested against Mumble's OCB2 vectors), identities and PKCS#12 (`identity.ts`, `identity-store.ts`), certificate parsing (`certs.ts`), tray (`tray.ts`). The renderer only gets the narrow `window.mumh5Native` API from `preload.ts` (context isolation, sandbox).
+- `server/` (Node): the web proxy. `proxy.ts` serves `dist-web`, bridges WebSocket connections to Mumble over TLS (reusing `electron/tls-transport.ts`) and has stateless identity endpoints. It stores nothing; the browser keeps identities in localStorage and sends one with each connect.
 - `src/core/` (browser-safe TypeScript, also runs in Node for tests): framing and codec (`proto.ts`), the Mumble client state machine (`client.ts`), voice packet formats (`voice-packet.ts`). No DOM, no Electron, no Node imports here.
+- `src/lib/native.ts`: `desktop` is the Electron preload API or null; `native` is what both platforms provide (identities, certificates), backed by `web.svelte.ts` in the browser build (`isWeb`, vite `--mode web`). Desktop-only features check `desktop`.
 - `src/lib/`: app state. `session.svelte.ts` has one `Session` per server plus the `sessions` manager; `session` is a Proxy to the active one. `audio/voice.svelte.ts` is the voice engine (WebCodecs Opus, capture and playback AudioWorklets). `html.ts` sanitizes incoming HTML and serializes outgoing rich text.
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
 

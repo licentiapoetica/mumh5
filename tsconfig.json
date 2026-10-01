@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node", "svelte", "vite/client"]
   },
-  "include": ["src/**/*", "electron/**/*", "test/**/*"]
+  "include": ["src/**/*", "electron/**/*", "server/**/*", "test/**/*"]
 }

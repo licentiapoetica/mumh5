@@ -8,6 +8,7 @@
   import { session } from '../lib/session.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
+  import { ui } from '../lib/ui.svelte.ts';
   import { userMenu, changeNamePrompt } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
@@ -44,6 +45,13 @@
     draft = user?.comment ?? '';
     editing = true;
   }
+
+  // After the reset above, so a request from the toolbar survives the panel switching to the profile
+  $effect(() => {
+    if (!ui.editDescription || !isSelf) return;
+    ui.editDescription = false;
+    startEdit();
+  });
 
   function saveComment() {
     session.setComment(draft);

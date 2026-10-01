@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { native, type IdentitySummary } from '../lib/native.ts';
+  import { native, isWeb, type IdentitySummary } from '../lib/native.ts';
   import { identities } from '../lib/identities.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
@@ -20,7 +20,7 @@
 
   function exportId(i: IdentitySummary) {
     ui.prompt = {
-      title: `Back up ${i.name}`, label: 'Password for the backup file', confirm: 'Choose location...', input: 'password',
+      title: `Back up ${i.name}`, label: 'Password for the backup file', confirm: isWeb ? 'Download' : 'Choose location...', input: 'password',
       text: 'The .p12 file contains your private key. Protect it with a password; the desktop Mumble client can import it.',
       onsubmit: pw => act(async () => {
         const path = await native!.identities.exportP12(i.id, pw);

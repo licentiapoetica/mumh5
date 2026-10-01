@@ -10,6 +10,7 @@
   import { store } from '../lib/settings.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
+  import { renderIncoming } from '../lib/html.ts';
   import type { Channel } from '../core/client.ts';
 
   let { channel, depth = 0, onnavigate }: { channel: Channel; depth?: number; onnavigate: () => void } = $props();
@@ -21,6 +22,39 @@
   const selected = $derived(session.panel.kind === 'channel' && session.panel.id === channel.id);
   const unread = $derived(session.unread[`ch:${channel.id}`] ?? 0);
   const total = $derived(session.subtreeUserCount(channel.id));
+
+  // Resting on a channel that has a description for 1 second opens a quick preview next to its row
+  const hasDescription = $derived(!!(channel.description || channel.descriptionHash));
+  const descriptionHtml = $derived(channel.description ? renderIncoming(channel.description, store.trustedHosts).html : '');
+  let preview = $state<{ x: number; y: number } | null>(null);
+  let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+  // Where the pointer is while it rests on the row; the preview opens there
+  let pointer = { x: 0, y: 0 };
+  function trackPointer(e: MouseEvent) {
+    pointer = { x: e.clientX, y: e.clientY };
+  }
+  function hoverRow(e: MouseEvent) {
+    if (!hasDescription) return;
+    trackPointer(e);
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      // Long descriptions are only announced by hash; the text is fetched now
+      session.loadDescription(channel.id);
+      // Just below and right of the pointer, kept inside the window
+      preview = { x: Math.max(8, Math.min(pointer.x + 12, window.innerWidth - 348)), y: Math.max(8, Math.min(pointer.y + 12, window.innerHeight - 340)) };
+    }, 1000);
+  }
+  // Short grace period, so the pointer can move from the row into the preview
+  function leaveRow() {
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => (preview = null), 250);
+  }
+  function showDescription() {
+    clearTimeout(hoverTimer);
+    preview = null;
+    session.showChannel(channel.id, 'info');
+    ui.panelOpen = true;
+  }
 
   // Single click previews, double click acts. The single action waits briefly so a
   // double click does not also flash the preview.
@@ -69,7 +103,8 @@
     oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
     ondragover={e => { if (canDrop) { e.preventDefault(); over = true; } }}
     ondragleave={() => (over = false)}
-    ondrop={onDrop}>
+    ondrop={onDrop}
+    onmouseenter={hoverRow} onmousemove={trackPointer} onmouseleave={leaveRow}>
     {#if children.length || users.length}
       <button class="caret" class:collapsed={!expanded} onclick={() => session.toggleExpanded(channel.id)}
         aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={expanded}>
@@ -81,14 +116,25 @@
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
     <button class="name" title="Click for details, double-click to join" {...channelClicks}
       draggable={channel.id !== 0}
-      ondragstart={e => { drag.item = { kind: 'channel', id: channel.id }; e.dataTransfer?.setData('text/plain', channel.name); }}
+      ondragstart={e => { clearTimeout(hoverTimer); preview = null; drag.item = { kind: 'channel', id: channel.id }; e.dataTransfer?.setData('text/plain', channel.name); }}
       ondragend={() => { drag.item = null; over = false; }}>
       {#if !channel.canEnter}<Icon name="lock" size={14} />{/if}
       <span class="label">{channel.name || 'Root'}</span>
       {#if !expanded && total > 0}<span class="count" title="{total} {total === 1 ? 'person' : 'people'} inside">{total}</span>{/if}
       {#if unread}<span class="badge">{unread}</span>{/if}
     </button>
+    {#if hasDescription}
+      <button class="desc" title="Show description" aria-label="Show description of {channel.name || 'Root'}"
+        onclick={showDescription}><span></span></button>
+    {/if}
   </div>
+  {#if preview}
+    <div class="desc-pop" role="tooltip" style:left="{preview.x}px" style:top="{preview.y}px"
+      onmouseenter={() => clearTimeout(hoverTimer)} onmouseleave={leaveRow}>
+      <strong>{channel.name || 'Root'}</strong>
+      {#if descriptionHtml}<div class="html">{@html descriptionHtml}</div>{:else}<p>Loading description...</p>{/if}
+    </div>
+  {/if}
 
   {#if users.length && expanded}
     <ul class="users">
@@ -144,6 +190,15 @@
   .caret.collapsed svg { transform: rotate(-90deg); }
   .name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 0; text-align: left; color: inherit; user-select: none; }
   .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .desc { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
+  .desc span { width: 9px; height: 9px; background: var(--warn); }
+  .desc:hover span { outline: 2px solid var(--warn); outline-offset: 1px; }
+  .desc-pop { position: fixed; z-index: 40; width: 340px; max-width: calc(100vw - 16px); max-height: 320px; overflow: auto; padding: 10px 12px;
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--text); font-size: 14px; box-shadow: 0 8px 32px rgb(0 0 0 / 0.4); }
+  .desc-pop strong { display: block; margin-bottom: 6px; }
+  .desc-pop p { margin: 0; color: var(--text-dim); }
+  .desc-pop .html { overflow-wrap: anywhere; user-select: text; }
+  .desc-pop .html :global(img) { max-width: 100%; }
   .count { font-size: 11px; color: var(--text-faint); border: 1px solid var(--line); padding: 0 5px; line-height: 16px; }
   .badge { background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 16px; }
   .user { gap: 8px; text-align: left; font-size: 14px; user-select: none; }

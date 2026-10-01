@@ -2,10 +2,11 @@
   import { onDestroy } from 'svelte';
   import Modal from './Modal.svelte';
   import Icon from './Icon.svelte';
-  import { native, type PublicServer, type PingResult } from '../lib/native.ts';
+  import { desktop as native, type PublicServer, type PingResult } from '../lib/native.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
+  import { identities } from '../lib/identities.svelte.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -95,11 +96,11 @@
     });
   }
 
-  // Connects right away with the name used last; the server is saved so it shows in the rail.
+  // Connects right away with the name used last (or the default identity's name); the server is saved so it shows in the rail.
   // Without a name to reuse, the add dialog asks for one.
   function connect(s: PublicServer) {
     const saved = store.servers.find(x => x.host === s.host && x.port === s.port);
-    const username = store.servers.at(-1)?.username;
+    const username = store.servers.at(-1)?.username || store.identityNames[identities.default?.id ?? ''];
     if (!saved && !username) return add(s);
     const server = saved ?? { id: crypto.randomUUID(), label: s.name || s.host, host: s.host, port: s.port, username: username!, password: '' };
     if (!saved) store.upsertServer(server);
