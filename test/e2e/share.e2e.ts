@@ -179,6 +179,17 @@ try {
   console.log(`ok: stats for nerds (viewer: ${viewerStats.slice(0, 200)}...)`);
   assert.ok(sharerStats.includes('Round trip'));
 
+  // Touch screens: holding a finger on the picture opens the same menu
+  await bob.page.evaluate(() => {
+    const el = document.querySelector('.spot .pic')!;
+    const r = el.getBoundingClientRect();
+    const touch = new Touch({ identifier: 1, target: el, clientX: r.left + 40, clientY: r.top + 40 });
+    el.dispatchEvent(new TouchEvent('touchstart', { touches: [touch], bubbles: true }));
+  });
+  await bob.page.getByRole('menuitem', { name: 'Stats for nerds' }).waitFor({ timeout: 3000 });
+  await bob.page.keyboard.press('Escape');
+  console.log('ok: long press on the picture opens the menu');
+
   // The large picture can move to a window of its own
   const opened = bob.app.waitForEvent('window');
   // From the right-click menu on the picture

@@ -101,10 +101,14 @@
 
   const talking = (s: number) => !!voice.talking[s] || (s === self?.session && voice.transmitting);
 
-  // The same stream can sit in a tile and on the stage at once
+  // Mobile browsers do not always honour autoplay for a stream attached later, so play is asked for too
   function media(node: HTMLMediaElement, stream: MediaStream | null) {
-    node.srcObject = stream;
-    return { update(next: MediaStream | null) { if (node.srcObject !== next) node.srcObject = next; } };
+    const attach = (s: MediaStream | null) => {
+      node.srcObject = s;
+      if (s) node.play().catch(() => {});
+    };
+    attach(stream);
+    return { update(next: MediaStream | null) { if (node.srcObject !== next) attach(next); } };
   }
 
   // Sound comes from one hidden player, so it plays once however many pictures are shown
@@ -124,12 +128,23 @@
 
   // Right-click on the picture
   let showStats = $state(false);
-  const streamMenu = (e: MouseEvent) => menu.show(e, [
+  const streamItems = () => [
     { label: 'Open in a separate window', action: popOut },
     { label: 'Full screen', action: fullscreen },
     { separator: true, label: '' },
     { label: 'Stats for nerds', checked: showStats, action: () => (showStats = !showStats) }
-  ]);
+  ];
+  const streamMenu = (e: MouseEvent) => menu.show(e, streamItems());
+  // Touch screens have no right-click: holding a finger on the picture opens the same menu
+  let hold: ReturnType<typeof setTimeout> | undefined;
+  function touchStart(e: TouchEvent) {
+    const touch = e.touches[0];
+    clearTimeout(hold);
+    if (e.touches.length !== 1) return;
+    const { clientX, clientY } = touch;
+    hold = setTimeout(() => menu.showAt(clientX, clientY, streamItems()), 550);
+  }
+  const touchEnd = () => clearTimeout(hold);
 
   let frame = $state<HTMLElement>();
   function fullscreen() {
@@ -217,8 +232,14 @@
       {#if popped}
         <p class="away">Shown in a separate window.</p>
       {:else}
-        <div class="pic" role="presentation" oncontextmenu={streamMenu}>
+        <div class="pic" role="presentation" oncontextmenu={streamMenu}
+          ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
           <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+          {#if focus !== self.session && watching && watching.state !== 'live'}
+            <p class="pending" class:bad={watching.state === 'failed'}>{watching.state === 'failed'
+              ? 'Could not connect to the stream. Across the internet both of you need a STUN server; some mobile and company networks block direct connections altogether.'
+              : 'Connecting to the stream...'}</p>
+          {/if}
           {#if showStats}<ShareStats own={focus === self.session} onclose={() => (showStats = false)} />{/if}
         </div>
       {/if}
@@ -350,7 +371,10 @@
   .spot { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
   .spot-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 2px 6px 2px 12px; background: var(--bg-0); color: var(--text-dim); font-size: 13px; }
   .spot-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
-  .pic { position: relative; flex: 1; min-height: 0; display: flex; }
+  .pic { position: relative; flex: 1; min-height: 0; display: flex; -webkit-touch-callout: none; user-select: none; }
+  .pending { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
+    color: #ddd; font-size: 13px; background: rgb(0 0 0 / 0.6); }
+  .pending.bad { color: #ffb3ad; }
   .spot video { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .away { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .vol { width: 110px; flex: none; padding: 0; }
