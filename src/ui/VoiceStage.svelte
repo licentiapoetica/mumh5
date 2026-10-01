@@ -120,11 +120,21 @@
   // empty page that gets the same stream; sound keeps coming from the main window.
   let popup: Window | null = null;
   let popVideo: HTMLVideoElement | null = null;
+  let spotVideo = $state<HTMLVideoElement>();
   let popped = $state(false);
   function popOut() {
     if (popup && !popup.closed) return popup.focus();
     const w = window.open('', 'mumh5-stream', 'popup,width=960,height=600');
-    if (!w) { share.error = 'The window could not be opened. Allow pop-ups for this page.'; return; }
+    if (!w) {
+      // Refused (a pop-up blocker, or an app build that predates this). The floating
+      // picture-in-picture window needs no permission where the browser has it.
+      if (document.pictureInPictureEnabled && spotVideo) {
+        spotVideo.requestPictureInPicture().catch(() => { share.error = 'The stream could not be opened in a separate window.'; });
+      } else {
+        share.error = 'The stream could not be opened in a separate window. If your browser blocked a pop-up, allow it for this page and try again.';
+      }
+      return;
+    }
     popup = w;
     popped = true;
     w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
@@ -218,7 +228,7 @@
         {#if popped}
           <p class="away">Shown in a separate window.</p>
         {:else}
-          <video use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+          <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
         {/if}
       </div>
     {/if}
