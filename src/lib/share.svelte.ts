@@ -81,7 +81,7 @@ class ScreenShare {
       let answered = false;
       ui.prompt = {
         title: 'Screen sharing', label: '', confirm: 'Continue', input: 'none',
-        text: 'Screen sharing connects you directly to the other person. You see each other\'s IP address, like in a video call. Only mumh5 users in your channel can watch.',
+        text: 'Screen sharing connects you directly to other participants in this channel. You see each other\'s IP address. Only mumh5 users in your channel can watch.',
         onsubmit: () => { answered = true; store.settings.shareNoticeSeen = true; store.saveSettings(); resolve(true); },
         oncancel: () => { if (!answered) resolve(false); }
       };
