@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, shell, session, systemPreferences, type WebContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, shell, session, systemPreferences, type WebContents } from 'electron';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,8 +9,14 @@ import { fetchLinkPreview } from './link-preview.ts';
 import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
 import { udpChannel } from './udp-voice.ts';
+import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
+
+// Screen sharing connects mumh5 users directly. Chromium would hide this computer's addresses
+// behind names that only resolve on the local network, so two people on IPv6 could not reach
+// each other without a helper server. Only this app's own page runs here.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 let identityStore: IdentityStore | null = null;
 const identities = () => (identityStore ??= new IdentityStore(app.getPath('userData')));
@@ -120,6 +126,49 @@ ipcMain.handle('publist:ping', (_e, host: string, port: number) => pingServer(St
 
 ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url).slice(0, 2048)));
 
+// ─── Screen sharing ───────────────────────────────────────────────────────────
+// The renderer lists the sources, the user picks one, and the next getDisplayMedia call gets it.
+// On Wayland, listing already opens the system's picker and returns the one chosen source;
+// `chosen` tells the renderer not to ask a second time.
+let screenSources: Electron.DesktopCapturerSource[] = [];
+let pickedSource: string | null = null;
+const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
+  (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+
+// Sound: PipeWire on Linux (one program or everything but this app), system loopback on Windows
+const shareAudio = new ShareAudio(() => app.getAppMetrics().map(m => m.pid));
+ipcMain.handle('share:info', async () => ({
+  portal: onWayland(),
+  audio: process.platform === 'win32' ? 'loopback' : (await pipewireAvailable()) ? 'pipewire' : 'none',
+  micLabel: VIRTUAL_MIC_LABEL
+}));
+ipcMain.handle('share:audioApps', () => shareAudio.apps().catch(() => []));
+ipcMain.handle('share:audioStart', (_e, target: AudioTarget) =>
+  shareAudio.start(target?.kind === 'app' ? { kind: 'app', name: String(target.name) } : { kind: 'all' }));
+ipcMain.handle('share:audioStop', () => shareAudio.stop());
+// The virtual microphone outlives the process otherwise
+app.on('will-quit', () => { shareAudio.stop(); });
+
+// Names first (fast and dependable), thumbnails in a second call: grabbing the pictures can be
+// slow and, under X11, can come back with nothing.
+ipcMain.handle('share:sources', async (_e, thumbnails: boolean) => {
+  const wayland = onWayland();
+  const size = thumbnails ? { width: 320, height: 180 } : { width: 0, height: 0 };
+  const list = () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: size });
+  let found = await list();
+  // Not on Wayland, where empty means the user cancelled the system's picker and asking again would reopen it
+  for (let i = 0; i < 3 && !found.length && !wayland; i++) {
+    await new Promise(r => setTimeout(r, 250));
+    found = await list();
+  }
+  if (found.length || !thumbnails) screenSources = found;
+  return {
+    chosen: wayland && found.length === 1,
+    sources: found.map(s => ({ id: s.id, name: s.name, thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() }))
+  };
+});
+ipcMain.on('share:pick', (_e, id: string) => { pickedSource = String(id); });
+
 ipcMain.on('tray:update', (_e, state: tray.TrayState) => tray.update(state));
 
 ipcMain.handle('platform:info', () => ({ os: process.platform, osVersion: os.release() }));
@@ -193,6 +242,17 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*'] }, (details, cb) => {
     if (!details.requestHeaders.Referer) details.requestHeaders.Referer = 'https://mumh5.app/';
     cb({ requestHeaders: details.requestHeaders });
+  });
+
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const source = screenSources.find(s => s.id === pickedSource);
+    pickedSource = null;
+    // Without a picked source the request is refused
+    try {
+      if (!source) callback({});
+      else if (request.audioRequested && process.platform === 'win32') callback({ video: source, audio: 'loopback' });
+      else callback({ video: source });
+    } catch { /* refused */ }
   });
 
   // Microphone, camera and screen capture for voice and video; nothing else

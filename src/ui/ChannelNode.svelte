@@ -11,6 +11,8 @@
   import { drag } from '../lib/drag.svelte.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
+  import { share } from '../lib/share.svelte.ts';
+  import { sessions } from '../lib/session.svelte.ts';
   import type { Channel } from '../core/client.ts';
 
   let { channel, depth = 0, onnavigate }: { channel: Channel; depth?: number; onnavigate: () => void } = $props();
@@ -154,6 +156,17 @@
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} />
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)}>{store.displayName(u)}</span>
             {#if u.userId != null}<span class="reg" title="Registered">R</span>{/if}
+            {#if session.sharing[u.session]}
+              {#if isSelf}
+                <span class="state sharing" title="You are sharing your screen"><Icon name="screen" size={14} /></span>
+              {:else}
+                <!-- A button cannot sit inside the row's button -->
+                <span class="state sharing" role="button" tabindex="0" title="Sharing their screen. Click to watch" aria-label="Watch the screen of {store.displayName(u)}"
+                  onclick={e => { e.stopPropagation(); clearTimeout(timer); share.watch(sessions.active, u.session); }}
+                  ondblclick={e => e.stopPropagation()}
+                  onkeydown={e => { if (e.key === 'Enter') { e.stopPropagation(); share.watch(sessions.active, u.session); } }}><Icon name="screen" size={14} /></span>
+              {/if}
+            {/if}
             {#if u.comment || u.commentHash}<span class="state" title="Has a description"><Icon name="message" size={12} /></span>{/if}
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
@@ -207,5 +220,7 @@
   .reg { font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); padding: 0 3px; line-height: 14px; }
   .state { color: var(--text-faint); display: inline-flex; }
   .state.admin { color: var(--danger); }
+  .state.sharing { color: var(--speaking); padding: 3px; }
+  .state.sharing[role=button]:hover { background: var(--bg-active); }
   .rec { font-size: 10px; font-weight: 700; color: var(--danger); border: 1px solid var(--danger); padding: 0 3px; }
 </style>

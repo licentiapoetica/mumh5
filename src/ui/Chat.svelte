@@ -27,7 +27,7 @@
     <button class="icon-btn" onclick={onpanel} title="Members"><Icon name="users" /></button>
   </header>
 
-  {#if showStage && session.status === 'connected'}<VoiceStage />{/if}
+  {#if session.status === 'connected'}<VoiceStage always={showStage} />{/if}
 
   {#if session.status === 'idle' && session.disconnectInfo}
     {@const d = session.disconnectInfo}

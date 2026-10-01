@@ -2,8 +2,10 @@
 // real Mumble server and are skipped unless MUMBLE_TEST_HOST is set (see server.test.ts).
 import { test } from 'node:test';
 import net from 'node:net';
+import dgram from 'node:dgram';
 import assert from 'node:assert/strict';
 import { proxyLine } from '../electron/tls-transport.ts';
+import { stunResponse } from '../server/proxy.ts';
 import { startProxy, defaults, parseServers, isPrivateAddress, type ProxyConfig } from '../server/proxy.ts';
 import { WebSocket as WsClient } from 'ws';
 import { WebSocketTransport } from '../src/core/ws-transport.ts';
@@ -40,7 +42,7 @@ test('refuses to start without allowed servers', async () => {
 
 test('config lists the allowed servers', async () => {
   await withProxy({ servers: parseServers('voice.example.org=Friends') }, async base => {
-    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false });
+    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false, stun: null });
   });
 });
 
@@ -62,6 +64,47 @@ test('identity create, describe, export and import round trip', async () => {
     const [described] = await (await post(base, 'certs/describe', { ders: [der] })).json();
     assert.equal(described.fingerprint256, created.cert.fingerprint256);
   });
+});
+
+// A binding request: type, length 0, magic cookie, 12 byte transaction id
+const stunRequest = () => Uint8Array.from([0, 1, 0, 0, 0x21, 0x12, 0xa4, 0x42, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+test('STUN answers carry the sender address, masked as the protocol asks', () => {
+  const v4 = stunResponse(stunRequest(), '203.0.113.7', 54321)!;
+  assert.deepEqual([...v4.subarray(0, 4)], [1, 1, 0, 12]);
+  assert.deepEqual([...v4.subarray(4, 20)], [...stunRequest().subarray(4, 20)]);
+  assert.deepEqual([...v4.subarray(20, 26)], [0, 0x20, 0, 8, 0, 1]);
+  assert.equal(((v4[26] << 8) | v4[27]) ^ 0x2112, 54321);
+  assert.deepEqual([...v4.subarray(28)].map((b, i) => b ^ [0x21, 0x12, 0xa4, 0x42][i]), [203, 0, 113, 7]);
+  // An IPv4 sender seen through an IPv6 socket is still IPv4
+  assert.deepEqual([...stunResponse(stunRequest(), '::ffff:203.0.113.7', 54321)!], [...v4]);
+  const v6 = stunResponse(stunRequest(), '2001:db8::7', 1)!;
+  assert.equal(v6[25], 2);
+  const mask = stunRequest().subarray(4, 20);
+  assert.deepEqual([...v6.subarray(28)].map((b, i) => b ^ mask[i]), [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]);
+  // Not a binding request
+  assert.equal(stunResponse(new Uint8Array(20), '203.0.113.7', 1), null);
+  assert.equal(stunResponse(stunRequest().subarray(0, 12), '203.0.113.7', 1), null);
+});
+
+test('the proxy answers STUN over UDP and announces the port', async () => {
+  const proxy = await startProxy({ ...defaults, port: 0, origins: ['*'], servers: parseServers('voice.example.org'), stunPort: 0, stunBind: '127.0.0.1' });
+  try {
+    assert.ok(proxy.stunPort);
+    assert.equal((await (await fetch(`http://127.0.0.1:${proxy.port}/api/config`)).json()).stun, proxy.stunPort);
+    const client = dgram.createSocket('udp4');
+    const answer = await new Promise<Buffer>((resolve, reject) => {
+      client.once('message', resolve);
+      client.once('error', reject);
+      client.send(stunRequest(), proxy.stunPort!, '127.0.0.1');
+      setTimeout(() => reject(new Error('no STUN answer')), 3000);
+    });
+    assert.equal(((answer[26] << 8) | answer[27]) ^ 0x2112, client.address().port);
+    assert.deepEqual([...answer.subarray(28)].map((b, i) => b ^ [0x21, 0x12, 0xa4, 0x42][i]), [127, 0, 0, 1]);
+    client.close();
+  } finally {
+    await proxy.close();
+  }
 });
 
 test('requests from other origins are refused', async () => {
@@ -181,7 +224,8 @@ test('two clients talk through the proxy', { skip: !target }, async () => {
     const a = await connect(`proxy-a-${Date.now() % 100000}`);
     const b = await connect(`proxy-b-${Date.now() % 100000}`);
     const got = new Promise<string>(resolve => b.on('text', m => resolve(m.html)));
-    a.sendText({ channels: [0] }, 'hello through the proxy');
+    // A direct message, so other test files listening in the root channel are not disturbed
+    a.sendText({ users: [b.session!] }, 'hello through the proxy');
     assert.equal(await got, 'hello through the proxy');
     // No UDP in a browser: voice stays on the TCP tunnel
     assert.equal(a.udpOk, false);

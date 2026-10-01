@@ -4,6 +4,7 @@
 import http from 'node:http';
 import dns from 'node:dns';
 import net from 'node:net';
+import dgram from 'node:dgram';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -29,13 +30,16 @@ export interface ProxyConfig {
   // Only for servers behind something that understands it (go-mmproxy); plain Mumble does not.
   sendProxy: boolean;
   staticDir: string | null;
+  // UDP port of the built-in STUN responder for screen sharing between browser users; null turns it off
+  stunPort: number | null;
+  stunBind: string;
   maxConnections: number;
   maxPerAddress: number;
 }
 
 export const defaults: ProxyConfig = {
   port: 8080, bind: '127.0.0.1', servers: [], allowAny: false, allowPrivate: false, origins: [],
-  trustProxy: false, sendProxy: false, staticDir: null, maxConnections: 200, maxPerAddress: 8
+  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', maxConnections: 200, maxPerAddress: 8
 };
 
 // "host", "host:port", "[v6]:port", each optionally followed by "=Label"
@@ -64,6 +68,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv): ProxyConfig {
     trustProxy: on(env.MUMH5_TRUST_PROXY),
     sendProxy: on(env.MUMH5_SEND_PROXY),
     staticDir: env.MUMH5_STATIC ?? null,
+    stunPort: Number(env.MUMH5_STUN_PORT ?? 3478) || null,
+    stunBind: env.MUMH5_STUN_BIND ?? defaults.stunBind,
     maxConnections: Number(env.MUMH5_MAX_CONNECTIONS ?? defaults.maxConnections),
     maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress)
   };
@@ -93,6 +99,39 @@ const publicLookup: net.LookupFunction = (hostname, options, callback) => {
   });
 };
 
+// Answer to a STUN binding request (RFC 5389): tells the sender the address its packet came
+// from, which is how two browsers behind routers find a direct route for screen sharing.
+// Returns null for anything that is not a binding request. The answer is about as small as
+// the request, so the port is of no use for amplifying traffic.
+export function stunResponse(msg: Uint8Array, address: string, port: number): Uint8Array | null {
+  const COOKIE = 0x2112a442;
+  const view = new DataView(msg.buffer, msg.byteOffset, msg.byteLength);
+  if (msg.length < 20 || view.getUint16(0) !== 0x0001 || view.getUint32(4) !== COOKIE) return null;
+  if (view.getUint16(2) !== msg.length - 20) return null;
+  const v4 = address.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i, '$1');
+  let bytes: number[];
+  if (net.isIPv4(v4)) bytes = v4.split('.').map(Number);
+  else if (net.isIPv6(address)) {
+    // Expand "::" and write the eight groups out as bytes
+    const [head, tail = ''] = address.split('%')[0].split('::');
+    const h = head ? head.split(':') : [], t = tail ? tail.split(':') : [];
+    const groups = address.includes('::') ? [...h, ...new Array(8 - h.length - t.length).fill('0'), ...t] : h;
+    bytes = groups.flatMap(g => { const n = parseInt(g, 16); return [n >> 8, n & 255]; });
+  } else return null;
+  const out = new Uint8Array(20 + 8 + bytes.length);
+  const o = new DataView(out.buffer);
+  o.setUint16(0, 0x0101);                 // binding success
+  o.setUint16(2, 8 + bytes.length);
+  out.set(msg.subarray(4, 20), 4);        // cookie and transaction id
+  o.setUint16(20, 0x0020);                // XOR-MAPPED-ADDRESS
+  o.setUint16(22, 4 + bytes.length);
+  out[25] = bytes.length === 4 ? 1 : 2;
+  o.setUint16(26, port ^ (COOKIE >>> 16));
+  // The address is masked with the cookie, and for IPv6 with the transaction id after it
+  for (let i = 0; i < bytes.length; i++) out[28 + i] = bytes[i] ^ msg[4 + i];
+  return out;
+}
+
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.jpg': 'image/jpeg',
@@ -110,12 +149,13 @@ class HttpError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 
-export async function startProxy(config: ProxyConfig): Promise<{ port: number; close(): Promise<void> }> {
+export async function startProxy(config: ProxyConfig): Promise<{ port: number; stunPort: number | null; close(): Promise<void> }> {
   if (!config.allowAny && !config.servers.length) {
     throw new Error('No servers allowed. Set MUMH5_SERVERS=host[:port][=Label],... or MUMH5_ALLOW_ANY=1.');
   }
   const staticDir = config.staticDir ? path.resolve(config.staticDir) : null;
   const perAddress = new Map<string, number>();
+  let stunPort: number | null = null;
   // Identity requests per address in the current minute; key generation is the costly part
   const identityUse = new Map<string, number>();
   const sweep = setInterval(() => identityUse.clear(), 60000);
@@ -154,7 +194,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; c
 
   async function api(req: http.IncomingMessage, route: string): Promise<unknown> {
     if (route === 'config' && req.method === 'GET') {
-      return { servers: config.servers, any: config.allowAny };
+      return { servers: config.servers, any: config.allowAny, stun: stunPort };
     }
     if (req.method !== 'POST') throw new HttpError(404, 'Not found');
     if (!originOk(req)) throw new HttpError(403, 'Origin not allowed');
@@ -305,10 +345,27 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; c
     server.once('error', reject);
     server.listen(config.port, config.bind, resolve);
   });
+
+  // STUN on UDP. Failing to open it (port taken, no permission) only costs screen sharing its helper.
+  let stun: dgram.Socket | null = null;
+  if (config.stunPort != null) {
+    const socket = dgram.createSocket(net.isIPv4(config.stunBind) ? 'udp4' : 'udp6');
+    socket.on('message', (msg, from) => {
+      const answer = stunResponse(msg, from.address, from.port);
+      if (answer) socket.send(answer, from.port, from.address);
+    });
+    await new Promise<void>(resolve => {
+      socket.once('error', () => { socket.close(); resolve(); });
+      socket.bind(config.stunPort!, config.stunBind, () => { socket.removeAllListeners('error'); socket.on('error', () => {}); stun = socket; stunPort = socket.address().port; resolve(); });
+    });
+  }
+
   return {
     port: (server.address() as net.AddressInfo).port,
+    stunPort,
     close: () => new Promise<void>(resolve => {
       clearInterval(sweep);
+      (stun as dgram.Socket | null)?.close();
       for (const ws of wss.clients) ws.terminate();
       wss.close();
       server.close(() => resolve());

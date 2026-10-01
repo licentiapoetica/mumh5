@@ -886,6 +886,8 @@ try {
   // Custom icon from the tile's context menu: square-cropped and shown instead of initials
   const iconFile = path.join(userData, 'icon.png');
   writeFileSync(iconFile, testPng(300, 200));
+  // With hints off, the title of whatever the pointer rests on is set aside; move off the tile first
+  await page.mouse.move(700, 400);
   await page.locator('.rail .tile[title^="Second"]').click({ button: 'right' });
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('menuitem', { name: 'Change icon...' }).click();

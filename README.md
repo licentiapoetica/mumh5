@@ -76,6 +76,15 @@ mumh5 keeps the foundation and replaces the experience.
 
 ![Profile with a formatted description](docs/screenshots/profile.png)
 
+### Screen sharing
+
+- Share a screen or a window with the mumh5 users in your channel. A dialog lets you choose what to show, with a live preview, which sound goes with it and the quality, before anything is sent
+- Sound: on Linux one program or everything except mumh5 itself (through PipeWire, so viewers do not hear the voice chat twice); on Windows the whole system; in a browser what the browser offers
+- People in the channel see an indicator next to your name, on your tile and in your profile, and click to watch. Your tile shows the picture; a click makes it large with everyone else in a strip below, like a meeting. Viewers set the stream's volume
+- No server setup and no extra account: the setup messages travel through the Mumble server, the stream goes directly between the two clients (WebRTC), up to 8 viewers. Regular Mumble clients do not see streams
+- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Across the internet both sides need a STUN server. The browser version uses the one built into its proxy; in the desktop app you enter one in Settings, Voice (the proxy's address works there too), and none is contacted unless you do
+- Tested between two desktop instances on one machine with a test picture. Sound capture, real screens, connections across the internet, Windows and the browser build are untested
+
 ### Chat
 - Messages grouped by author, direct messages, unread badges
 - File sharing: drag and drop, paste, or the attach button, with upload progress
@@ -159,6 +168,15 @@ MUMH5_SERVERS="mumble.example.com=My server" node dist-proxy/proxy.mjs
 
 Then open `http://127.0.0.1:8080`. For development, `npm run dev:web` starts the proxy and a hot-reloading page together, with any server allowed. To deploy, copy `dist-web/` and `dist-proxy/` next to each other on the server (Node 22 or newer, no `node_modules` needed) and put a reverse proxy with HTTPS in front that forwards WebSocket upgrades. Browsers only allow the microphone on HTTPS pages (or on localhost).
 
+With Docker, the same thing is one command; settings go in a `.env` file next to `docker-compose.yml`:
+
+```bash
+echo 'MUMH5_SERVERS=mumble.example.com=My server' > .env
+docker compose up -d --build
+```
+
+The container uses the host's network: the proxy listens on `127.0.0.1:8080` for your reverse proxy and on UDP 3478 for STUN, and a Mumble server on the same machine is reachable as `localhost`.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MUMH5_SERVERS` | none | Mumble servers people may connect to: `host[:port][=Label]`, comma-separated. Required unless `MUMH5_ALLOW_ANY=1` |
@@ -167,6 +185,7 @@ Then open `http://127.0.0.1:8080`. For development, `npm run dev:web` starts the
 | `MUMH5_ORIGINS` | same host | Origins allowed to use the API, comma-separated, when the page is hosted elsewhere |
 | `MUMH5_TRUST_PROXY` | off | Take client addresses from `X-Forwarded-For` (set this behind a reverse proxy) |
 | `MUMH5_SEND_PROXY` | off | Announce each visitor's address to the server with the PROXY protocol (see below). Breaks connections to a plain Mumble server |
+| `MUMH5_STUN_PORT`, `MUMH5_STUN_BIND` | `3478`, all addresses | UDP port of the built-in STUN responder that lets browser users find a direct route for screen sharing. Open this UDP port in the firewall; it does not go through nginx. `0` turns it off |
 | `MUMH5_STATIC` | `../dist-web` | Folder with the web build |
 | `MUMH5_MAX_CONNECTIONS`, `MUMH5_MAX_PER_ADDRESS` | `200`, `8` | Connection limits, in total and per client address |
 
@@ -254,7 +273,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 - System-wide push to talk
 - Whisper and shout
 - Rich chat between mumh5 users: replies, reactions, edits, typing indicators
-- Screen sharing between mumh5 users in a channel, with sound (one application or the whole system, also on Linux through PipeWire). Anyone can start a stream; no extra key, your Mumble certificate is your identity. Streams go directly between clients with WebRTC, set up through the Mumble server, with an optional self-hosted relay for many viewers
+- Screen sharing: several streams at once, and an optional self-hosted relay for many viewers
 - Release builds for all platforms
 
 ---

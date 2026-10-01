@@ -135,14 +135,17 @@ export interface ProxyServer { host: string; port: number; label: string }
 class ProxyInfo {
   servers = $state<ProxyServer[]>([]);
   any = $state(false);
+  // UDP port of the proxy's STUN responder, if it runs one
+  stun = $state<number | null>(null);
   loaded = $state(false);
   error = $state('');
 
   async load(): Promise<void> {
     try {
-      const c = await call<{ servers: ProxyServer[]; any: boolean }>('config');
+      const c = await call<{ servers: ProxyServer[]; any: boolean; stun?: number | null }>('config');
       this.servers = c.servers;
       this.any = c.any;
+      this.stun = c.stun ?? null;
       this.error = '';
     } catch (e) {
       this.error = (e as Error).message;
@@ -151,3 +154,9 @@ class ProxyInfo {
   }
 }
 export const proxyInfo = new ProxyInfo();
+
+// The proxy's own STUN address: a host the user already uses, so nothing new is contacted
+export function proxyStun(): string | null {
+  if (!proxyInfo.stun || !base) return null;
+  try { return `stun:${new URL(base).hostname}:${proxyInfo.stun}`; } catch { return null; }
+}

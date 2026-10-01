@@ -9,6 +9,8 @@ export interface PromptRequest {
   initial?: string;
   text?: string;
   onsubmit: (value: string) => void;
+  // Closed without confirming
+  oncancel?: () => void;
 }
 
 export interface CertRequest {

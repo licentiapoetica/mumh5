@@ -1,4 +1,5 @@
-import { session } from './session.svelte.ts';
+import { session, sessions } from './session.svelte.ts';
+import { share } from './share.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { voice, userKey } from './audio/voice.svelte.ts';
@@ -67,6 +68,7 @@ export function userMenu(u: User): MenuItem[] {
     );
     if (u.userId == null) items.push({ label: 'Register on this server', action: () => session.register(u.session) });
   } else {
+    if (session.sharing[u.session]) items.push({ label: 'Watch screen', action: () => share.watch(sessions.active, u.session) });
     items.push(
       { label: 'Send message', action: () => session.selectView(`dm:${u.session}`) },
       { label: 'Mute for me', checked: !!voice.settings.localMutes[userKey(u)], action: () => voice.setLocalMute(u, !voice.settings.localMutes[userKey(u)]) },
