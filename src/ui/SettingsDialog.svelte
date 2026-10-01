@@ -16,6 +16,21 @@
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
   let testResult = $state('');
+
+  // Public STUN servers to pick from; anything else is typed in
+  const STUN_PRESETS = [
+    { name: 'Google', url: 'stun.l.google.com:19302' },
+    { name: 'Cloudflare', url: 'stun.cloudflare.com:3478' }
+  ];
+  let stunCustom = $state(!!s.stunServer && !STUN_PRESETS.some(p => p.url === s.stunServer));
+  const stunChoice = $derived(stunCustom ? 'custom' : s.stunServer);
+  function chooseStun(value: string) {
+    stunCustom = value === 'custom';
+    // Keep what was typed when switching to "another server"
+    if (!stunCustom) s.stunServer = value;
+    else if (STUN_PRESETS.some(p => p.url === s.stunServer)) s.stunServer = '';
+    store.saveSettings();
+  }
   // Settings that only work through the upload host are disabled until it is set up
   const hasUpload = $derived(!!(s.uploadHost.trim() && s.uploadKey.trim()));
   const needsUpload = $derived(hasUpload ? undefined : 'Needs an upload host and key');
@@ -60,9 +75,16 @@
   {#if tab === 'voice'}
     <VoiceSettings />
     <h3>Screen sharing</h3>
-    <label for="s-stun">STUN server <span class="opt">(optional)</span></label>
-    <input id="s-stun" bind:value={s.stunServer} onchange={() => store.saveSettings()} placeholder="stun.example.com:3478" autocomplete="off" />
-    <p class="help">Screen sharing connects you directly to the people watching. Across the internet both the person sharing and the people watching need a STUN server here to find a route; it learns your IP address but never sees the stream. Empty means no outside server is contacted, which only works on the same network.</p>
+    <label for="s-stun">STUN server</label>
+    <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
+      <option value="">{isWeb ? 'This site\'s own server' : 'None (same network only)'}</option>
+      {#each STUN_PRESETS as p (p.url)}<option value={p.url}>{p.name} ({p.url})</option>{/each}
+      <option value="custom">Another server...</option>
+    </select>
+    {#if stunChoice === 'custom'}
+      <input class="stun-custom" bind:value={s.stunServer} onchange={() => store.saveSettings()} placeholder="stun.example.com:3478" autocomplete="off" aria-label="STUN server address" />
+    {/if}
+    <p class="help">Screen sharing connects you directly to the people watching. Across the internet both sides need a STUN server to find a route; it learns your IP address but never sees the stream. {isWeb ? 'By default the site you are on provides it.' : 'With none, no outside server is contacted and streams only work on the same network.'} Networks that block direct connections, like many mobile ones, need more than STUN.</p>
   {:else if tab === 'sounds'}
     <SoundSettings />
   {:else if tab === 'appearance'}
@@ -123,7 +145,7 @@
   .tabs button { padding: 8px 14px; color: var(--text-dim); font-weight: 600; white-space: nowrap; }
   .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
   h3 { margin: 22px 0 0; font-size: 14px; }
-  .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
+  .stun-custom { margin-top: 6px; }
   .help { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); }
   .row { display: flex; align-items: flex-end; gap: 8px; }
   .row > div { flex: 1; }

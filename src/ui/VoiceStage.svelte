@@ -341,7 +341,7 @@
         {/each}
       </div>
       {#if watching?.state === 'failed'}
-        <p class="failed">Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice (the person sharing has to restart the stream after setting it).</p>
+        <p class="failed">Could not connect to the stream. Across the internet both of you need a STUN server, chosen in Settings, Voice (the person sharing has to restart the stream afterwards).</p>
       {/if}
     {/if}
   </section>

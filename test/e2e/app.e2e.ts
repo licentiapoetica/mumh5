@@ -334,6 +334,21 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: quick audio options on right-click');
 
+  // STUN server for screen sharing: none by default, presets, or a typed address
+  await page.getByTitle('Settings').click();
+  const stun = page.getByLabel('STUN server', { exact: true });
+  assert.equal(await stun.inputValue(), '');
+  await stun.selectOption({ label: 'Cloudflare (stun.cloudflare.com:3478)' });
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), 'stun.cloudflare.com:3478');
+  await stun.selectOption('custom');
+  await page.getByLabel('STUN server address').fill('stun.example.org:3478');
+  await page.getByLabel('STUN server address').blur();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), 'stun.example.org:3478');
+  await stun.selectOption('');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), '');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: STUN server choices');
+
   // Color schemes apply right away and are remembered
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
