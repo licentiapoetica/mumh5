@@ -26,6 +26,7 @@ npm run build:web      # browser build to dist-web/, proxy bundle to dist-proxy/
 npm run dev:web        # browser build with hot reload: starts the proxy (any server allowed) and Vite
 npm run proxy          # run the proxy from source (MUMH5_SERVERS=host:port required)
 npm run test:e2e:web   # drives the browser build through the proxy (needs npm run build:web first)
+npm run test:e2e:share # screen sharing between two instances of the built app
 npm run proto          # regenerate src/core/mumble-pb.js and mumble-udp-pb.js from proto/
 ```
 
@@ -46,6 +47,7 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 - `src/core/` (browser-safe TypeScript, also runs in Node for tests): framing and codec (`proto.ts`), the Mumble client state machine (`client.ts`), voice packet formats (`voice-packet.ts`). No DOM, no Electron, no Node imports here.
 - `src/lib/native.ts`: `desktop` is the Electron preload API or null; `native` is what both platforms provide (identities, certificates), backed by `web.svelte.ts` in the browser build (`isWeb`, vite `--mode web`). Desktop-only features check `desktop`.
 - `src/lib/`: app state. `session.svelte.ts` has one `Session` per server plus the `sessions` manager; `session` is a Proxy to the active one. `audio/voice.svelte.ts` is the voice engine (WebCodecs Opus, capture and playback AudioWorklets). `html.ts` sanitizes incoming HTML and serializes outgoing rich text.
+- Screen sharing: `src/core/share-signal.ts` (signals as Mumble plugin data, id `mumh5.share`, compressed and chunked) and `src/lib/share.svelte.ts` (one WebRTC connection per viewer, candidates inside the description, no trickle). The desktop source picker is `share:sources` / `share:pick` in `electron/main.ts`.
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
 
 Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
@@ -62,6 +64,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 
 - The CSP allows media only from `self`, `blob:` and http(s). `data:` audio is blocked silently: play user files through object URLs. Large user files go to IndexedDB (`src/lib/blobstore.ts`), not localStorage.
 - `window.prompt` does not exist in Electron; use `ui.prompt`.
+- `desktopCapturer.getSources` can return an empty list on its first calls under X11; main retries. On Wayland the call itself opens the system picker, so it is never repeated.
 - A drop handler must read derived state before clearing the drag item it derives from.
 
 ## Svelte reactivity pitfalls (all hit before)
@@ -76,6 +79,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 - Murmur silently drops own UserState, TextMessage, ChannelState, ACL and Version past a leaky bucket (burst 5, 1/s). The client paces these; don't bypass `send()`.
 - 1.5 servers use the protobuf UDP voice format (type byte 0 + MumbleUDP.Audio) with clients announcing 1.5; older ones the legacy format. The UDPTunnel TCP body is the raw voice packet, not a protobuf message. Sequence numbers count 10 ms frames.
 - Long comments and descriptions arrive as a hash only; a new hash invalidates the old text; fetch with RequestBlob.
+- Murmur drops PluginDataTransmission over 1000 bytes and rate limits it; keep packets at 900 bytes and few.
 - Renaming while connected is not possible; mumh5 reconnects with the new name.
 - Murmur never sends SuperUser (user id 0) PermissionQuery answers; treat SuperUser as allowed everything.
 - In ACLs, Write overrides denies. Grant test rights to one user (`$<certhash>` group), not `@all`.

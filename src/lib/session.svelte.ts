@@ -1,6 +1,7 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
 import { native, openTransport } from './native.ts';
+import { share } from './share.svelte.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
@@ -60,6 +61,8 @@ export class Session {
   uploads = $state<UploadJob[]>([]);
   certPrompt = $state<CertPrompt | null>(null);
   rtt = $state(0);
+  // Who in our channel is sharing their screen, by session (mumh5 clients only)
+  sharing = $state<Record<number, boolean>>({});
   // Why the last connection ended, shown with a Reconnect button (null after a normal disconnect)
   disconnectInfo = $state<{ kind: 'kicked' | 'banned' | 'lost' | 'rejected'; by: string; reason: string } | null>(null);
   private removedBy: { kind: 'kicked' | 'banned'; by: string; reason: string } | null = null;
@@ -288,6 +291,8 @@ export class Session {
     const client = this.client;
     this.client = null;
     client?.disconnect();
+    share.closed(this);
+    this.sharing = {};
     sessions.onClosed(this);
     this.status = 'idle';
     this.tick++;
@@ -312,8 +317,10 @@ export class Session {
       // What we may do per channel, for menus (not rate limited by the server)
       for (const id of client.channels.keys()) client.requestPermissions(id);
       if (client.welcomeText) this.system(this.view, client.welcomeText, true);
+      share.entered(this);
       bump();
     });
+    client.on('pluginData', (sender, dataId, data) => { if (live()) share.receive(this, sender, dataId, data); });
     client.on('channel', ch => {
       if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
       bump();
@@ -337,6 +344,10 @@ export class Session {
       const self = client.self;
       const before = this.lastChannel.get(user.session);
       this.lastChannel.set(user.session, user.channelId);
+      if (client.synced && self && (isNew || changed.includes('channelId'))) {
+        if (user.session === self.session) share.entered(this);
+        else share.userMoved(this, user);
+      }
       if (client.synced && self && this.isVoice()) this.userSound(user.session === self.session, user, changed, actor, isNew, before, self.channelId);
       if (client.synced && self) {
         if (isNew) {
@@ -366,6 +377,7 @@ export class Session {
         this.removedBy = { kind: ban ? 'banned' : 'kicked', by, reason };
       }
       const self = client.self;
+      share.userMoved(this, user, true);
       if (self && user.session !== self.session && this.isVoice() && user.channelId === self.channelId) {
         const byOther = actor != null && actor !== user.session;
         sounds.play(ban ? 'userBanned' : byOther ? 'userKicked' : 'userDisconnected');
@@ -674,6 +686,12 @@ export class Session {
   }
 
   // ─── Voice state and moderation ─────────────────────────────────────────────
+
+  setSharing(session: number, on: boolean): void {
+    if (on) this.sharing[session] = true;
+    else delete this.sharing[session];
+  }
+  clearSharing(): void { this.sharing = {}; }
 
   // The choice is remembered, so it also works while disconnected and carries to the next connect
   setSelfMute(v: boolean) {

@@ -9,6 +9,7 @@
   import { PERM } from '../core/client.ts';
   import ResizeHandle from './ResizeHandle.svelte';
   import { voice } from '../lib/audio/voice.svelte.ts';
+  import { share } from '../lib/share.svelte.ts';
 
   // resizable: false in the phone drawer, which keeps a fixed width
   // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
@@ -48,6 +49,14 @@
     session.showUser(self.session);
     ui.editDescription = true;
     ui.panelOpen = true;
+  }
+
+  // Sharing runs on one server at a time; the button stops it from anywhere
+  const sharingHere = $derived(!!share.stream);
+  const canShare = $derived(session.status === 'connected' && share.supported(sessions.active));
+  function toggleShare() {
+    if (share.stream) share.stop();
+    else share.start(sessions.active);
   }
 
   // One button for the whole tree: open everything, then close everything
@@ -159,6 +168,10 @@
       onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
       <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
     </button>
+    <button class="icon-btn" class:live={sharingHere} title={sharingHere ? 'Stop sharing your screen' : 'Share your screen with your channel'}
+      aria-label={sharingHere ? 'Stop sharing your screen' : 'Share your screen'} disabled={!sharingHere && !canShare} onclick={toggleShare}>
+      <Icon name="screen" size={18} />
+    </button>
     <span class="sep"></span>
     <button class="icon-btn" title="Change your description" aria-label="Change your description" disabled={!self} onclick={editDescription}>
       <Icon name="message" size={18} />
@@ -216,5 +229,6 @@
   .who strong, .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .who span { font-size: 12px; color: var(--text-dim); }
   .info, .info:hover { color: var(--warn); }
+  .live, .live:hover { color: var(--speaking); }
   .offline-who { flex: 1 1 110px; padding: 2px 2px 2px 6px; color: var(--text-dim); }
 </style>

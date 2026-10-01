@@ -59,6 +59,10 @@
 
   {#if tab === 'voice'}
     <VoiceSettings />
+    <h3>Screen sharing</h3>
+    <label for="s-stun">STUN server <span class="opt">(optional)</span></label>
+    <input id="s-stun" bind:value={s.stunServer} onchange={() => store.saveSettings()} placeholder="stun.example.com:3478" autocomplete="off" />
+    <p class="help">Screen sharing connects you directly to the people watching. Behind most home routers that needs a STUN server to find a route; it learns your IP address but never sees the stream. Empty means no outside server is contacted, which works on the same network and often over IPv6.</p>
   {:else if tab === 'sounds'}
     <SoundSettings />
   {:else if tab === 'appearance'}
@@ -119,6 +123,7 @@
   .tabs button { padding: 8px 14px; color: var(--text-dim); font-weight: 600; white-space: nowrap; }
   .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
   h3 { margin: 22px 0 0; font-size: 14px; }
+  .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
   .help { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); }
   .row { display: flex; align-items: flex-end; gap: 8px; }
   .row > div { flex: 1; }

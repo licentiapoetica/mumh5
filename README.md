@@ -76,6 +76,14 @@ mumh5 keeps the foundation and replaces the experience.
 
 ![Profile with a formatted description](docs/screenshots/profile.png)
 
+### Screen sharing
+
+- Share a screen or a window with the mumh5 users in your channel; they see an indicator next to your name and click it to watch
+- No server setup and no extra account: the setup messages travel through the Mumble server, the picture goes directly between the two clients (WebRTC)
+- Picture only for now, up to 8 viewers. Regular Mumble clients do not see streams
+- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Behind most home routers a STUN server (Settings, Voice) is needed; none is contacted unless you enter one
+- Tested between two desktop instances on one machine; connections across the internet and the browser build are untested
+
 ### Chat
 - Messages grouped by author, direct messages, unread badges
 - File sharing: drag and drop, paste, or the attach button, with upload progress
@@ -254,7 +262,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 - System-wide push to talk
 - Whisper and shout
 - Rich chat between mumh5 users: replies, reactions, edits, typing indicators
-- Screen sharing between mumh5 users in a channel, with sound (one application or the whole system, also on Linux through PipeWire). Anyone can start a stream; no extra key, your Mumble certificate is your identity. Streams go directly between clients with WebRTC, set up through the Mumble server, with an optional self-hosted relay for many viewers
+- Screen sharing: sound (one application or the whole system, also on Linux through PipeWire), quality settings, and an optional self-hosted relay for many viewers
 - Release builds for all platforms
 
 ---

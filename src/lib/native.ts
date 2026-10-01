@@ -29,6 +29,10 @@ interface NativeApi extends PlatformApi {
   pingServer(host: string, port: number): Promise<PingResult | null>;
   onContextMenu(fn: (params: ContextParams) => void): void;
   editAction(action: string, arg?: unknown): void;
+  // Screens and windows that can be shared; pick one before calling getDisplayMedia
+  // chosen: the system's own picker already asked (Wayland), so `sources` is the one answer
+  screenSources(): Promise<{ sources: ScreenSource[]; chosen: boolean }>;
+  pickScreenSource(id: string): void;
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;
@@ -53,6 +57,7 @@ export interface ContextParams {
   editFlags: { canUndo: boolean; canRedo: boolean; canCut: boolean; canCopy: boolean; canPaste: boolean; canSelectAll: boolean };
 }
 
+export interface ScreenSource { id: string; name: string; thumbnail: string }
 export interface PublicServer { name: string; host: string; port: number; url: string; country: string; countryCode: string; continent: string; ca: boolean }
 export interface PingResult { ping: number; users: number; maxUsers: number; bandwidth: number; version: string }
 

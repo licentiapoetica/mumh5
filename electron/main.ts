@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, shell, session, systemPreferences, type WebContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, shell, session, systemPreferences, type WebContents } from 'electron';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,11 @@ import { openTls } from './tls-transport.ts';
 import { udpChannel } from './udp-voice.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
+
+// Screen sharing connects mumh5 users directly. Chromium would hide this computer's addresses
+// behind names that only resolve on the local network, so two people on IPv6 could not reach
+// each other without a helper server. Only this app's own page runs here.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 let identityStore: IdentityStore | null = null;
 const identities = () => (identityStore ??= new IdentityStore(app.getPath('userData')));
@@ -120,6 +125,30 @@ ipcMain.handle('publist:ping', (_e, host: string, port: number) => pingServer(St
 
 ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url).slice(0, 2048)));
 
+// ─── Screen sharing ───────────────────────────────────────────────────────────
+// The renderer lists the sources, the user picks one, and the next getDisplayMedia call gets it.
+// On Wayland, listing already opens the system's picker and returns the one chosen source;
+// `chosen` tells the renderer not to ask a second time.
+let screenSources: Electron.DesktopCapturerSource[] = [];
+let pickedSource: string | null = null;
+ipcMain.handle('share:sources', async () => {
+  const wayland = process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
+    (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+  const list = () => desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 } });
+  screenSources = await list();
+  // The X11 capturer can come back empty on its first calls. Not on Wayland, where empty
+  // means the user cancelled the system's picker and asking again would reopen it.
+  for (let i = 0; i < 8 && !screenSources.length && !wayland; i++) {
+    await new Promise(r => setTimeout(r, 250));
+    screenSources = await list();
+  }
+  return {
+    chosen: wayland && screenSources.length === 1,
+    sources: screenSources.map(s => ({ id: s.id, name: s.name, thumbnail: s.thumbnail.isEmpty() ? '' : s.thumbnail.toDataURL() }))
+  };
+});
+ipcMain.on('share:pick', (_e, id: string) => { pickedSource = String(id); });
+
 ipcMain.on('tray:update', (_e, state: tray.TrayState) => tray.update(state));
 
 ipcMain.handle('platform:info', () => ({ os: process.platform, osVersion: os.release() }));
@@ -193,6 +222,13 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*'] }, (details, cb) => {
     if (!details.requestHeaders.Referer) details.requestHeaders.Referer = 'https://mumh5.app/';
     cb({ requestHeaders: details.requestHeaders });
+  });
+
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    const source = screenSources.find(s => s.id === pickedSource);
+    pickedSource = null;
+    // Without a picked source the request is refused
+    try { callback(source ? { video: source } : {}); } catch { /* refused */ }
   });
 
   // Microphone, camera and screen capture for voice and video; nothing else

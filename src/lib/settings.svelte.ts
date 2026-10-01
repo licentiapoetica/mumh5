@@ -24,6 +24,8 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
+  shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
 }
 
@@ -52,6 +54,8 @@ const defaults: Settings = {
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'side',
+  stunServer: '',
+  shareNoticeSeen: false,
   hints: false
 };
 

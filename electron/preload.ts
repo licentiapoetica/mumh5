@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   onContextMenu: (fn: (params: unknown) => void) => { ipcRenderer.on('context-menu', (_e, p) => fn(p)); },
   editAction: (action: string, arg?: unknown) => ipcRenderer.send('edit:action', action, arg),
   onTrayAction: (fn: (action: string) => void) => { ipcRenderer.on('tray:action', (_e, a: string) => fn(a)); },
+  screenSources: () => ipcRenderer.invoke('share:sources'),
+  pickScreenSource: (id: string) => ipcRenderer.send('share:pick', id),
   describeCerts: (ders: Uint8Array[]) => ipcRenderer.invoke('certs:describe', ders),
   identities: {
     list: () => ipcRenderer.invoke('identities:list'),

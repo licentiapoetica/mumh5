@@ -15,6 +15,7 @@
   import ChannelDialog from './ui/ChannelDialog.svelte';
   import PublicServers from './ui/PublicServers.svelte';
   import ServerInfoDialog from './ui/ServerInfoDialog.svelte';
+  import SharePicker from './ui/SharePicker.svelte';
   import ResizeHandle from './ui/ResizeHandle.svelte';
   import { identities } from './lib/identities.svelte.ts';
   import { session } from './lib/session.svelte.ts';
@@ -129,7 +130,8 @@
 {#if ui.channelDialog && session.status === 'connected'}
   {#key ui.channelDialog}<ChannelDialog {...ui.channelDialog} onclose={() => (ui.channelDialog = null)} />{/key}
 {/if}
-{#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => (ui.prompt = null)} />{/if}
+<SharePicker />
+{#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => { const p = ui.prompt; ui.prompt = null; p?.oncancel?.(); }} />{/if}
 <ContextMenu />
 
 <style>
