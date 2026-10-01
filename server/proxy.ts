@@ -55,7 +55,9 @@ export function parseServers(list: string): AllowedServer[] {
   });
 }
 
-export function configFromEnv(env: NodeJS.ProcessEnv): ProxyConfig {
+export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
+  // A variable set to nothing counts as not set (docker-compose passes unset ones on that way)
+  const env = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== '')) as NodeJS.ProcessEnv;
   const on = (v?: string) => v === '1' || v === 'true';
   return {
     ...defaults,
