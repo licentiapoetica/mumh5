@@ -17,6 +17,8 @@
     const u = entry.authorSession != null ? session.user(entry.authorSession) : undefined;
     if (u) menu.show(e, userMenu(u));
   }
+  // Full date and time, shown at the right edge while the pointer is on the message
+  const full = $derived(time.toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' }));
   const hhmm = $derived(time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 </script>
 
@@ -27,6 +29,7 @@
   </div>
 {:else}
   <article class="msg" class:grouped>
+    <time class="stamp" datetime={time.toISOString()}>{full}</time>
     <div class="gutter">
       {#if grouped}
         <span class="time hover">{hhmm}</span>
@@ -64,7 +67,10 @@
 {/if}
 
 <style>
-  .msg { display: flex; gap: 14px; padding: 2px 16px; margin-top: 14px; }
+  .msg { position: relative; display: flex; gap: 14px; padding: 2px 16px; margin-top: 14px; }
+  /* Over the end of the line, with its own background so it stays readable on long messages */
+  .stamp { position: absolute; top: 2px; right: 12px; padding: 1px 6px; line-height: 18px; background: var(--bg-1); border: 1px solid var(--line); visibility: hidden; pointer-events: none; }
+  .msg:hover .stamp { visibility: visible; }
   .msg.grouped { margin-top: 0; }
   .msg:hover { background: rgb(255 255 255 / 0.02); }
   .gutter { width: 38px; flex: none; display: flex; justify-content: center; }

@@ -226,6 +226,16 @@ try {
   assert.equal(await page.evaluate(() => (window as any).pwned), undefined);
   assert.equal(await page.locator('.msg b', { hasText: 'bold' }).count(), 1);
   assert.equal(await page.locator('img[src^="https://evil"]').count(), 0);
+  // The full date appears at the right edge while the pointer is on a message
+  const anyMsg = page.locator('.chat .msg').last();
+  const stamp = anyMsg.locator('.stamp');
+  assert.equal(await stamp.evaluate(el => getComputedStyle(el).visibility), 'hidden');
+  await anyMsg.hover();
+  assert.equal(await stamp.evaluate(el => getComputedStyle(el).visibility), 'visible');
+  assert.match(await stamp.innerText(), /\d{4}.*\d{1,2}:\d{2}:\d{2}/);
+  const gap = await anyMsg.evaluate(el => el.getBoundingClientRect().right - el.querySelector('.stamp')!.getBoundingClientRect().right);
+  assert.ok(gap >= 0 && gap < 20, `stamp at the right edge: ${gap}`);
+  await page.mouse.move(5, 5);
   console.log('ok: incoming text rendered and sanitized');
 
   // Right-click menus for text: composer editing, links, messages, authors
