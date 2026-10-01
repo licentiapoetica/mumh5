@@ -104,6 +104,14 @@ try {
   await alice.page.setViewportSize({ width: 600, height: 800 });
   await alice.page.locator('.app.stacked .stage.solo video').waitFor();
   assert.ok(await fits(), 'still as wide as the chat on a narrow window');
+  // On a short window the picture gives way and the chat keeps about five lines
+  await alice.page.setViewportSize({ width: 600, height: 700 });
+  const heights = () => alice.page.evaluate(() => [document.querySelector('.chat [role=log]')!.getBoundingClientRect().height, document.querySelector('.stage.solo video')!.getBoundingClientRect().height]);
+  await alice.page.waitForFunction(() => document.querySelector('.stage.solo video')!.getBoundingClientRect().height < 250);
+  const [logH, videoH] = await heights();
+  assert.ok(logH >= 120, `chat keeps its lines: ${logH}`);
+  assert.ok(videoH > 40, `the picture is still shown: ${videoH}`);
+  await alice.page.setViewportSize({ width: 600, height: 800 });
   if (process.env.SHOTS_DIR) await alice.page.screenshot({ path: `${process.env.SHOTS_DIR}/stacked.png` });
   await alice.page.getByText('0 watching').waitFor();
   await alice.page.setViewportSize({ width: 1280, height: 800 });

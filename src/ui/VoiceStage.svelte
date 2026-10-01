@@ -350,10 +350,11 @@
   .away { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .vol { width: 110px; flex: none; padding: 0; }
   /* Video only: the picture as wide as the chat, as tall as its shape asks */
-  .stage.solo { background: #000; }
-  .stage.solo .spot { flex: none; }
-  .stage.solo .pic { flex: none; display: block; }
-  .stage.solo .spot video { height: auto; max-height: 62vh; }
+  /* It gives way when the window is short, so the chat below keeps its last lines in view */
+  .stage.solo { flex: 0 1 auto; background: #000; }
+  .stage.solo .spot { flex: 0 1 auto; }
+  .stage.solo .pic { flex: 0 1 auto; flex-direction: column; }
+  .stage.solo .spot video { flex: 0 1 auto; height: auto; max-height: 62vh; }
   .stage.solo .away { flex: none; padding: 24px; }
   .wait { margin: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; color: var(--text-dim); background: var(--bg-1); }
   .wait span { flex: 1; min-width: 0; }

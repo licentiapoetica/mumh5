@@ -18,7 +18,7 @@
   });
 </script>
 
-<section class="chat" aria-label="Chat">
+<section class="chat" class:video-only={videoOnly} aria-label="Chat">
   <header>
     {#if showMenu}<button class="icon-btn" onclick={onmenu} aria-label="Open channels"><Icon name="menu" /></button>{/if}
     <Icon name={isDm ? 'message' : 'hash'} size={20} />
@@ -74,6 +74,8 @@
 </section>
 
 <style>
+  /* Stacked layout: room for about five lines of chat whatever the stream above takes */
+  .chat.video-only :global(.wrap[role=log]) { min-height: 124px; flex-shrink: 0; }
   .chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
   header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
   h1 { flex: 0 1 auto; max-width: 60%; font-size: 16px; margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
