@@ -237,6 +237,14 @@
 {#if voice.error && session.status === 'connected'}<div class="bar bad" role="alert"><span>Voice is not working: {voice.error}</span></div>{/if}
 {#if share.error}<div class="bar bad" role="alert"><span>{share.error}</span><button class="btn" onclick={() => (share.error = '')}>Dismiss</button></div>{/if}
 
+{#snippet switcher()}
+  {#if mine && share.kind === 'camera' && share.cameras > 1}
+    <button class="icon-btn" title="Switch to the next camera" aria-label="Switch camera" disabled={share.switching} onclick={() => share.switchCamera()}>
+      <Icon name="switch" size={18} />
+    </button>
+  {/if}
+{/snippet}
+
 {#snippet spot()}
   {#if self && focus != null && focused}
       <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
@@ -256,6 +264,7 @@
         {/if}
         {#if focus !== self.session}<button class="btn small" onclick={() => { if (focus != null) share.unwatch(focus); }}>Stop watching</button>
         {:else if videoOnly}
+          {@render switcher()}
           <span class="status" role="status" title="People watching your {share.kind}">{share.viewers} watching</span>
           <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
         {/if}
@@ -367,6 +376,7 @@
         </button>
       {/if}
       {#if mine}
+        {@render switcher()}
         <span class="status" role="status" title="People watching your {share.kind}"><Icon name={share.kind} size={14} />{share.viewers} watching</span>
         <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
       {/if}

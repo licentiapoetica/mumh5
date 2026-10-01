@@ -22,7 +22,7 @@ async function launch() {
   const app = await electron.launch({
     executablePath: electronPath as unknown as string,
     args: [root, `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
-      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+      '--use-fake-device-for-media-stream=device-count=2', '--use-fake-ui-for-media-stream'],
     env: env as Record<string, string>
   });
   const page = await app.firstWindow();
@@ -310,6 +310,35 @@ try {
   await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   await bob.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/cams.png` });
+
+  // Switching cameras swaps the picture on the running stream. Chromium's second fake camera
+  // never delivers frames to an encoder (not even as the first camera), so the viewer is
+  // checked after switching there and back.
+  const ownCamera = () => alice.page.evaluate(() => ((document.querySelector('.stage .tile.self video') as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0].label);
+  const firstCamera = await ownCamera();
+  const switchTo = async (different: boolean) => {
+    await alice.page.locator('.stage').getByRole('button', { name: 'Switch camera' }).click();
+    await alice.page.waitForFunction(([was, differs]) => {
+      const v = document.querySelector('.stage .tile.self video') as HTMLVideoElement | null;
+      const track = (v?.srcObject as MediaStream | null)?.getVideoTracks()[0];
+      return !!track && (track.label !== was) === differs && track.readyState === 'live' && v!.videoWidth > 0;
+    }, [firstCamera, different] as const, { timeout: 15000 });
+    await alice.page.getByRole('button', { name: 'Switch camera' }).and(alice.page.locator(':enabled')).waitFor();
+  };
+  await switchTo(true);
+  const secondCamera = await ownCamera();
+  await switchTo(false);
+  const fresh = await bob.page.evaluate(n => new Promise<number>(resolve => {
+    const v = document.querySelector(`.stage .tile[aria-label*="${n}"] video`) as HTMLVideoElement;
+    let count = 0;
+    const tick = () => { if (++count >= 8) resolve(count); else v.requestVideoFrameCallback(tick); };
+    v.requestVideoFrameCallback(tick);
+    setTimeout(() => resolve(count), 12000);
+  }), aliceName);
+  assert.ok(fresh >= 8, `viewer got ${fresh} new frames after switching cameras`);
+  await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
+  assert.equal(await alice.page.locator('.bar.bad').count(), 0);
+  console.log(`ok: camera switched while sharing (${firstCamera} to ${secondCamera} and back), viewer kept the stream`);
 
   // A click enlarges one camera; the statistics show it came through the relay
   await bob.page.locator('.stage .tile', { hasText: aliceName }).click();
