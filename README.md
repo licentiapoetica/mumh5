@@ -168,6 +168,15 @@ MUMH5_SERVERS="mumble.example.com=My server" node dist-proxy/proxy.mjs
 
 Then open `http://127.0.0.1:8080`. For development, `npm run dev:web` starts the proxy and a hot-reloading page together, with any server allowed. To deploy, copy `dist-web/` and `dist-proxy/` next to each other on the server (Node 22 or newer, no `node_modules` needed) and put a reverse proxy with HTTPS in front that forwards WebSocket upgrades. Browsers only allow the microphone on HTTPS pages (or on localhost).
 
+With Docker, the same thing is one command; settings go in a `.env` file next to `docker-compose.yml`:
+
+```bash
+echo 'MUMH5_SERVERS=mumble.example.com=My server' > .env
+docker compose up -d --build
+```
+
+The container uses the host's network: the proxy listens on `127.0.0.1:8080` for your reverse proxy and on UDP 3478 for STUN, and a Mumble server on the same machine is reachable as `localhost`.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MUMH5_SERVERS` | none | Mumble servers people may connect to: `host[:port][=Label]`, comma-separated. Required unless `MUMH5_ALLOW_ANY=1` |

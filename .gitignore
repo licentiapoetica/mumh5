@@ -5,3 +5,4 @@ dist-proxy/
 dist-electron/
 release/
 *.log
+.env

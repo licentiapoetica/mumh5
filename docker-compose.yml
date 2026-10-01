@@ -1,0 +1,16 @@
+# The mumh5 web proxy. Settings come from a .env file next to this one, for example:
+#   MUMH5_SERVERS=mumble.example.com=My server
+#   MUMH5_TRUST_PROXY=1
+services:
+  mumh5:
+    build: .
+    restart: unless-stopped
+    # Host networking, so STUN sees each visitor's real address (through Docker's port
+    # forwarding it would often see Docker's own) and a Mumble server on this machine is
+    # reachable as localhost. The proxy listens on 127.0.0.1:8080 for nginx and on UDP 3478.
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MUMH5_BIND: ${MUMH5_BIND:-127.0.0.1}
