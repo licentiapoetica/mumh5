@@ -64,7 +64,17 @@
     const pair = (transport?.selectedCandidatePairId && report.get(transport.selectedCandidatePairId)) || all.find(s => s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded');
     if (pair) {
       const local = report.get(pair.localCandidateId), remote = report.get(pair.remoteCandidateId);
-      rows.push(['Connection', `${KIND[local?.candidateType] ?? local?.candidateType ?? 'n/a'}, ${String(local?.protocol ?? '').toUpperCase()}`]);
+      // What this side had to offer. A route discovered during the checks (prflx) is still a
+      // relayed one when relays were all we had.
+      const mine = all.filter(s => s.type === 'local-candidate' && s.candidateType !== 'prflx');
+      const relays = mine.filter(s => s.candidateType === 'relay');
+      const relayed = local?.candidateType === 'relay' || (local?.candidateType === 'prflx' && relays.length > 0 && relays.length === mine.length);
+      const relayVia = (local?.relayProtocol ?? relays[0]?.relayProtocol) as string | undefined;
+      // A relayed route is UDP beyond the relay; what matters is how we reach the relay
+      rows.push(['Connection', relayed ? `${KIND.relay}${relayVia ? `, reached over ${relayVia.toUpperCase()}` : ''}`
+        : `${KIND[local?.candidateType] ?? local?.candidateType ?? 'n/a'}, ${String(local?.protocol ?? '').toUpperCase()}`]);
+      const count = (type: string) => mine.filter(s => s.candidateType === type).length;
+      rows.push(['Routes offered', `${count('host')} direct, ${count('srflx')} through STUN, ${relays.length} relayed`]);
       if (remote?.candidateType) rows.push(['Other side', KIND[remote.candidateType] ?? remote.candidateType]);
       rows.push(['Round trip', ms(pair.currentRoundTripTime)]);
       if (pair.availableOutgoingBitrate) rows.push(['Estimated capacity', `${Math.round(pair.availableOutgoingBitrate / 1000)} kbit/s`]);

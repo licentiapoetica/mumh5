@@ -4,13 +4,16 @@
 import http from 'node:http';
 import dns from 'node:dns';
 import net from 'node:net';
-import dgram from 'node:dgram';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity, identityFromP12, identityToP12, certCommonName } from '../electron/identity.ts';
 import { describeCert } from '../electron/certs.ts';
+import { startTurn, turnCredential, stunResponse, isPrivateAddress, CREDENTIAL_TTL } from './turn.ts';
+
+export { stunResponse, isPrivateAddress };
 
 export interface AllowedServer { host: string; port: number; label: string }
 
@@ -33,13 +36,19 @@ export interface ProxyConfig {
   // UDP port of the built-in STUN responder for screen sharing between browser users; null turns it off
   stunPort: number | null;
   stunBind: string;
+  // Relay streams for browsers that cannot connect directly (TURN, same port over UDP and TCP)
+  turn: boolean;
+  // Public address announced for relayed traffic, when it cannot be found (behind a 1:1 NAT)
+  turnIp: string | null;
+  turnMinPort: number;
+  turnMaxPort: number;
   maxConnections: number;
   maxPerAddress: number;
 }
 
 export const defaults: ProxyConfig = {
   port: 8080, bind: '127.0.0.1', servers: [], allowAny: false, allowPrivate: false, origins: [],
-  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', maxConnections: 200, maxPerAddress: 8
+  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49359, maxConnections: 200, maxPerAddress: 8
 };
 
 // "host", "host:port", "[v6]:port", each optionally followed by "=Label"
@@ -72,22 +81,13 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
     staticDir: env.MUMH5_STATIC ?? null,
     stunPort: Number(env.MUMH5_STUN_PORT ?? 3478) || null,
     stunBind: env.MUMH5_STUN_BIND ?? defaults.stunBind,
+    turn: env.MUMH5_TURN !== '0' && env.MUMH5_TURN !== 'false',
+    turnIp: env.MUMH5_TURN_IP ?? null,
+    turnMinPort: Number((env.MUMH5_TURN_PORTS ?? '').split('-')[0]) || defaults.turnMinPort,
+    turnMaxPort: Number((env.MUMH5_TURN_PORTS ?? '').split('-')[1]) || defaults.turnMaxPort,
     maxConnections: Number(env.MUMH5_MAX_CONNECTIONS ?? defaults.maxConnections),
     maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress)
   };
-}
-
-// Loopback, private, link-local and other addresses that are not on the public internet
-export function isPrivateAddress(address: string): boolean {
-  if (net.isIPv4(address)) {
-    const [a, b] = address.split('.').map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
-  }
-  const v6 = address.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
-  if (mapped) return isPrivateAddress(mapped[1]);
-  return v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || /^ff/.test(v6);
 }
 
 // DNS lookup that fails for private addresses, so a public name cannot point the proxy inward
@@ -100,39 +100,6 @@ const publicLookup: net.LookupFunction = (hostname, options, callback) => {
     (callback as Function)(null, result, family);
   });
 };
-
-// Answer to a STUN binding request (RFC 5389): tells the sender the address its packet came
-// from, which is how two browsers behind routers find a direct route for screen sharing.
-// Returns null for anything that is not a binding request. The answer is about as small as
-// the request, so the port is of no use for amplifying traffic.
-export function stunResponse(msg: Uint8Array, address: string, port: number): Uint8Array | null {
-  const COOKIE = 0x2112a442;
-  const view = new DataView(msg.buffer, msg.byteOffset, msg.byteLength);
-  if (msg.length < 20 || view.getUint16(0) !== 0x0001 || view.getUint32(4) !== COOKIE) return null;
-  if (view.getUint16(2) !== msg.length - 20) return null;
-  const v4 = address.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i, '$1');
-  let bytes: number[];
-  if (net.isIPv4(v4)) bytes = v4.split('.').map(Number);
-  else if (net.isIPv6(address)) {
-    // Expand "::" and write the eight groups out as bytes
-    const [head, tail = ''] = address.split('%')[0].split('::');
-    const h = head ? head.split(':') : [], t = tail ? tail.split(':') : [];
-    const groups = address.includes('::') ? [...h, ...new Array(8 - h.length - t.length).fill('0'), ...t] : h;
-    bytes = groups.flatMap(g => { const n = parseInt(g, 16); return [n >> 8, n & 255]; });
-  } else return null;
-  const out = new Uint8Array(20 + 8 + bytes.length);
-  const o = new DataView(out.buffer);
-  o.setUint16(0, 0x0101);                 // binding success
-  o.setUint16(2, 8 + bytes.length);
-  out.set(msg.subarray(4, 20), 4);        // cookie and transaction id
-  o.setUint16(20, 0x0020);                // XOR-MAPPED-ADDRESS
-  o.setUint16(22, 4 + bytes.length);
-  out[25] = bytes.length === 4 ? 1 : 2;
-  o.setUint16(26, port ^ (COOKIE >>> 16));
-  // The address is masked with the cookie, and for IPv6 with the transaction id after it
-  for (let i = 0; i < bytes.length; i++) out[28 + i] = bytes[i] ^ msg[4 + i];
-  return out;
-}
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -158,6 +125,8 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
   const staticDir = config.staticDir ? path.resolve(config.staticDir) : null;
   const perAddress = new Map<string, number>();
   let stunPort: number | null = null;
+  // Made up at every start: credentials are handed out by this process and checked by it
+  const turnSecret = randomBytes(24).toString('hex');
   // Identity requests per address in the current minute; key generation is the costly part
   const identityUse = new Map<string, number>();
   const sweep = setInterval(() => identityUse.clear(), 60000);
@@ -196,7 +165,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
 
   async function api(req: http.IncomingMessage, route: string): Promise<unknown> {
     if (route === 'config' && req.method === 'GET') {
-      return { servers: config.servers, any: config.allowAny, stun: stunPort };
+      return { servers: config.servers, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn };
     }
     if (req.method !== 'POST') throw new HttpError(404, 'Not found');
     if (!originOk(req)) throw new HttpError(403, 'Origin not allowed');
@@ -206,6 +175,16 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       const used = (identityUse.get(addr) ?? 0) + 1;
       identityUse.set(addr, used);
       if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
+    }
+    if (route === 'turn') {
+      if (stunPort == null || !config.turn) throw new HttpError(404, 'No relay here');
+      const addr = addressOf(req);
+      const used = (identityUse.get(addr) ?? 0) + 1;
+      identityUse.set(addr, used);
+      if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
+      // The username is the time it runs out; the relay recomputes the password from it
+      const username = String(Math.floor(Date.now() / 1000) + CREDENTIAL_TTL);
+      return { username, credential: turnCredential(turnSecret, username), ttl: CREDENTIAL_TTL, port: stunPort };
     }
     switch (route) {
       // Nothing is stored here: the browser keeps its identities and sends one along when it connects
@@ -348,18 +327,17 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     server.listen(config.port, config.bind, resolve);
   });
 
-  // STUN on UDP. Failing to open it (port taken, no permission) only costs screen sharing its helper.
-  let stun: dgram.Socket | null = null;
+  // STUN and the relay. Failing to open the port only costs screen sharing its helper.
+  let turn: { port: number; close(): void } | null = null;
   if (config.stunPort != null) {
-    const socket = dgram.createSocket(net.isIPv4(config.stunBind) ? 'udp4' : 'udp6');
-    socket.on('message', (msg, from) => {
-      const answer = stunResponse(msg, from.address, from.port);
-      if (answer) socket.send(answer, from.port, from.address);
-    });
-    await new Promise<void>(resolve => {
-      socket.once('error', () => { socket.close(); resolve(); });
-      socket.bind(config.stunPort!, config.stunBind, () => { socket.removeAllListeners('error'); socket.on('error', () => {}); stun = socket; stunPort = socket.address().port; resolve(); });
-    });
+    try {
+      turn = await startTurn({
+        port: config.stunPort, bind: config.stunBind, relay: config.turn, publicIp: config.turnIp,
+        minPort: config.turnMinPort, maxPort: config.turnMaxPort, maxAllocations: config.maxConnections, maxPerAddress: config.maxPerAddress,
+        peerAllowed: ip => config.allowPrivate || !isPrivateAddress(ip)
+      }, turnSecret);
+      stunPort = turn.port;
+    } catch { /* port taken or not permitted */ }
   }
 
   return {
@@ -367,7 +345,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     stunPort,
     close: () => new Promise<void>(resolve => {
       clearInterval(sweep);
-      (stun as dgram.Socket | null)?.close();
+      turn?.close();
       for (const ws of wss.clients) ws.terminate();
       wss.close();
       server.close(() => resolve());
