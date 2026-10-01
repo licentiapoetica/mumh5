@@ -76,15 +76,27 @@
   async function showCamera(deviceId = camera) {
     error = '';
     dropPreview();
+    const wanted: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: fps() } };
+    if (deviceId) wanted.deviceId = { exact: deviceId };
+    else wanted.facingMode = 'user';
     try {
-      preview = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: fps() }
-      });
+      try {
+        preview = await navigator.mediaDevices.getUserMedia({ video: wanted });
+      } catch (e) {
+        // A refusal or a missing camera is final; anything else may be a phone camera that
+        // dislikes the wishes above, so ask once more for whatever it has
+        if (['NotAllowedError', 'SecurityError', 'NotFoundError'].includes((e as Error).name)) throw e;
+        preview = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : true });
+      }
       // Names are only given out once a camera was allowed
       cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
       camera = preview.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId;
     } catch (e) {
-      error = (e as Error).name === 'NotFoundError' ? 'No camera was found.' : `Could not open the camera: ${(e as Error).message}`;
+      const { name, message } = e as Error;
+      error = name === 'NotFoundError' ? 'No camera was found.'
+        : name === 'NotAllowedError' || name === 'SecurityError'
+          ? 'The camera was refused. If no question appeared, access is blocked: allow the camera for this site (the icon next to the address), and for the browser app in the phone\'s settings, then try again.'
+          : `Could not open the camera (${name}): ${message}`;
     }
   }
 
@@ -241,6 +253,7 @@
   </div>
 
   {#if error}<p class="err">{error}</p>{/if}
+  {#if kind === 'camera' && error}<div class="row"><button class="btn" onclick={() => showCamera()}>Try the camera again</button></div>{/if}
 
   {#snippet footer()}
     <button class="btn" onclick={onclose}>Cancel</button>
