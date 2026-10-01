@@ -42,13 +42,17 @@ export interface ProxyConfig {
   turnIp: string | null;
   turnMinPort: number;
   turnMaxPort: number;
+  // Relay routes in total and per client address. A browser opens one per stream and network
+  // interface, and a camera round has a stream per pair of people, so these run high.
+  turnMax: number;
+  turnPerAddress: number;
   maxConnections: number;
   maxPerAddress: number;
 }
 
 export const defaults: ProxyConfig = {
   port: 8080, bind: '127.0.0.1', servers: [], allowAny: false, allowPrivate: false, origins: [],
-  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49359, maxConnections: 200, maxPerAddress: 8
+  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, maxConnections: 200, maxPerAddress: 8
 };
 
 // "host", "host:port", "[v6]:port", each optionally followed by "=Label"
@@ -85,6 +89,8 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
     turnIp: env.MUMH5_TURN_IP ?? null,
     turnMinPort: Number((env.MUMH5_TURN_PORTS ?? '').split('-')[0]) || defaults.turnMinPort,
     turnMaxPort: Number((env.MUMH5_TURN_PORTS ?? '').split('-')[1]) || defaults.turnMaxPort,
+    turnMax: Number(env.MUMH5_TURN_MAX ?? defaults.turnMax),
+    turnPerAddress: Number(env.MUMH5_TURN_PER_ADDRESS ?? defaults.turnPerAddress),
     maxConnections: Number(env.MUMH5_MAX_CONNECTIONS ?? defaults.maxConnections),
     maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress)
   };
@@ -341,7 +347,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     try {
       turn = await startTurn({
         port: config.stunPort, bind: config.stunBind, relay: config.turn, publicIp: config.turnIp,
-        minPort: config.turnMinPort, maxPort: config.turnMaxPort, maxAllocations: config.maxConnections, maxPerAddress: config.maxPerAddress,
+        minPort: config.turnMinPort, maxPort: config.turnMaxPort, maxAllocations: config.turnMax, maxPerAddress: config.turnPerAddress,
         peerAllowed: ip => config.allowPrivate || !isPrivateAddress(ip)
       }, turnSecret);
       stunPort = turn.port;

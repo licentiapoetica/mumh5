@@ -14,5 +14,5 @@ COPY --from=build /src/dist-web ./dist-web
 COPY --from=build /src/dist-proxy ./dist-proxy
 USER node
 ENV MUMH5_PORT=8080
-EXPOSE 8080/tcp 3478/udp 3478/tcp 49160-49359/udp
+EXPOSE 8080/tcp 3478/udp 3478/tcp 49160-49659/udp
 CMD ["node", "dist-proxy/proxy.mjs"]

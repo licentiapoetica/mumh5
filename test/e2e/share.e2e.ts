@@ -268,15 +268,47 @@ try {
   assert.equal(await picker.getByLabel('Sound').count(), 0, 'no extra sound with a camera');
   await startBtn.click();
   await alice.page.locator('.sidebar .row.user.self').getByTitle('You are sharing your camera').waitFor();
+  // Cameras play in the tiles. Bob joins the camera round with one click and sees Alice's
   const cam = bob.page.locator('.sidebar').getByRole('button', { name: `Watch the camera of ${aliceName}`, exact: true });
   await cam.waitFor();
-  await cam.click();
+  const liveCams = (p: Page) => p.evaluate(() => [...document.querySelectorAll('.stage .tile video')].filter(v => (v as HTMLVideoElement).videoWidth > 0).length);
+  const camsShown = (p: Page, n: number) => p.waitForFunction(
+    want => [...document.querySelectorAll('.stage .tile video')].filter(v => (v as HTMLVideoElement).videoWidth > 0).length === want, n, { timeout: 30000 });
+  await bob.page.locator('.stage').getByRole('button', { name: 'Watch all cameras' }).click();
+  await camsShown(bob.page, 1);
+  assert.equal(await bob.page.getByRole('region', { name: 'Screen share' }).count(), 0, 'a camera does not take over the stage by itself');
+
+  // Bob turns his camera on too: both now see both, each one their own mirrored
+  await bob.page.locator('.me').getByRole('button', { name: 'Share your screen or camera' }).click();
+  const bobDialog = bob.page.getByRole('dialog', { name: 'Share your screen' });
+  await bobDialog.getByRole('tab', { name: 'Camera' }).click();
+  await bob.page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  await bobDialog.getByRole('button', { name: 'Start sharing' }).click();
+  await camsShown(bob.page, 2);
+  await camsShown(alice.page, 2);
+  assert.equal(await bob.page.locator('.stage .tile.self video.mirror').count(), 1, 'own camera is mirrored');
+  assert.equal(await bob.page.locator('.stage .tile:not(.self) video.mirror').count(), 0);
+  await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
+  await bob.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/cams.png` });
+
+  // A click enlarges one camera; the statistics show it came through the relay
+  await bob.page.locator('.stage .tile', { hasText: aliceName }).click();
   await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
   const camStats = await nerd(bob.page, [/^relayed \(TURN\), reached over TCP/, /^0 direct, 0 through STUN, [1-9]\d* relayed/]);
+  await bob.page.getByRole('region', { name: 'Screen share' }).getByRole('button', { name: 'Back to tiles' }).click();
+
+  // Leaving the round keeps Bob's own camera on and drops the others
+  await bob.page.locator('.stage').getByRole('button', { name: 'Stop watching the cameras' }).click();
+  await camsShown(bob.page, 1);
+  await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
+  await bob.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();
+  await camsShown(alice.page, 1);
   await alice.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();
   await cam.waitFor({ state: 'detached' });
   await bob.page.evaluate(() => localStorage.removeItem('mumh5.iceDebug'));
-  console.log(`ok: camera shared, watched through the relay set in the desktop app (${camStats.match(/Picture \| [^|]+/)?.[0]})`);
+  console.log(`ok: cameras of several people at once, in the tiles, through the relay (${camStats.match(/Picture \| [^|]+/)?.[0]})`);
+  void liveCams;
 
   // A sharer who disconnects takes the stream with them
   await shareBtn.click();

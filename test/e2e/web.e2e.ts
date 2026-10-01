@@ -220,9 +220,9 @@ try {
   await page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
   await dialog.getByRole('button', { name: 'Start sharing' }).click();
   await page2.locator('.sidebar').getByRole('button', { name: `Watch the camera of ${name}`, exact: true }).click();
-  await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
+  await page2.waitForFunction(() => (document.querySelector('.stage .tile video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
   await page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
-  console.log('ok: camera shared between two browsers, through the relay');
+  console.log('ok: camera shared between two browsers, shown in the tile, through the relay');
 
   console.log('WEB E2E PASSED');
 } finally {

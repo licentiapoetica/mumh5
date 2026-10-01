@@ -16,7 +16,7 @@
   // its minimum; the picture gets the rest. Unset until dragged, then the picture decides.
   const LOG_MIN = 124;
   const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
-  const streamAbove = $derived(videoOnly && session.status === 'connected' && ((!!share.stream && here(share.host)) || (!!share.watching && here(share.watching.host))));
+  const streamAbove = $derived(videoOnly && session.status === 'connected' && ((!!share.stream && here(share.host)) || share.watches.some(w => here(w.host))));
   let logHeight = $state(Number((() => { try { return localStorage.getItem('mumh5.stackedChatHeight'); } catch { return null; } })()) || 0);
   const logFixed = $derived(streamAbove && logHeight >= LOG_MIN);
 
