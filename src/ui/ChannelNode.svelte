@@ -49,8 +49,20 @@
   // Short grace period, so the pointer can move from the row into the preview
   function leaveRow() {
     clearTimeout(hoverTimer);
-    hoverTimer = setTimeout(() => (preview = null), 250);
+    // An image opened from the preview covers it; the preview stays underneath
+    hoverTimer = setTimeout(() => { if (!ui.image) preview = null; }, 250);
   }
+  // Back from the image: the preview stays while the pointer is on it, and goes when it is not
+  let popEl = $state<HTMLElement>();
+  let hadImage = false;
+  $effect(() => {
+    const open = !!ui.image;
+    if (hadImage && !open && preview && !popEl?.matches(':hover')) {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => { if (!popEl?.matches(':hover')) preview = null; }, 1500);
+    }
+    hadImage = open;
+  });
   function showDescription() {
     clearTimeout(hoverTimer);
     preview = null;
@@ -131,7 +143,7 @@
     {/if}
   </div>
   {#if preview}
-    <div class="desc-pop" role="tooltip" style:left="{preview.x}px" style:top="{preview.y}px"
+    <div class="desc-pop" role="tooltip" bind:this={popEl} style:left="{preview.x}px" style:top="{preview.y}px"
       onmouseenter={() => clearTimeout(hoverTimer)} onmouseleave={leaveRow}>
       <strong>{channel.name || 'Root'}</strong>
       {#if descriptionHtml}<div class="html">{@html descriptionHtml}</div>{:else}<p>Loading description...</p>{/if}

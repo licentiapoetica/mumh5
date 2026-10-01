@@ -30,6 +30,8 @@ class Ui {
   settingsTab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities'>('voice');
   publicServers = $state(false);
   serverInfo = $state(false);
+  // Image shown large (clicked in the chat or in a description)
+  image = $state<string | null>(null);
   // Set by the toolbar to open the own profile with the description editor
   editDescription = $state(false);
   // Add-server dialog, optionally prefilled (from the public list)

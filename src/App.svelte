@@ -15,6 +15,7 @@
   import ChannelDialog from './ui/ChannelDialog.svelte';
   import PublicServers from './ui/PublicServers.svelte';
   import ServerInfoDialog from './ui/ServerInfoDialog.svelte';
+  import ImageViewer from './ui/ImageViewer.svelte';
   import ShareDialog from './ui/ShareDialog.svelte';
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
@@ -63,13 +64,24 @@
     else ui.panelOpen = false;
   }
 
+  // Images in rendered text (messages, descriptions, the quick preview) and image embeds open
+  // large on click. Not in editors, link preview cards or the YouTube card.
+  function imageClick(e: MouseEvent) {
+    if (e.button !== 0 || !(e.target instanceof HTMLImageElement)) return;
+    const img = e.target;
+    if (!img.closest('.html, .embed') || img.closest('[contenteditable], .rich, .card, .yt')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    ui.image = img.currentSrc || img.src;
+  }
+
   const closeOverlays = () => {
     navOpen = false;
     if (!panelInline) ui.panelOpen = false;
   };
 </script>
 
-<svelte:window bind:innerWidth={width} />
+<svelte:window bind:innerWidth={width} onclickcapture={imageClick} />
 
 {#snippet rail()}
   <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)}
@@ -134,6 +146,7 @@
 {/if}
 {#if share.dialog}<ShareDialog onclose={() => (share.dialog = null)} />{/if}
 {#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => { const p = ui.prompt; ui.prompt = null; p?.oncancel?.(); }} />{/if}
+<ImageViewer />
 <ContextMenu />
 
 <style>

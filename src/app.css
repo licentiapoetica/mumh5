@@ -73,6 +73,10 @@ label { display: block; font-size: 12px; font-weight: 600; text-transform: upper
 .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
 .icon-btn.on { color: var(--danger); }
 
+/* Images in rendered text open large on click (App.svelte) */
+.html img, .embed img { cursor: zoom-in; }
+.card img { cursor: inherit; }
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--bg-3); border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--bg-active); }

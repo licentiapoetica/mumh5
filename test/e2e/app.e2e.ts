@@ -856,6 +856,19 @@ try {
   assert.ok(inline.length <= 131072, `inline image within the server limit (${inline.length})`);
   console.log(`ok: inline image without upload host (${inline.length} chars)`);
 
+  // A click on an image in the chat shows it large; Escape or a click closes it
+  await page.locator('.chat .msg .html img').last().click();
+  const viewer = page.getByRole('dialog', { name: 'Image' });
+  await viewer.waitFor();
+  const shown = await viewer.locator('img').evaluate((i: HTMLImageElement) => [i.naturalWidth > 0, i.getBoundingClientRect().width]);
+  assert.ok(shown[0] && (shown[1] as number) > 300, `image shown large: ${shown}`);
+  await page.keyboard.press('Escape');
+  await viewer.waitFor({ state: 'detached' });
+  await page.locator('.chat .msg .html img').last().click();
+  await viewer.getByRole('button', { name: 'Close image' }).click({ position: { x: 5, y: 5 } });
+  await viewer.waitFor({ state: 'detached' });
+  console.log('ok: images open large on click');
+
   // ─── Several servers at once ─────────────────────────────────────────────
   const userState = (name: string) => [...bob.users.values()].find(u => u.name === name);
   const until2 = (label: string, cond: () => boolean) => within(new Promise<void>(res => {
