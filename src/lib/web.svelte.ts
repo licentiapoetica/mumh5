@@ -168,10 +168,12 @@ export async function relayIce(address: string): Promise<RTCIceServer[]> {
   try {
     const res = await fetch(`${root}api/relay`);
     if (!res.ok) return [];
-    const c = await res.json() as { port: number; username?: string; credential?: string; ttl?: number };
+    const c = await res.json() as { port: number; username?: string; credential?: string; ttl?: number; urls?: string[] };
     const servers: RTCIceServer[] = [{ urls: `stun:${url.hostname}:${c.port}` }];
     // UDP where it is allowed, TCP for networks and browsers that forbid it
-    if (c.username) servers.push({ urls: [`turn:${url.hostname}:${c.port}?transport=udp`, `turn:${url.hostname}:${c.port}?transport=tcp`], username: c.username, credential: c.credential });
+    // The operator may name other ways in, such as a TLS front on port 443 for networks that allow nothing else
+    const direct = [`turn:${url.hostname}:${c.port}?transport=udp`, `turn:${url.hostname}:${c.port}?transport=tcp`];
+    if (c.username) servers.push({ urls: [...direct, ...(c.urls ?? [])], username: c.username, credential: c.credential });
     relays.set(root, { servers, until: Date.now() + Math.max(60, (c.ttl ?? 3600) - 3000) * 1000 });
     return servers;
   } catch {

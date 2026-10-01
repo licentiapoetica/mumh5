@@ -40,6 +40,8 @@ export interface TurnOptions {
   maxPerAddress: number;
   // Peers the relay may talk to; keeps it from being used to reach private networks
   peerAllowed: (ip: string) => boolean;
+  // One line per relay event, for finding out why someone cannot connect
+  log?: (line: string) => void;
 }
 
 // Loopback, private, link-local and other addresses that are not on the public internet
@@ -208,7 +210,9 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
       return null;
     };
     const integrity = get(A.MESSAGE_INTEGRITY);
+    // The first request always comes without credentials; that is how a client learns the realm
     if (!integrity) return fail(401, 'Unauthorized');
+    opts.log?.(`relay: ${client.key} sent credentials`);
     const username = get(A.USERNAME), n = get(A.NONCE);
     if (!username || !n || integrity.value.length !== 20) return fail(400, 'Bad Request');
     if (!nonceValid(new TextDecoder().decode(n.value))) return fail(438, 'Stale Nonce');
@@ -223,8 +227,17 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
     return key;
   }
 
+  // Two clients of this relay reach each other at its announced address. Behind a 1:1 NAT that
+  // address is not on this machine and the router will not turn the packet around, so such
+  // traffic stays on loopback and is presented as coming from the announced address.
+  const loopback = (ip: string) => ip === '127.0.0.1' || ip === '::1';
+  function toPeer(a: Allocation, data: Uint8Array, ip: string, port: number): void {
+    a.relay.send(data, port, ip === a.relayIp ? (net.isIPv4(ip) ? '127.0.0.1' : '::1') : ip);
+  }
+
   function fromPeer(a: Allocation, data: Buffer, peerIp: string, peerPort: number): void {
-    const ip = v4(peerIp);
+    const seen = v4(peerIp);
+    const ip = loopback(seen) && !loopback(a.relayIp) ? a.relayIp : seen;
     if ((a.permissions.get(ip) ?? 0) < now()) return;
     const channel = a.byPeer.get(`${ip}:${peerPort}`);
     if (channel != null && (a.channels.get(channel)?.expires ?? 0) >= now()) {
@@ -248,7 +261,7 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
       const view = new DataView(msg.buffer, msg.byteOffset, msg.byteLength);
       const bound = a?.channels.get(view.getUint16(0));
       const length = view.getUint16(2);
-      if (a && bound && bound.expires >= now() && 4 + length <= msg.length) a.relay.send(msg.subarray(4, 4 + length), bound.port, bound.ip);
+      if (a && bound && bound.expires >= now() && 4 + length <= msg.length) toPeer(a, msg.subarray(4, 4 + length), bound.ip, bound.port);
       return;
     }
     const m = parse(msg);
@@ -265,14 +278,17 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
     if (m.type === SEND) {
       const peer = get(A.XOR_PEER_ADDRESS), data = get(A.DATA);
       const to = peer && unxorAddress(peer.value, m.header);
-      if (existing && to && data && (existing.permissions.get(to.ip) ?? 0) >= now()) existing.relay.send(data.value, to.port, to.ip);
+      if (existing && to && data && (existing.permissions.get(to.ip) ?? 0) >= now()) toPeer(existing, data.value, to.ip, to.port);
       return;
     }
     if (![ALLOCATE, REFRESH, CREATE_PERMISSION, CHANNEL_BIND].includes(m.type)) return;
     const key = authenticate(m, client);
     if (!key) return;
     const ok = (attrs: [number, Uint8Array][] = []) => client.send(build(m.type | 0x100, m.header, attrs, key));
-    const error = (code: number, reason: string) => client.send(build(m.type | 0x110, m.header, [[A.ERROR_CODE, errorCode(code, reason)]], key));
+    const error = (code: number, reason: string) => {
+      opts.log?.(`relay: ${client.key} refused, ${code} ${reason}`);
+      client.send(build(m.type | 0x110, m.header, [[A.ERROR_CODE, errorCode(code, reason)]], key));
+    };
 
     if (m.type === ALLOCATE) {
       if (existing) return error(437, 'Allocation Mismatch');
@@ -288,6 +304,7 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
       const a: Allocation = { client, authKey: key, relay, relayIp, permissions: new Map(), channels: new Map(), byPeer: new Map(), expires: now() + LIFETIME };
       allocations.set(client.key, a);
       relay.on('message', (data, from) => fromPeer(a, data, from.address, from.port));
+      opts.log?.(`relay: ${client.key} got ${relayIp}:${relay.address().port} (${allocations.size} in use)`);
       return ok([
         [A.XOR_RELAYED_ADDRESS, xorAddress(relayIp, relay.address().port, m.header)!],
         [A.LIFETIME, u32(LIFETIME)],

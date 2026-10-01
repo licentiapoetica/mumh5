@@ -144,6 +144,32 @@ for (const transport of ['udp', 'tcp'] as const) {
   });
 }
 
+test('two clients of the relay reach each other at its announced address, even when that is not on this machine', async () => {
+  // As behind a 1:1 NAT: the address handed out is the public one, which the host itself cannot loop through
+  const turn = await startTurn(options({ publicIp: '203.0.113.9', peerAllowed: ip => !ip.startsWith('127.') }), SECRET);
+  const a = await connect(turn.port, 'tcp'), b = await connect(turn.port, 'udp');
+  try {
+    const ra = await allocate(a), rb = await allocate(b);
+    assert.equal(ra.relay!.ip, '203.0.113.9');
+    for (const [me, creds, other] of [[a, ra, rb], [b, rb, ra]] as const) {
+      const h = header();
+      me.send(build(0x0008, h, [[0x0012, xorAddress('203.0.113.9', other.relay!.port, h)!], ...creds.auth], creds.key));
+      assert.equal(parse(await me.next())!.type, 0x0108);
+    }
+    const h = header();
+    a.send(build(0x0016, h, [[0x0012, xorAddress('203.0.113.9', rb.relay!.port, h)!], [0x0013, text('between clients')]]));
+    const got = parse(await b.next())!;
+    assert.equal(got.type, 0x0017);
+    assert.equal(new TextDecoder().decode(attr(got, 0x0013)!), 'between clients');
+    // It appears to come from the other client's relayed address, not from loopback
+    assert.deepEqual(unxorAddress(attr(got, 0x0012)!, got.header), { ip: '203.0.113.9', port: ra.relay!.port });
+  } finally {
+    a.close();
+    b.close();
+    turn.close();
+  }
+});
+
 test('wrong credentials and forbidden peers are refused', async () => {
   const turn = await startTurn(options({ peerAllowed: ip => ip !== '10.1.2.3' }), SECRET);
   const client = await connect(turn.port, 'udp');
