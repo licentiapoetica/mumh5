@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import Modal from './Modal.svelte';
-  import { share, QUALITY } from '../lib/share.svelte.ts';
+  import { share, QUALITY, type ShareKind } from '../lib/share.svelte.ts';
   import { desktop, type ScreenSource } from '../lib/native.ts';
   import { store } from '../lib/settings.svelte.ts';
 
@@ -12,6 +12,12 @@
   const target = share.dialog!;
 
   let info = $state<{ portal: boolean; audio: 'pipewire' | 'loopback' | 'browser' | 'none'; micLabel: string }>({ portal: true, audio: desktop ? 'none' : 'browser', micLabel: '' });
+  // What to show: the screen (or a window), or a camera
+  // Phones have no screen capture in the browser; there the camera is the only choice
+  const canScreen = !!navigator.mediaDevices?.getDisplayMedia;
+  let kind = $state<ShareKind>(canScreen ? 'screen' : 'camera');
+  let cameras = $state<MediaDeviceInfo[]>([]);
+  let camera = $state('');
   let sources = $state<ScreenSource[]>([]);
   let selected = $state('');
   let preview = $state.raw<MediaStream | null>(null);
@@ -67,6 +73,32 @@
     }
   }
 
+  async function showCamera(deviceId = camera) {
+    error = '';
+    dropPreview();
+    try {
+      preview = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: fps() }
+      });
+      // Names are only given out once a camera was allowed
+      cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      camera = preview.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId;
+    } catch (e) {
+      error = (e as Error).name === 'NotFoundError' ? 'No camera was found.' : `Could not open the camera: ${(e as Error).message}`;
+    }
+  }
+
+  if (!canScreen) showCamera();
+
+  function setKind(next: ShareKind) {
+    if (kind === next) return;
+    kind = next;
+    selected = '';
+    dropPreview();
+    error = '';
+    if (next === 'camera') showCamera();
+  }
+
   // The system's or the browser's picker
   async function chooseElsewhere() {
     error = '';
@@ -106,7 +138,9 @@
     error = '';
     let usesVirtualMic = false;
     try {
-      if (audio && info.audio === 'pipewire') {
+      // A camera comes without extra sound: your voice already goes through the voice chat
+      if (kind === 'camera') { /* nothing to add */ }
+      else if (audio && info.audio === 'pipewire') {
         usesVirtualMic = true;
         await desktop!.shareAudioStart(audio === 'all' ? { kind: 'all' } : { kind: 'app', name: audio.slice(4) });
         preview.addTrack(await virtualMic());
@@ -125,7 +159,7 @@
       return;
     }
     handedOver = true;
-    share.go(target, preview, usesVirtualMic);
+    share.go(target, preview, usesVirtualMic, kind);
     onclose();
   }
 
@@ -135,11 +169,24 @@
 <Modal title="Share your screen" {onclose} width={760}>
   <p class="help">mumh5 users in your channel can watch. Nothing is sent until you press Start sharing.</p>
 
-  {#if !desktop && info.audio === 'browser'}
+  <div class="kinds" role="tablist" aria-label="What to share">
+    <button role="tab" aria-selected={kind === 'screen'} class:active={kind === 'screen'} disabled={!canScreen}
+      title={canScreen ? undefined : 'This browser cannot capture the screen'} onclick={() => setKind('screen')}>Screen or window</button>
+    <button role="tab" aria-selected={kind === 'camera'} class:active={kind === 'camera'} onclick={() => setKind('camera')}>Camera</button>
+  </div>
+
+  {#if kind === 'camera'}
+    <label for="sh-cam">Camera</label>
+    <select id="sh-cam" value={camera} onchange={e => showCamera(e.currentTarget.value)} disabled={!cameras.length}>
+      {#each cameras as c, i (c.deviceId)}<option value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>{:else}<option value="">{error ? 'None' : 'Asking for the camera...'}</option>{/each}
+    </select>
+  {:else if !desktop && info.audio === 'browser'}
     <label class="check"><input type="checkbox" bind:checked={browserAudio} disabled={!!preview} /> Include sound (the browser offers what it can share, usually a tab's sound)</label>
   {/if}
 
-  {#if desktop && !info.portal}
+  {#if kind === 'camera'}
+    <!-- chosen above -->
+  {:else if desktop && !info.portal}
     <div class="row head"><label for="sh-src">Screen or window</label><button class="link" onclick={loadSources}>Refresh</button></div>
     <ul class="sources" id="sh-src">
       {#each sources as s (s.id)}
@@ -165,7 +212,7 @@
   </div>
 
   <div class="row two">
-    {#if desktop}
+    {#if desktop && kind === 'screen'}
       <div>
         <label for="sh-audio">Sound</label>
         {#if info.audio === 'pipewire'}
@@ -202,6 +249,9 @@
 
 <style>
   .help { margin: 8px 0 0; font-size: 13px; color: var(--text-dim); }
+  .kinds { display: flex; gap: 2px; margin-top: 12px; border-bottom: 1px solid var(--line); }
+  .kinds button { padding: 6px 14px; color: var(--text-dim); font-weight: 600; }
+  .kinds button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
   .row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
   .row.head { justify-content: space-between; margin-top: 0; }
   .row.two { align-items: flex-end; gap: 12px; }

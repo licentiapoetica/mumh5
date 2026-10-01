@@ -78,11 +78,11 @@ mumh5 keeps the foundation and replaces the experience.
 
 ### Screen sharing
 
-- Share a screen or a window with the mumh5 users in your channel. A dialog lets you choose what to show, with a live preview, which sound goes with it and the quality, before anything is sent
+- Share a screen, a window or a camera with the mumh5 users in your channel. A dialog lets you choose what to show, with a live preview, which sound goes with it and the quality, before anything is sent
 - Sound: on Linux one program or everything except mumh5 itself (through PipeWire, so viewers do not hear the voice chat twice); on Windows the whole system; in a browser what the browser offers
 - People in the channel see an indicator next to your name, on your tile and in your profile, and click to watch. The tiles above the chat fill a stage you can drag taller or shorter. A stream opens large, with everyone as a strip of tiles below, like a meeting, and can move to a window of its own; in the stacked layout it is just the picture, as wide as the chat. Sounds announce streams and viewers. Viewers set the stream's volume
 - No server setup and no extra account: the setup messages travel through the Mumble server, the stream goes directly between the two clients (WebRTC), up to 8 viewers. Regular Mumble clients do not see streams
-- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Across the internet both sides need a STUN server. The browser version uses the one built into its proxy, and the proxy's relay when no direct connection is possible (mobile networks, Vanadium); in the desktop app you choose one in Settings, Voice (Google, Cloudflare, or any address such as your proxy's), and none is contacted unless you do
+- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Across the internet both sides need a STUN server. The browser version uses the one built into its proxy, and the proxy's relay when no direct connection is possible (mobile networks, Vanadium); in the desktop app you choose a STUN server in Settings, Voice (Google, Cloudflare, or any address), and can enter the address of a mumh5 web version as a relay, which then takes over by itself when no direct connection comes up. Nothing is contacted unless you set it
 - Tested between two desktop instances on one machine with a test picture. Sound capture, real screens, connections across the internet, Windows and the browser build are untested
 
 ### Chat
@@ -177,7 +177,7 @@ docker compose up -d --build
 
 The container uses the host's network: the proxy listens on `127.0.0.1:8080` for your reverse proxy, and a Mumble server on the same machine is reachable as `localhost`.
 
-For screen sharing, open these in the firewall (and forward them on a router in front of the server): port 3478 for UDP and TCP, and UDP 49160-49359. They carry STUN and the relay, which the browser version uses without any setting. Relayed streams pass through your server and use its bandwidth, a few Mbit/s per viewer; only people using your site get credentials for it, and there is no bandwidth cap yet.
+For screen sharing, open these in the firewall (and forward them on a router in front of the server): port 3478 for UDP and TCP, and UDP 49160-49359. They carry STUN and the relay, which the browser version uses without any setting. Relayed streams pass through your server and use its bandwidth, a few Mbit/s per viewer; anyone who knows the site's address can get credentials for it (the desktop app asks from outside the site), limited by connection quotas per address; there is no bandwidth cap yet.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

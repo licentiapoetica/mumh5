@@ -43,6 +43,8 @@
   let focus = $state<number | null>(null);
   const focused = $derived(focus != null ? streamOf(focus) : null);
   const focusUser = $derived(focus != null ? session.user(focus) : undefined);
+  // Screen or camera, for the wording and the icons
+  const focusKind = $derived((focus != null && session.sharing[focus]) || 'screen');
   // A stream we just started watching goes to the stage; it leaves when the stream ends
   let lastWatch: number | null = null;
   $effect(() => {
@@ -206,7 +208,7 @@
   // The window follows the picture on the stage and closes with it
   $effect(() => {
     const stream = focused;
-    const title = focus === self?.session ? 'Your screen' : focusUser ? store.displayName(focusUser) : 'Screen share';
+    const title = focus === self?.session ? `Your ${focusKind}` : focusUser ? store.displayName(focusUser) : 'Screen share';
     if (!popped) return;
     if (!stream) return popIn();
     if (popVideo && popVideo.srcObject !== stream) popVideo.srcObject = stream;
@@ -221,8 +223,8 @@
   {#if self && focus != null && focused}
       <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
       <div class="spot-head">
-        <Icon name="screen" size={16} />
-        <span class="spot-who">{focus === self.session ? 'Your screen' : focusUser ? store.displayName(focusUser) : 'Screen share'}</span>
+        <Icon name={focusKind} size={16} />
+        <span class="spot-who">{focus === self.session ? `Your ${focusKind}` : focusUser ? store.displayName(focusUser) : 'Screen share'}</span>
         {#if focus !== self.session && hasSound}
           <Icon name={store.settings.shareVolume === 0 ? 'headphones-off' : 'headphones'} size={16} />
           <input class="vol" type="range" min="0" max="1" step="0.01" bind:value={store.settings.shareVolume} onchange={() => store.saveSettings()}
@@ -236,7 +238,7 @@
         {/if}
         {#if focus !== self.session}<button class="btn small" onclick={() => share.unwatch()}>Stop watching</button>
         {:else if videoOnly}
-          <span class="status" role="status" title="People watching your screen">{share.viewers} watching</span>
+          <span class="status" role="status" title="People watching your {share.kind}">{share.viewers} watching</span>
           <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
         {/if}
         {#if !videoOnly}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
@@ -250,7 +252,7 @@
           <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
           {#if focus !== self.session && watching && watching.state !== 'live'}
             <p class="pending" class:bad={watching.state === 'failed'}>{watching.state === 'failed'
-              ? 'Could not connect to the stream. Across the internet both of you need a STUN server; some mobile and company networks block direct connections altogether.'
+              ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
               : 'Connecting to the stream...'}</p>
           {/if}
           {#if showStats}<ShareStats own={focus === self.session} onclose={() => (showStats = false)} />{/if}
@@ -294,7 +296,7 @@
         {/if}
       </button>
       {#if mine}
-        <span class="status" role="status" title="People watching your screen"><Icon name="screen" size={14} />{share.viewers} watching</span>
+        <span class="status" role="status" title="People watching your {share.kind}"><Icon name={share.kind} size={14} />{share.viewers} watching</span>
         <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
       {/if}
       <button class="icon-btn" class:on={self.selfMute} aria-label={self.selfMute ? 'Unmute' : 'Mute'} title={self.selfMute ? 'Unmute' : 'Mute'}
@@ -317,19 +319,19 @@
           <div class="row" role="presentation">
         {#each row as u (u.session)}
           {@const stream = streamOf(u.session)}
-          {@const sharing = !!session.sharing[u.session]}
+          {@const sharing = session.sharing[u.session]}
           {@const isSelf = u.session === self.session}
           <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
             onclick={() => tileClick(u.session)}
             oncontextmenu={e => menu.show(e, userMenu(u))}
-            title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? 'Sharing their screen. Click to watch' : store.displayName(u)}
-            aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the screen of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the screen of ${store.displayName(u)}` : store.displayName(u)}>
+            title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u)}
+            aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
             <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
             <span class="who">{store.displayName(u)}</span>
             {#if watching?.session === u.session && watching.state !== 'live'}
               <span class="note">{watching.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
             {/if}
-            {#if sharing}<span class="badge live"><Icon name="screen" size={13} /></span>
+            {#if sharing}<span class="badge live"><Icon name={sharing} size={13} /></span>
             {:else if u.deaf || u.selfDeaf}
               <span class="badge" class:admin={u.deaf}><Icon name="headphones-off" size={13} /></span>
             {:else if u.mute || u.selfMute || u.suppress}

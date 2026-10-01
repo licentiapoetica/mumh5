@@ -137,8 +137,6 @@ class ProxyInfo {
   any = $state(false);
   // UDP port of the proxy's STUN responder, if it runs one
   stun = $state<number | null>(null);
-  // Whether it also relays streams for browsers that cannot connect directly
-  turn = $state(false);
   loaded = $state(false);
   error = $state('');
 
@@ -148,7 +146,6 @@ class ProxyInfo {
       this.servers = c.servers;
       this.any = c.any;
       this.stun = c.stun ?? null;
-      this.turn = !!c.turn;
       this.error = '';
     } catch (e) {
       this.error = (e as Error).message;
@@ -158,24 +155,27 @@ class ProxyInfo {
 }
 export const proxyInfo = new ProxyInfo();
 
-// STUN and relay on the proxy itself: a host the user already uses, so nothing new is contacted.
-// The relay needs credentials, which the proxy hands out for a few hours at a time.
-let relay: { servers: RTCIceServer[]; until: number } | null = null;
-export async function proxyIce(): Promise<RTCIceServer[]> {
-  if (!proxyInfo.loaded) await proxyInfo.load();
-  if (!proxyInfo.stun || !base) return [];
-  let host: string;
-  try { host = new URL(base).hostname; } catch { return []; }
-  const stun: RTCIceServer = { urls: `stun:${host}:${proxyInfo.stun}` };
-  if (!proxyInfo.turn) return [stun];
-  if (relay && relay.until > Date.now()) return relay.servers;
+// STUN and the relay of a mumh5 proxy, for screen sharing. The browser build uses the proxy it
+// is served from, a host the user already uses; the desktop app one the user entered. The relay
+// needs credentials, which the proxy hands out for a few hours at a time.
+const relays = new Map<string, { servers: RTCIceServer[]; until: number }>();
+export async function relayIce(address: string): Promise<RTCIceServer[]> {
+  let url: URL;
+  try { url = new URL(/^https?:\/\//i.test(address) ? address : `https://${address}`); } catch { return []; }
+  const root = url.href.replace(/\/*$/, '/');
+  const known = relays.get(root);
+  if (known && known.until > Date.now()) return known.servers;
   try {
-    const c = await call<{ username: string; credential: string; ttl: number; port: number }>('turn', {});
+    const res = await fetch(`${root}api/relay`);
+    if (!res.ok) return [];
+    const c = await res.json() as { port: number; username?: string; credential?: string; ttl?: number };
+    const servers: RTCIceServer[] = [{ urls: `stun:${url.hostname}:${c.port}` }];
     // UDP where it is allowed, TCP for networks and browsers that forbid it
-    const servers = [stun, { urls: [`turn:${host}:${c.port}?transport=udp`, `turn:${host}:${c.port}?transport=tcp`], username: c.username, credential: c.credential }];
-    relay = { servers, until: Date.now() + Math.max(60, c.ttl - 3600) * 1000 };
+    if (c.username) servers.push({ urls: [`turn:${url.hostname}:${c.port}?transport=udp`, `turn:${url.hostname}:${c.port}?transport=tcp`], username: c.username, credential: c.credential });
+    relays.set(root, { servers, until: Date.now() + Math.max(60, (c.ttl ?? 3600) - 3000) * 1000 });
     return servers;
   } catch {
-    return [stun];
+    return [];
   }
 }
+export const proxyIce = (): Promise<RTCIceServer[]> => base ? relayIce(base) : Promise.resolve([]);

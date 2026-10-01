@@ -168,9 +168,9 @@
       onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
       <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
     </button>
-    <button class="icon-btn" class:live={sharingHere} title={sharingHere ? 'Stop sharing your screen' : 'Share your screen with your channel'}
-      aria-label={sharingHere ? 'Stop sharing your screen' : 'Share your screen'} disabled={!sharingHere && !canShare} onclick={toggleShare}>
-      <Icon name="screen" size={18} />
+    <button class="icon-btn" class:live={sharingHere} title={sharingHere ? `Stop sharing your ${share.kind}` : 'Share your screen or camera with your channel'}
+      aria-label={sharingHere ? `Stop sharing your ${share.kind}` : 'Share your screen or camera'} disabled={!sharingHere && !canShare} onclick={toggleShare}>
+      <Icon name={sharingHere ? share.kind : 'screen'} size={18} />
     </button>
     <span class="sep"></span>
     <button class="icon-btn" title="Change your description" aria-label="Change your description" disabled={!self} onclick={editDescription}>

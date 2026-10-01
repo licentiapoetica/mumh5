@@ -1,7 +1,7 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
 import { native, openTransport } from './native.ts';
-import { share } from './share.svelte.ts';
+import { share, type ShareKind } from './share.svelte.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
@@ -62,7 +62,7 @@ export class Session {
   certPrompt = $state<CertPrompt | null>(null);
   rtt = $state(0);
   // Who in our channel is sharing their screen, by session (mumh5 clients only)
-  sharing = $state<Record<number, boolean>>({});
+  sharing = $state<Record<number, ShareKind>>({});
   // Why the last connection ended, shown with a Reconnect button (null after a normal disconnect)
   disconnectInfo = $state<{ kind: 'kicked' | 'banned' | 'lost' | 'rejected'; by: string; reason: string } | null>(null);
   private removedBy: { kind: 'kicked' | 'banned'; by: string; reason: string } | null = null;
@@ -687,8 +687,8 @@ export class Session {
 
   // ─── Voice state and moderation ─────────────────────────────────────────────
 
-  setSharing(session: number, on: boolean): void {
-    if (on) this.sharing[session] = true;
+  setSharing(session: number, kind: ShareKind | false): void {
+    if (kind) this.sharing[session] = kind;
     else delete this.sharing[session];
   }
   clearSharing(): void { this.sharing = {}; }

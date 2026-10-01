@@ -6,7 +6,7 @@ import { SHARE, SHARE_DATA_ID, encodeShare, ShareAssembler, type ShareType } fro
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
 import { desktop, isWeb } from './native.ts';
-import { proxyIce } from './web.svelte.ts';
+import { proxyIce, relayIce } from './web.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
@@ -23,6 +23,9 @@ export const QUALITY = {
 const stereo = (sdp: string) => sdp.replace(/a=fmtp:(\d+) ([^\r\n]*useinbandfec=1[^\r\n]*)/g,
   (line, pt, rest) => rest.includes('stereo=1') ? line : `a=fmtp:${pt} ${rest};stereo=1;sprop-stereo=1;maxaveragebitrate=192000`);
 
+// What a stream shows. Sent along with the announcement, so others see the right icon.
+export type ShareKind = 'screen' | 'camera';
+
 export interface Watching {
   host: Session;
   session: number;
@@ -34,6 +37,7 @@ class ScreenShare {
   // The server we are sharing on, and what we send
   host = $state.raw<Session | null>(null);
   stream = $state.raw<MediaStream | null>(null);
+  kind = $state<ShareKind>('screen');
   viewers = $state(0);
   watching = $state.raw<Watching | null>(null);
   error = $state('');
@@ -58,9 +62,11 @@ class ScreenShare {
   private async iceServers(): Promise<RTCIceServer[]> {
     const stun = store.settings.stunServer.trim();
     const chosen: RTCIceServer[] = stun ? [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }] : [];
-    // The browser build also has the proxy it is served from: its STUN, and its relay for
-    // networks and browsers that allow no direct connection
-    return isWeb ? [...chosen, ...await proxyIce()] : chosen;
+    // A mumh5 proxy adds its STUN and its relay, which takes over by itself when no direct
+    // connection comes up (mobile and company networks, browsers that forbid direct UDP). The
+    // browser build has the proxy it is served from; the desktop app the one set in Settings.
+    const relay = store.settings.relayServer.trim();
+    return [...chosen, ...(relay ? await relayIce(relay) : isWeb ? await proxyIce() : [])];
   }
 
   // For testing the relay: localStorage mumh5.iceDebug = "relay" uses only relayed routes,
@@ -112,7 +118,7 @@ class ScreenShare {
   }
 
   // The dialog hands over what it captured
-  go(s: Session, stream: MediaStream, usesVirtualMic: boolean): void {
+  go(s: Session, stream: MediaStream, usesVirtualMic: boolean, kind: ShareKind = 'screen'): void {
     this.dialog = null;
     // Disconnected while the dialog was open
     if (!s.client || this.stream) {
@@ -121,15 +127,17 @@ class ScreenShare {
       return;
     }
     for (const t of stream.getVideoTracks()) {
-      t.contentHint = 'detail';
+      // Text on a screen must stay sharp; a face may blur a little but should move smoothly
+      t.contentHint = kind === 'camera' ? 'motion' : 'detail';
       // The system's "stop sharing" control
       t.addEventListener('ended', () => this.stop());
     }
     this.usesVirtualMic = usesVirtualMic;
+    this.kind = kind;
     this.host = s;
     this.stream = stream;
-    this.send(s, this.others(s), SHARE.on);
-    s.setSharing(s.client.session!, true);
+    this.send(s, this.others(s), SHARE.on, kind);
+    s.setSharing(s.client.session!, kind);
     sounds.play('shareStarted');
   }
 
@@ -228,7 +236,7 @@ class ScreenShare {
       if (track.kind !== 'video') continue;
       const params = sender.getParameters();
       // Keep the picture sharp and let the frame rate drop when the connection is tight
-      params.degradationPreference = 'maintain-resolution';
+      params.degradationPreference = this.kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
       for (const enc of params.encodings ?? []) enc.maxBitrate = QUALITY[store.settings.shareQuality].bitrate;
       await sender.setParameters(params).catch(() => {});
     }
@@ -283,14 +291,14 @@ class ScreenShare {
     switch (msg.type) {
       case SHARE.on:
         if (!s.sharing[sender] && Date.now() - (this.enteredAt.get(s) ?? 0) > 3000) sounds.play('shareStarted');
-        s.setSharing(sender, true);
+        s.setSharing(sender, msg.text === 'camera' ? 'camera' : 'screen');
         break;
       case SHARE.off:
         if (s.sharing[sender]) sounds.play('shareStopped');
         s.setSharing(sender, false);
         if (this.watching?.host === s && this.watching.session === sender) this.endWatch();
         break;
-      case SHARE.who: if (this.host === s) this.send(s, [sender], SHARE.on); break;
+      case SHARE.who: if (this.host === s) this.send(s, [sender], SHARE.on, this.kind); break;
       case SHARE.watch: if (this.host === s) this.offerTo(s, sender).catch(() => this.dropPeer(sender)); break;
       case SHARE.leave: if (this.host === s) this.dropPeer(sender); break;
       case SHARE.offer: if (msg.text) this.answerTo(s, sender, msg.text); break;
@@ -309,8 +317,8 @@ class ScreenShare {
     if (this.watching?.host === s) this.unwatch();
     if (this.host === s) {
       this.dropPeers();
-      s.setSharing(self, true);
-      this.send(s, this.others(s), SHARE.on);
+      s.setSharing(self, this.kind);
+      this.send(s, this.others(s), SHARE.on, this.kind);
     }
     this.send(s, this.others(s), SHARE.who);
   }
@@ -319,7 +327,7 @@ class ScreenShare {
   userMoved(s: Session, user: User, gone = false): void {
     if (!s.client?.self || user.session === s.client.session) return;
     if (!gone && this.inMyChannel(s, user.session)) {
-      if (this.host === s) this.send(s, [user.session], SHARE.on);
+      if (this.host === s) this.send(s, [user.session], SHARE.on, this.kind);
       return;
     }
     // A sharer who left or disconnected: their stream is over for us

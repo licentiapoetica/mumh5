@@ -167,6 +167,20 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     if (route === 'config' && req.method === 'GET') {
       return { servers: config.servers, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn };
     }
+    // What a client needs for screen sharing: the STUN port and, with the relay on, credentials
+    // for it. Open to any origin, because the desktop app asks from outside this site; checking
+    // the origin would not keep a script out anyway. The quotas are what limit use.
+    if (route === 'relay' && req.method === 'GET') {
+      if (stunPort == null) throw new HttpError(404, 'No STUN or relay here');
+      if (!config.turn) return { port: stunPort };
+      const addr = addressOf(req);
+      const used = (identityUse.get(addr) ?? 0) + 1;
+      identityUse.set(addr, used);
+      if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
+      // The username is the time it runs out; the relay recomputes the password from it
+      const username = String(Math.floor(Date.now() / 1000) + CREDENTIAL_TTL);
+      return { port: stunPort, username, credential: turnCredential(turnSecret, username), ttl: CREDENTIAL_TTL };
+    }
     if (req.method !== 'POST') throw new HttpError(404, 'Not found');
     if (!originOk(req)) throw new HttpError(403, 'Origin not allowed');
     const body = await readJson(req);
@@ -175,16 +189,6 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       const used = (identityUse.get(addr) ?? 0) + 1;
       identityUse.set(addr, used);
       if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
-    }
-    if (route === 'turn') {
-      if (stunPort == null || !config.turn) throw new HttpError(404, 'No relay here');
-      const addr = addressOf(req);
-      const used = (identityUse.get(addr) ?? 0) + 1;
-      identityUse.set(addr, used);
-      if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
-      // The username is the time it runs out; the relay recomputes the password from it
-      const username = String(Math.floor(Date.now() / 1000) + CREDENTIAL_TTL);
-      return { username, credential: turnCredential(turnSecret, username), ttl: CREDENTIAL_TTL, port: stunPort };
     }
     switch (route) {
       // Nothing is stored here: the browser keeps its identities and sends one along when it connects
@@ -234,7 +238,11 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     const work = pathname.startsWith('/api/')
       ? api(req, pathname.slice(5)).then(result => {
           const data = Buffer.from(JSON.stringify(result));
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          res.writeHead(200, {
+            'Content-Type': 'application/json', 'Content-Length': data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+            // The desktop app reads this one from another origin
+            ...(pathname === '/api/relay' ? { 'Access-Control-Allow-Origin': '*' } : {})
+          });
           res.end(data);
         })
       : serveStatic(req, res, pathname);

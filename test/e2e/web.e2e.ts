@@ -212,6 +212,18 @@ try {
   await stats.getByText(/^\d+ kbit\/s$/).first().waitFor({ timeout: 8000 });
   console.log('ok: screen sharing to a browser without direct UDP, through the relay over TCP');
 
+  // A camera instead, still watched through the relay over TCP
+  await page.locator('.me').getByRole('button', { name: 'Stop sharing your screen' }).click();
+  await page2.getByRole('region', { name: 'Screen share' }).waitFor({ state: 'detached' });
+  await page.locator('.me').getByRole('button', { name: 'Share your screen or camera' }).click();
+  await dialog.getByRole('tab', { name: 'Camera' }).click();
+  await page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
+  await dialog.getByRole('button', { name: 'Start sharing' }).click();
+  await page2.locator('.sidebar').getByRole('button', { name: `Watch the camera of ${name}`, exact: true }).click();
+  await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
+  await page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
+  console.log('ok: camera shared between two browsers, through the relay');
+
   console.log('WEB E2E PASSED');
 } finally {
   bob.disconnect();
