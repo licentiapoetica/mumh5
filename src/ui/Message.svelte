@@ -31,11 +31,7 @@
   <article class="msg" class:grouped>
     <time class="stamp" datetime={time.toISOString()}>{full}</time>
     <div class="gutter">
-      {#if grouped}
-        <span class="time hover">{hhmm}</span>
-      {:else}
-        <span role="presentation" oncontextmenu={authorMenu}><Avatar name={entry.author} size={38} /></span>
-      {/if}
+      {#if !grouped}<span role="presentation" oncontextmenu={authorMenu}><Avatar name={entry.author} size={38} /></span>{/if}
     </div>
     <div class="content">
       {#if !grouped}
@@ -79,8 +75,6 @@
   header strong { font-weight: 600; }
   header strong.self { color: var(--accent-hover); }
   time, .time { font-size: 11px; color: var(--text-faint); }
-  .time.hover { visibility: hidden; line-height: 22px; }
-  .msg:hover .time.hover { visibility: visible; }
   .html { overflow-wrap: anywhere; user-select: text; }
   .html :global(p) { margin: 0; }
   .html :global(img) { max-width: min(520px, 100%); max-height: 360px; display: block; margin-top: 4px; border: 1px solid var(--line); }
