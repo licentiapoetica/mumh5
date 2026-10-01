@@ -43,6 +43,12 @@ class ScreenShare {
   host = $state.raw<Session | null>(null);
   stream = $state.raw<MediaStream | null>(null);
   kind = $state<ShareKind>('screen');
+  // Show our own camera mirrored to ourselves, as a mirror would. Not a camera pointing away
+  // from us (a phone's back camera), and never what the others get.
+  mirror = $state(false);
+  // How many cameras this device has; with more than one there is something to switch to
+  cameras = $state(0);
+  switching = $state(false);
   viewers = $state(0);
   // Streams we receive: one screen at a time, and any number of cameras next to it
   watches = $state.raw<Watching[]>([]);
@@ -142,11 +148,68 @@ class ScreenShare {
     }
     this.usesVirtualMic = usesVirtualMic;
     this.kind = kind;
+    this.mirror = kind === 'camera' && stream.getVideoTracks()[0]?.getSettings().facingMode !== 'environment';
+    this.cameras = 0;
+    if (kind === 'camera') navigator.mediaDevices.enumerateDevices().then(d => { this.cameras = d.filter(x => x.kind === 'videoinput').length; }).catch(() => {});
     this.host = s;
     this.stream = stream;
     this.send(s, this.others(s), SHARE.on, kind);
     s.setSharing(s.client.session!, kind);
     sounds.play('shareStarted');
+  }
+
+  // The next camera of this device (front and back on a phone), without interrupting the stream
+  async switchCamera(): Promise<void> {
+    const stream = this.stream;
+    const old = stream?.getVideoTracks()[0];
+    if (!stream || !old || this.kind !== 'camera' || this.switching) return;
+    this.switching = true;
+    this.error = '';
+    const open = (deviceId: string) => navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: QUALITY[store.settings.shareQuality].fps } }
+    }).catch(() => navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } }));
+    try {
+      const ids = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').map(d => d.deviceId);
+      this.cameras = ids.length;
+      const current = old.getSettings().deviceId ?? '';
+      const next = ids[(ids.indexOf(current) + 1) % ids.length];
+      if (ids.length < 2 || !next || next === current) return;
+      let fresh: MediaStream;
+      try {
+        // Computers can have both open for a moment, which keeps the picture going
+        fresh = await open(next);
+      } catch {
+        // A phone opens one camera at a time, so the old one has to go first
+        old.stop();
+        try {
+          fresh = await open(next);
+        } catch (e) {
+          // Could not get the other one: back to the camera we had
+          fresh = await open(current).catch(() => { throw e; });
+          this.error = `Could not switch the camera: ${(e as Error).message}`;
+        }
+      }
+      // Stopped sharing in the meantime
+      if (this.stream !== stream) return fresh.getTracks().forEach(t => t.stop());
+      const track = fresh.getVideoTracks()[0];
+      track.contentHint = 'motion';
+      track.addEventListener('ended', () => { if (this.stream?.getVideoTracks()[0] === track) this.stop(); });
+      // Viewers keep their connection; only the picture changes
+      for (const pc of this.peers.values()) {
+        for (const sender of pc.getSenders()) {
+          if (sender.track !== old) continue;
+          await sender.replaceTrack(track).catch(e => { this.error = `A viewer did not get the new camera: ${(e as Error).message}`; });
+        }
+      }
+      old.stop();
+      this.stream = new MediaStream([track, ...stream.getAudioTracks()]);
+      this.mirror = track.getSettings().facingMode !== 'environment';
+    } catch (e) {
+      this.error = `The camera stopped: ${(e as Error).message}`;
+      this.stop();
+    } finally {
+      this.switching = false;
+    }
   }
 
   private release(): void {

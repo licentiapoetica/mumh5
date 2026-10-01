@@ -237,6 +237,14 @@
 {#if voice.error && session.status === 'connected'}<div class="bar bad" role="alert"><span>Voice is not working: {voice.error}</span></div>{/if}
 {#if share.error}<div class="bar bad" role="alert"><span>{share.error}</span><button class="btn" onclick={() => (share.error = '')}>Dismiss</button></div>{/if}
 
+{#snippet switcher()}
+  {#if mine && share.kind === 'camera' && share.cameras > 1}
+    <button class="icon-btn" title="Switch to the next camera" aria-label="Switch camera" disabled={share.switching} onclick={() => share.switchCamera()}>
+      <Icon name="switch" size={18} />
+    </button>
+  {/if}
+{/snippet}
+
 {#snippet spot()}
   {#if self && focus != null && focused}
       <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
@@ -256,6 +264,7 @@
         {/if}
         {#if focus !== self.session}<button class="btn small" onclick={() => { if (focus != null) share.unwatch(focus); }}>Stop watching</button>
         {:else if videoOnly}
+          {@render switcher()}
           <span class="status" role="status" title="People watching your {share.kind}">{share.viewers} watching</span>
           <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
         {/if}
@@ -267,6 +276,7 @@
       {:else}
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
+          <!-- Large, your own camera is shown as the others see it; only the small tile is a mirror -->
           <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
           {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
             <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
@@ -298,7 +308,7 @@
             aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
             {#if cam}
               <!-- svelte-ignore a11y_media_has_caption -->
-              <video class:mirror={isSelf} use:media={cam} autoplay playsinline muted></video>
+              <video class:mirror={isSelf && share.mirror} use:media={cam} autoplay playsinline muted></video>
             {:else}
               <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
             {/if}
@@ -366,6 +376,7 @@
         </button>
       {/if}
       {#if mine}
+        {@render switcher()}
         <span class="status" role="status" title="People watching your {share.kind}"><Icon name={share.kind} size={14} />{share.viewers} watching</span>
         <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
       {/if}
