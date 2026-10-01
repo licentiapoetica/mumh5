@@ -230,9 +230,15 @@ class ScreenShare {
     this.watchPc?.close();
     const pc = new RTCPeerConnection({ iceServers: this.iceServers() });
     this.watchPc = pc;
-    pc.addEventListener('track', e => { if (this.watchPc === pc) this.setWatchState('live', e.streams[0]); });
+    // The track is announced with the description, before any route exists: the stream only
+    // counts as live once the connection is up, otherwise the viewer stares at a black picture
+    pc.addEventListener('track', e => {
+      if (this.watchPc === pc) this.setWatchState(pc.connectionState === 'connected' ? 'live' : 'connecting', e.streams[0]);
+    });
     pc.addEventListener('connectionstatechange', () => {
-      if (pc.connectionState === 'failed' && this.watchPc === pc) this.setWatchState('failed');
+      if (this.watchPc !== pc) return;
+      if (pc.connectionState === 'connected') this.setWatchState('live');
+      else if (pc.connectionState === 'failed') this.setWatchState('failed');
     });
     try {
       await pc.setRemoteDescription({ type: 'offer', sdp });
