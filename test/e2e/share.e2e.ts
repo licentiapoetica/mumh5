@@ -112,6 +112,18 @@ try {
   assert.ok(logH >= 120, `chat keeps its lines: ${logH}`);
   assert.ok(videoH > 40, `the picture is still shown: ${videoH}`);
   await alice.page.setViewportSize({ width: 600, height: 800 });
+  // The chat can be dragged taller, never below its minimum; the picture takes the rest
+  const chatHandle = alice.page.getByRole('separator', { name: 'Resize the chat' });
+  await chatHandle.focus();
+  for (let i = 0; i < 12; i++) await alice.page.keyboard.press('ArrowUp');
+  await alice.page.waitForFunction(() => document.querySelector('.chat [role=log]')!.getBoundingClientRect().height > 200);
+  const grown = (await heights())[0];
+  for (let i = 0; i < 40; i++) await alice.page.keyboard.press('ArrowDown');
+  await alice.page.waitForFunction(() => document.querySelector('.chat [role=log]')!.getBoundingClientRect().height < 130);
+  const [smallest, videoNow] = await heights();
+  assert.ok(smallest >= 124, `not below the minimum: ${smallest}`);
+  assert.ok(videoNow > 100, `the picture fills the rest: ${videoNow}`);
+  console.log(`ok: stacked chat resizable (${Math.round(grown)} px down to ${Math.round(smallest)} px)`);
   if (process.env.SHOTS_DIR) await alice.page.screenshot({ path: `${process.env.SHOTS_DIR}/stacked.png` });
   await alice.page.getByText('0 watching').waitFor();
   await alice.page.setViewportSize({ width: 1280, height: 800 });

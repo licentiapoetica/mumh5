@@ -3,12 +3,22 @@
   import ChatLog from './ChatLog.svelte';
   import Composer from './Composer.svelte';
   import VoiceStage from './VoiceStage.svelte';
+  import ResizeHandle from './ResizeHandle.svelte';
+  import { share } from '../lib/share.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { session } from '../lib/session.svelte.ts';
 
   // showStage: voice tiles above the chat when the window is too narrow for the member list
   // videoOnly: streams as a plain picture without the tiles (stacked layout)
   let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean } = $props();
+
+  // Stacked layout with a stream above the chat: the chat's height can be dragged larger than
+  // its minimum; the picture gets the rest. Unset until dragged, then the picture decides.
+  const LOG_MIN = 124;
+  const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
+  const streamAbove = $derived(videoOnly && session.status === 'connected' && ((!!share.stream && here(share.host)) || (!!share.watching && here(share.watching.host))));
+  let logHeight = $state(Number((() => { try { return localStorage.getItem('mumh5.stackedChatHeight'); } catch { return null; } })()) || 0);
+  const logFixed = $derived(streamAbove && logHeight >= LOG_MIN);
 
   const isDm = $derived(session.view.startsWith('dm:'));
   const title = $derived(session.status === 'connected' ? session.viewTitle() : 'mumh5');
@@ -18,7 +28,7 @@
   });
 </script>
 
-<section class="chat" class:video-only={videoOnly} aria-label="Chat">
+<section class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat">
   <header>
     {#if showMenu}<button class="icon-btn" onclick={onmenu} aria-label="Open channels"><Icon name="menu" /></button>{/if}
     <Icon name={isDm ? 'message' : 'hash'} size={20} />
@@ -48,6 +58,11 @@
   {/if}
 
 
+  <div class="logbox" style:height={logFixed ? `${logHeight}px` : undefined}>
+  {#if streamAbove}
+    <ResizeHandle bind:width={logHeight} edge="top" min={LOG_MIN} max={() => Math.max(LOG_MIN, window.innerHeight - 320)} initial={220}
+      storageKey="mumh5.stackedChatHeight" label="Resize the chat" />
+  {/if}
   <ChatLog key={session.view}>
     {#snippet empty()}
       <div class="empty">
@@ -67,6 +82,7 @@
       </div>
     {/snippet}
   </ChatLog>
+  </div>
 
   {#if session.status === 'connected'}
     <Composer target={session.view} placeholder={`Message ${isDm ? '@' : '#'}${title}`} />
@@ -75,7 +91,12 @@
 
 <style>
   /* Stacked layout: room for about five lines of chat whatever the stream above takes */
-  .chat.video-only :global(.wrap[role=log]) { min-height: 124px; flex-shrink: 0; }
+  .chat.video-only .logbox { min-height: 124px; flex-shrink: 0; }
+  .logbox { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* Dragged to a height of its own: the stream above takes what is left */
+  .chat.log-fixed .logbox { flex: none; }
+  .chat.log-fixed :global(.stage.solo), .chat.log-fixed :global(.stage.solo .spot), .chat.log-fixed :global(.stage.solo .pic) { flex: 1 1 0; min-height: 0; }
+  .chat.log-fixed :global(.stage.solo .spot video) { flex: 1 1 0; max-height: none; }
   .chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
   header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
   h1 { flex: 0 1 auto; max-width: 60%; font-size: 16px; margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
