@@ -9,8 +9,18 @@ services:
     # forwarding it would often see Docker's own) and a Mumble server on this machine is
     # reachable as localhost. The proxy listens on 127.0.0.1:8080 for nginx and on UDP 3478.
     network_mode: host
-    env_file:
-      - path: .env
-        required: false
+    # Passed on from .env (or the shell); empty means the proxy's default. Written out one by
+    # one because older docker-compose versions cannot mark an env_file as optional.
     environment:
+      MUMH5_SERVERS: ${MUMH5_SERVERS:-}
+      MUMH5_ALLOW_ANY: ${MUMH5_ALLOW_ANY:-}
+      MUMH5_ALLOW_PRIVATE: ${MUMH5_ALLOW_PRIVATE:-}
+      MUMH5_PORT: ${MUMH5_PORT:-8080}
       MUMH5_BIND: ${MUMH5_BIND:-127.0.0.1}
+      MUMH5_ORIGINS: ${MUMH5_ORIGINS:-}
+      MUMH5_TRUST_PROXY: ${MUMH5_TRUST_PROXY:-}
+      MUMH5_SEND_PROXY: ${MUMH5_SEND_PROXY:-}
+      MUMH5_STUN_PORT: ${MUMH5_STUN_PORT:-3478}
+      MUMH5_STUN_BIND: ${MUMH5_STUN_BIND:-}
+      MUMH5_MAX_CONNECTIONS: ${MUMH5_MAX_CONNECTIONS:-}
+      MUMH5_MAX_PER_ADDRESS: ${MUMH5_MAX_PER_ADDRESS:-}

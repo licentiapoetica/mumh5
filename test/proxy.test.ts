@@ -6,6 +6,7 @@ import dgram from 'node:dgram';
 import assert from 'node:assert/strict';
 import { proxyLine } from '../electron/tls-transport.ts';
 import { stunResponse } from '../server/proxy.ts';
+import { configFromEnv } from '../server/proxy.ts';
 import { startProxy, defaults, parseServers, isPrivateAddress, type ProxyConfig } from '../server/proxy.ts';
 import { WebSocket as WsClient } from 'ws';
 import { WebSocketTransport } from '../src/core/ws-transport.ts';
@@ -29,6 +30,13 @@ test('server list parsing', () => {
     { host: '::1', port: 5, label: 'Local' }
   ]);
   assert.deepEqual(parseServers(''), []);
+});
+
+test('empty environment variables fall back to the defaults', () => {
+  const c = configFromEnv({ MUMH5_PORT: '', MUMH5_BIND: '', MUMH5_STUN_PORT: '', MUMH5_STUN_BIND: '', MUMH5_MAX_CONNECTIONS: '', MUMH5_SERVERS: 'a.example', MUMH5_ALLOW_ANY: '' });
+  assert.deepEqual([c.port, c.bind, c.stunPort, c.stunBind, c.maxConnections, c.allowAny], [8080, '127.0.0.1', 3478, '::', 200, false]);
+  assert.equal(configFromEnv({ MUMH5_STUN_PORT: '0' }).stunPort, null);
+  assert.equal(configFromEnv({ MUMH5_PORT: '8089' }).port, 8089);
 });
 
 test('private address detection', () => {
