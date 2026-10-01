@@ -83,6 +83,32 @@ try {
   await ownView.waitFor({ state: 'detached' });
   console.log('ok: sharing started from the dialog, own tile shows the stream');
 
+  // Stacked layout: only the picture, as wide as the chat, and the layout stays stacked on narrow windows
+  const setLayout = async (name: string) => {
+    await alice.page.getByTitle('Settings').click();
+    await alice.page.getByRole('tab', { name: 'Appearance' }).click();
+    await alice.page.getByRole('radio', { name }).click();
+    await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  };
+  await setLayout('Stacked');
+  await alice.page.locator('.app.stacked .stage.solo').waitFor();
+  assert.equal(await alice.page.locator('.stage .tiles').count(), 0, 'no participant tiles in the stacked layout');
+  const fits = () => alice.page.evaluate(() => {
+    const v = document.querySelector('.stage.solo video') as HTMLVideoElement, c = document.querySelector('.chat')!;
+    return v.videoWidth > 0 && Math.abs(v.getBoundingClientRect().width - c.getBoundingClientRect().width) < 2;
+  });
+  await alice.page.waitForFunction(() => (document.querySelector('.stage.solo video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  assert.ok(await fits(), 'picture as wide as the chat');
+  await alice.page.setViewportSize({ width: 600, height: 800 });
+  await alice.page.locator('.app.stacked .stage.solo video').waitFor();
+  assert.ok(await fits(), 'still as wide as the chat on a narrow window');
+  if (process.env.SHOTS_DIR) await alice.page.screenshot({ path: `${process.env.SHOTS_DIR}/stacked.png` });
+  await alice.page.getByText('0 watching').waitFor();
+  await alice.page.setViewportSize({ width: 1280, height: 800 });
+  await setLayout('Modern');
+  await alice.page.locator('.stage .tiles').waitFor();
+  console.log('ok: stacked layout shows only the picture and stays stacked when narrow');
+
   // Bob connects afterwards and still learns about the stream
   await join(bob.page, bobName);
   // Next to the name in the channel list, and on the tile above the chat

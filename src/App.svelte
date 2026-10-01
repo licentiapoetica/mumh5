@@ -28,8 +28,8 @@
   const layout = $derived(width >= 1100 ? 'wide' : width >= 760 ? 'medium' : 'narrow');
 
   // Arrangement (Appearance setting): side is the default, classic puts the channel list right
-  // of the chat, stacked above it. Phones always use drawers.
-  const arrangement = $derived(layout === 'narrow' ? 'side' : store.settings.arrangement ?? 'side');
+  // of the chat, stacked above it. Narrow windows use drawers, except stacked, which works at any width.
+  const arrangement = $derived(store.settings.arrangement === 'stacked' ? 'stacked' : layout === 'narrow' ? 'side' : store.settings.arrangement ?? 'side');
   // The member panel sits inline only in the side arrangement on wide windows, otherwise it overlays
   const panelInline = $derived(layout === 'wide' && arrangement === 'side');
   let treeHeight = $state(Math.max(120, Number((() => { try { return localStorage.getItem('mumh5.treeHeight'); } catch { return null; } })()) || 280));
@@ -76,7 +76,8 @@
     onsettings={() => (ui.settingsOpen = true)} />
 {/snippet}
 {#snippet chat()}
-  <Chat showMenu={layout === 'narrow'} showStage={!panelInline && arrangement === 'side'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
+  <Chat showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
+    onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
 <div class="app {layout} {arrangement}">

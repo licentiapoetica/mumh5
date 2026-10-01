@@ -14,7 +14,9 @@
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
   // (always), and on any window while someone in the channel shares a screen: a sharer's tile
   // carries the picture, and clicking it puts it on a large stage with the tiles as a strip.
-  let { always = false }: { always?: boolean } = $props();
+  // videoOnly: just the picture, as wide as the chat (stacked layout, where the channel list
+  // above already shows who is here)
+  let { always = false, videoOnly = false }: { always?: boolean; videoOnly?: boolean } = $props();
 
   const self = $derived(session.self);
   const channel = $derived(self ? session.channel(self.channelId) : undefined);
@@ -24,7 +26,7 @@
   const watching = $derived(share.watching && here(share.watching.host) ? share.watching : null);
   const mine = $derived(share.stream && here(share.host) ? share.stream : null);
   const anySharing = $derived(inChannel.some(u => session.sharing[u.session]));
-  const visible = $derived(!!self && (always || anySharing || !!watching || !!mine));
+  const visible = $derived(!!self && (videoOnly ? !!watching || !!mine : always || anySharing || !!watching || !!mine));
 
   // The picture a tile can show: our own stream, or the one we are watching
   function streamOf(s: number): MediaStream | null {
@@ -51,6 +53,8 @@
     }
   });
   $effect(() => { if (focus === self?.session && !mine) focus = null; });
+  // Without tiles there is nothing to choose: the watched stream, else our own
+  $effect(() => { if (videoOnly) focus = watching ? watching.session : mine ? self?.session ?? null : null; });
 
   // The stage is as tall as the user drags it; the tiles grow and shrink to fill it. The
   // meeting view (one picture large) remembers its own height.
@@ -168,7 +172,53 @@
 
 {#if share.error}<div class="bar bad" role="alert"><span>{share.error}</span><button class="btn" onclick={() => (share.error = '')}>Dismiss</button></div>{/if}
 
-{#if visible && self}
+{#snippet spot()}
+  {#if self && focus != null && focused}
+      <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
+      <div class="spot-head">
+        <Icon name="screen" size={16} />
+        <span class="spot-who">{focus === self.session ? 'Your screen' : focusUser ? store.displayName(focusUser) : 'Screen share'}</span>
+        {#if focus !== self.session && hasSound}
+          <Icon name={store.settings.shareVolume === 0 ? 'headphones-off' : 'headphones'} size={16} />
+          <input class="vol" type="range" min="0" max="1" step="0.01" bind:value={store.settings.shareVolume} onchange={() => store.saveSettings()}
+            aria-label="Stream volume" title="Stream volume" />
+        {/if}
+        {#if popped}
+          <button class="btn small" onclick={popIn}>Bring back</button>
+        {:else}
+          <button class="icon-btn" title="Open in a separate window" aria-label="Open in a separate window" onclick={popOut}><Icon name="popout" size={16} /></button>
+          <button class="icon-btn" title="Full screen" aria-label="Full screen" onclick={fullscreen}><Icon name="expand" size={16} /></button>
+        {/if}
+        {#if focus !== self.session}<button class="btn small" onclick={() => share.unwatch()}>Stop watching</button>
+        {:else if videoOnly}
+          <span class="status" role="status" title="People watching your screen">{share.viewers} watching</span>
+          <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
+        {/if}
+        {#if !videoOnly}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
+      </div>
+      <!-- svelte-ignore a11y_media_has_caption -->
+      {#if popped}
+        <p class="away">Shown in a separate window.</p>
+      {:else}
+        <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#if visible && self && videoOnly}
+  <section class="stage solo" aria-label="Voice channel">
+    {#if watching?.stream}<audio bind:this={player} use:media={watching.stream} autoplay></audio>{/if}
+    {#if focused}
+      {@render spot()}
+    {:else if watching}
+      <p class="wait" class:bad={watching.state === 'failed'}>
+        <span>{watching.state === 'failed' ? 'Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice.' : 'Connecting to the stream...'}</span>
+        <button class="btn small" onclick={() => share.unwatch()}>{watching.state === 'failed' ? 'Close' : 'Cancel'}</button>
+      </p>
+    {/if}
+  </section>
+{:else if visible && self}
   <section class="stage" class:meeting={!!focused} class:collapsed aria-label="Voice channel"
     style:height={collapsed ? undefined : `${focused ? meetingHeight : tilesHeight}px`}>
     {#if !collapsed}
@@ -205,33 +255,7 @@
 
     {#if watching?.stream}<audio bind:this={player} use:media={watching.stream} autoplay></audio>{/if}
 
-    {#if focused && focus != null && !collapsed}
-      <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
-        <div class="spot-head">
-          <Icon name="screen" size={16} />
-          <span class="spot-who">{focus === self.session ? 'Your screen' : focusUser ? store.displayName(focusUser) : 'Screen share'}</span>
-          {#if focus !== self.session && hasSound}
-            <Icon name={store.settings.shareVolume === 0 ? 'headphones-off' : 'headphones'} size={16} />
-            <input class="vol" type="range" min="0" max="1" step="0.01" bind:value={store.settings.shareVolume} onchange={() => store.saveSettings()}
-              aria-label="Stream volume" title="Stream volume" />
-          {/if}
-          {#if popped}
-            <button class="btn small" onclick={popIn}>Bring back</button>
-          {:else}
-            <button class="icon-btn" title="Open in a separate window" aria-label="Open in a separate window" onclick={popOut}><Icon name="popout" size={16} /></button>
-            <button class="icon-btn" title="Full screen" aria-label="Full screen" onclick={fullscreen}><Icon name="expand" size={16} /></button>
-          {/if}
-          {#if focus !== self.session}<button class="btn small" onclick={() => share.unwatch()}>Stop watching</button>{/if}
-          <button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>
-        </div>
-        <!-- svelte-ignore a11y_media_has_caption -->
-        {#if popped}
-          <p class="away">Shown in a separate window.</p>
-        {:else}
-          <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
-        {/if}
-      </div>
-    {/if}
+    {#if focused && focus != null && !collapsed}{@render spot()}{/if}
 
     {#if !collapsed}
       <ul class="tiles" class:strip={!!focused} bind:clientWidth={gridW} bind:clientHeight={gridH}>
@@ -316,5 +340,13 @@
   .spot:fullscreen video { height: 100%; }
   .away { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .vol { width: 110px; flex: none; padding: 0; }
+  /* Video only: the picture as wide as the chat, as tall as its shape asks */
+  .stage.solo { background: #000; }
+  .stage.solo .spot { flex: none; }
+  .stage.solo .spot video { flex: none; height: auto; max-height: 62vh; }
+  .stage.solo .away { flex: none; padding: 24px; }
+  .wait { margin: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; color: var(--text-dim); background: var(--bg-1); }
+  .wait span { flex: 1; min-width: 0; }
+  .wait.bad { color: var(--danger); }
   .tiles.strip { flex: none; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overflow-y: hidden; padding: 6px 8px; }
 </style>

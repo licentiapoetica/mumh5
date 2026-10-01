@@ -63,7 +63,7 @@
     </button>
   {/each}
 </div>
-<p class="help">Narrow windows always use the phone layout.</p>
+<p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
 
 <style>
   .gap { margin-top: 22px; }
