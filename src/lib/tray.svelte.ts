@@ -1,4 +1,4 @@
-import { native } from './native.ts';
+import { desktop } from './native.ts';
 import { ICON_PATHS } from './icons.ts';
 import { session, sessions } from './session.svelte.ts';
 import { voice, type TransmitMode } from './audio/voice.svelte.ts';
@@ -40,8 +40,8 @@ function drawIcon(look: TrayLook): string {
 
 // Mirrors voice state into the system tray and handles its menu
 export function startTray(): void {
-  if (!native) return;
-  const api = native;
+  if (!desktop) return;
+  const api = desktop;
 
   $effect.root(() => {
     $effect(() => {

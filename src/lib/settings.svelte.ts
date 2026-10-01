@@ -24,6 +24,7 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -46,11 +47,12 @@ const defaults: Settings = {
   embedHosts: [],
   sendThumbnails: true,
   compact: false,
-  youtube: 'click',
+  youtube: 'off',
   linkPreviews: 'host',
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
-  arrangement: 'side'
+  arrangement: 'side',
+  hints: false
 };
 
 class SettingsStore {
@@ -58,8 +60,16 @@ class SettingsStore {
   servers = $state<SavedServer[]>(loadList('mumh5.servers'));
   // Pinned sha256 fingerprints of server certificates, keyed by host:port (trust on first use)
   pins = $state<Record<string, string>>(load('mumh5.pins', {}));
+  // Username to suggest when connecting with an identity, keyed by identity id
+  identityNames = $state<Record<string, string>>(load('mumh5.identityNames', {}));
   // Local nicknames for other users, only visible to us; keyed by certificate hash (or name)
   nicknames = $state<Record<string, string>>(load('mumh5.nicknames', {}));
+
+  setIdentityName(id: string, name: string) {
+    if (name.trim()) this.identityNames[id] = name.trim();
+    else delete this.identityNames[id];
+    save('mumh5.identityNames', $state.snapshot(this.identityNames));
+  }
 
   saveSettings() { save('mumh5.settings', $state.snapshot(this.settings)); }
 

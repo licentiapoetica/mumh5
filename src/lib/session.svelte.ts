@@ -1,6 +1,6 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
-import { native, ElectronTransport } from './native.ts';
+import { native, openTransport } from './native.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
@@ -155,10 +155,19 @@ export class Session {
     this.expanded[id] = !this.isExpanded(id);
   }
 
+  // Collapsing goes back to the default: channels with people in them stay open
   setAllExpanded(open: boolean): void {
     const all: Record<number, boolean> = {};
-    for (const id of this.client?.channels.keys() ?? []) all[id] = open;
+    if (open) for (const id of this.client?.channels.keys() ?? []) all[id] = true;
     this.expanded = all;
+  }
+
+  // What the server told us about itself, for the server information dialog
+  get serverInfo() {
+    void this.tick;
+    const c = this.client;
+    if (!c) return null;
+    return { version: c.serverVersion, maxBandwidth: c.maxBandwidth, config: { ...c.config }, users: c.users.size, channels: c.channels.size };
   }
 
   // How voice travels right now
@@ -216,13 +225,16 @@ export class Session {
     this.status = 'connecting';
 
     if (!native) {
-      this.fail('Connecting needs the desktop app for now. The web version will connect through a proxy.');
+      this.fail('Connecting needs the desktop app or the web build served by a mumh5 proxy.');
       return;
     }
 
-    const transport = new ElectronTransport(native, server.host, server.port, server.identityId);
+    let transport;
     let info;
     try {
+      transport = (await openTransport(server.host, server.port, server.identityId))!;
+      // Superseded while the identity was being prepared
+      if (attempt !== this.attempt) return transport.close();
       info = await transport.secure;
     } catch (e) {
       if (attempt === this.attempt) this.fail((e as Error).message);
@@ -663,8 +675,17 @@ export class Session {
 
   // ─── Voice state and moderation ─────────────────────────────────────────────
 
-  setSelfMute(v: boolean) { this.client?.setSelfMute(v); }
-  setSelfDeaf(v: boolean) { this.client?.setSelfDeaf(v); }
+  // The choice is remembered, so it also works while disconnected and carries to the next connect
+  setSelfMute(v: boolean) {
+    sessions.mute = v;
+    if (!v) sessions.deaf = false;
+    this.client?.setSelfMute(v);
+  }
+  setSelfDeaf(v: boolean) {
+    sessions.deaf = v;
+    if (v) sessions.mute = true;
+    this.client?.setSelfDeaf(v);
+  }
 
   kick(session: number, reason: string, ban = false) { this.client?.kick(session, reason, ban); }
   setServerMute(session: number, v: boolean) { this.client?.setUserState(session, { mute: v }); }
@@ -683,6 +704,10 @@ class Sessions {
   activeId = $state<string | null>(null);
   voiceId = $state<string | null>(null);
   private idle = new Session();
+  // Self mute/deaf as the user last chose it, like the desktop client: shown and toggled
+  // while disconnected and applied to servers when they connect
+  mute = $state(false);
+  deaf = $state(false);
   // Self mute/deaf before we deafened a background server, to restore later
   private saved = new Map<Session, { mute: boolean; deaf: boolean }>();
 
@@ -725,8 +750,15 @@ class Sessions {
   }
 
   onSynced(s: Session): void {
-    if (!this.voiceId || !this.voiceSession?.client) this.setVoice(s, true);
-    else this.toBackground(s);
+    const want = { mute: this.mute, deaf: this.deaf };
+    if (!this.voiceId || !this.voiceSession?.client) {
+      this.setVoice(s, true);
+      if (want.mute) s.client?.send('UserState', { self_mute: true, self_deaf: want.deaf });
+    } else {
+      this.toBackground(s);
+      // A fresh login is unmuted; restore the user's choice when voice comes here
+      if (this.saved.has(s)) this.saved.set(s, want);
+    }
   }
 
   onClosed(s: Session): void {

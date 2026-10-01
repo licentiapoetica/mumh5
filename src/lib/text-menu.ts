@@ -1,11 +1,11 @@
-import { native } from './native.ts';
+import { desktop } from './native.ts';
 import { menu, type MenuItem } from './menu.svelte.ts';
 
 // Right-click menu for text fields, messages, links and images. Elements with their own menu
 // (users, channels, servers) call preventDefault, so Electron does not report those.
 export function startTextMenu(): void {
-  if (!native) return;
-  const api = native;
+  if (!desktop) return;
+  const api = desktop;
 
   api.onContextMenu(p => {
     // Edit commands act on the focused element; keep it focused through the menu

@@ -81,7 +81,7 @@ const page = await app.firstWindow();
 await page.setViewportSize({ width: 1440, height: 900 });
 
 await page.getByRole('button', { name: /Create a new identity/ }).click();
-await page.getByLabel('Name').fill('kibi');
+await page.getByLabel('Name', { exact: true }).fill('kibi');
 await page.getByRole('button', { name: 'Create', exact: true }).click();
 await page.getByRole('button', { name: 'Skip for now' }).click();
 await page.getByRole('button', { name: 'Done' }).click();

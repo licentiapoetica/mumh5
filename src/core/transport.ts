@@ -51,4 +51,7 @@ export interface ServerCertInfo {
   authorized: boolean;       // true if it chains to a trusted CA
   authError: string | null;  // why it is not trusted, e.g. DEPTH_ZERO_SELF_SIGNED_CERT
   chain: CertDetails[];      // leaf first
+  // Browser build only: this client's address as the web proxy saw it. The Mumble server
+  // sees the proxy's address instead and cannot be told the original one.
+  clientAddress?: string;
 }

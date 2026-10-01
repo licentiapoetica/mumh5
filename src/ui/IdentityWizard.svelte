@@ -1,7 +1,8 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
   import Icon from './Icon.svelte';
-  import { native, type IdentitySummary } from '../lib/native.ts';
+  import { native, isWeb, type IdentitySummary } from '../lib/native.ts';
+  import { store } from '../lib/settings.svelte.ts';
   import { identities } from '../lib/identities.svelte.ts';
 
   // setup: first start (marks setup as done at the end); add: adding another identity from Settings
@@ -44,9 +45,15 @@
     }
   }
 
+  // Suggest the identity's name as the username in the connect dialog
+  let useAsUsername = $state(true);
   const create = (e: SubmitEvent) => {
     e.preventDefault();
-    run(() => native!.identities.create(name.trim(), email.trim()), 'backup');
+    run(async () => {
+      const created = await native!.identities.create(name.trim(), email.trim());
+      if (useAsUsername) store.setIdentityName(created.id, name);
+      return created;
+    }, 'backup');
   };
 
   const importFile = async (e: SubmitEvent) => {
@@ -93,6 +100,7 @@
 <Modal {title} onclose={mode === 'setup' ? () => {} : onclose} width={560}>
   {#if step === 'welcome'}
     <p>Mumble recognizes you by a <strong>certificate</strong>, not by a password. Registered names, admin rights and friends lists on servers are tied to it, so it is worth setting up once and keeping a backup.</p>
+    {#if isWeb}<p class="dim">In the browser the certificate is kept in this browser's storage and passed to the proxy at {location.host} when you connect, which presents it to the Mumble server.</p>{/if}
     <div class="choices">
       <button class="choice" onclick={() => (step = 'create')}>
         <Icon name="plus" /><span><strong>Create a new identity</strong><small>Start fresh with a new certificate</small></span>
@@ -116,7 +124,8 @@
       <p>The name is stored in the certificate and helps you tell identities apart. Servers show the username you enter when connecting, not this.</p>
       <label for="w-name">Name</label>
       <!-- svelte-ignore a11y_autofocus -->
-      <input id="w-name" bind:value={name} required autofocus placeholder="e.g. kibi" />
+      <input id="w-name" bind:value={name} required autofocus placeholder="e.g. your nickname" />
+      <label class="check"><input type="checkbox" bind:checked={useAsUsername} /> Use this name as my username when connecting with this identity</label>
       <label for="w-email">Email <span class="opt">(optional, stored in the certificate)</span></label>
       <input id="w-email" type="email" bind:value={email} />
     </form>
@@ -130,7 +139,7 @@
   {:else if step === 'backup' && result}
     <p>Identity <strong>{result.name}</strong> is ready.</p>
     <p class="mono">{result.fingerprint}</p>
-    <p>If this computer dies, the certificate goes with it, and so do your registrations. Save a password-protected backup now; the desktop Mumble client can import it too.</p>
+    <p>{isWeb ? 'If this browser\'s data is cleared' : 'If this computer dies'}, the certificate goes with it, and so do your registrations. Save a password-protected backup now; the desktop Mumble client can import it too.</p>
     <label for="w-bpass">Backup password <span class="opt">(at least 8 characters)</span></label>
     <input id="w-bpass" type="password" bind:value={backupPassword} autocomplete="new-password" />
     <label for="w-bconf">Repeat password</label>
@@ -163,6 +172,8 @@
 </Modal>
 
 <style>
+  .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
+  .check input { width: auto; }
   p { color: var(--text-dim); margin: 10px 0 0; }
   p strong { color: var(--text); }
   .choices { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }

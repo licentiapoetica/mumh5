@@ -78,7 +78,8 @@ try {
   // First start: identity setup wizard
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor();
   await page.getByRole('button', { name: /Create a new identity/ }).click();
-  await page.getByLabel('Name').fill('alice');
+  await page.getByLabel('Name', { exact: true }).fill('alice');
+  assert.ok(await page.getByLabel('Use this name as my username').isChecked());
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await page.getByRole('button', { name: 'Done' }).click();
@@ -91,6 +92,18 @@ try {
   await page.getByRole('tab', { name: 'Identities', selected: true }).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: welcome page without composer, manage identities');
+
+  // Mute and deafen are there without a connection
+  const me = page.locator('.me');
+  await me.getByText('Not connected').waitFor();
+  assert.ok(await me.getByRole('button', { name: 'Server information' }).isDisabled());
+  await me.getByRole('button', { name: 'Deafen', exact: true }).click();
+  await me.getByRole('button', { name: 'Unmute', exact: true }).waitFor();
+  await me.getByText('Deafened').waitFor();
+  await me.getByRole('button', { name: 'Unmute', exact: true }).click();
+  await me.getByRole('button', { name: 'Deafen', exact: true }).waitFor();
+  await me.getByRole('button', { name: 'Mute', exact: true }).waitFor();
+  console.log('ok: mute and deafen shown while disconnected');
 
   // Settings: upload host + key
   if (process.env.UPLOAD_HOST && process.env.UPLOAD_KEY) {
@@ -107,7 +120,7 @@ try {
   await page.getByTitle('Add a server').click();
   await page.getByLabel('Address').fill(host);
   await page.getByLabel('Port').fill(port);
-  await page.getByLabel('Username').fill('alice');
+  assert.equal(await page.getByLabel('Username').inputValue(), 'alice', 'username suggested from the identity');
   await page.getByLabel('Label').fill('Test Server');
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
@@ -256,15 +269,23 @@ try {
   await page.locator('.chat .composer').getByRole('button', { name: 'Text formatting' }).click();
   console.log('ok: formatted message from the toolbar');
 
-  // YouTube links become a click-to-play card; nothing loads from YouTube before the click
+  // YouTube links are plain links by default
   bob.sendText({ channels: [0] }, 'watch <a href="https://youtu.be/dQw4w9WgXcQ?t=1m30s">https://youtu.be/dQw4w9WgXcQ?t=1m30s</a>');
-  const card = page.locator('.msg', { hasText: 'watch' }).locator('.yt');
+  const ytMsg = page.locator('.msg', { hasText: 'watch' });
+  await ytMsg.getByRole('link', { name: 'https://youtu.be/dQw4w9WgXcQ?t=1m30s' }).waitFor();
+  assert.equal(await ytMsg.locator('.yt').count(), 0, 'no YouTube card by default');
+  // Turned on, they become a click-to-play card; nothing loads from YouTube before the click
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Chat and files' }).click();
+  await page.getByLabel('YouTube links').selectOption('click');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const card = ytMsg.locator('.yt');
   await card.getByText('from 1:30, click to play').waitFor();
   assert.equal(await card.locator('iframe').count(), 0);
-  assert.equal(await card.locator('.facade').evaluate(el => getComputedStyle(el).backgroundImage), 'none', 'no thumbnail request by default');
+  assert.equal(await card.locator('.facade').evaluate(el => getComputedStyle(el).backgroundImage), 'none', 'no thumbnail request in click mode');
   await card.locator('.facade').click();
   assert.equal(await card.locator('iframe').getAttribute('src'), 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&start=90');
-  console.log('ok: YouTube link embedded as click-to-play');
+  console.log('ok: YouTube link plain by default, click-to-play when turned on');
 
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;
@@ -311,8 +332,28 @@ try {
   assert.equal(await page.locator('.rail').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 128, 128)');
   await page.getByRole('radio', { name: 'Dark' }).click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined);
+  // Hints are off by default: the title under the pointer is set aside while hovered, and back afterwards
+  const hintTarget = page.locator('.rail').getByRole('button', { name: 'Add a server' });
+  const titleOf = () => page.locator('.rail .tile.add').first().getAttribute('title');
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  assert.equal(await page.getByLabel('Show hints when the pointer rests').isChecked(), false);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  console.log('ok: color schemes');
+  await hintTarget.hover();
+  assert.equal(await titleOf(), null, 'no tooltip while hints are off');
+  await page.mouse.move(700, 400);
+  assert.equal(await titleOf(), 'Add a server');
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  await page.getByLabel('Show hints when the pointer rests').check();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await hintTarget.hover();
+  assert.equal(await titleOf(), 'Add a server', 'tooltip kept while hints are on');
+  await page.mouse.move(700, 400);
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  await page.getByLabel('Show hints when the pointer rests').uncheck();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: color schemes, hints off by default and can be turned on');
 
   // Layouts like the desktop client: classic (channels right of chat), stacked (channels above)
   const box = (sel: string) => page.locator(sel).first().boundingBox().then(b => b!);
@@ -359,6 +400,15 @@ try {
   const row = pub.locator('tr', { hasText: 'E2E Murmur' });
   await row.getByText(/^\d+ \/ \d+$/).waitFor({ timeout: 8000 });
   await row.getByText(/ms$/).waitFor();
+  await row.getByRole('button', { name: 'Connect' }).waitFor();
+  // Column headers sort; a second click reverses
+  const firstRow = pub.locator('tbody tr').first();
+  await pub.getByRole('button', { name: 'Server', exact: true }).click();
+  await firstRow.getByText('E2E Murmur').waitFor();
+  await pub.getByRole('button', { name: 'Server', exact: true }).click();
+  await firstRow.getByText('Offline one').waitFor();
+  await pub.getByRole('button', { name: 'People', exact: true }).click();
+  await firstRow.getByText('E2E Murmur').waitFor();
   await row.getByRole('button', { name: 'Add' }).click();
   assert.equal(await page.getByLabel('Address').inputValue(), host);
   assert.equal(await page.getByLabel('Port').inputValue(), port);
@@ -532,6 +582,25 @@ try {
   await page.locator('.panel h3', { hasText: 'bob' }).waitFor();
   console.log('ok: user context menu and profile');
 
+  // Server information from the button next to mute
+  await page.locator('.me').getByRole('button', { name: 'Server information' }).click();
+  const srvInfo = page.getByRole('dialog', { name: 'Server information' });
+  await srvInfo.getByText(`${host}:${port}`).waitFor();
+  await srvInfo.getByText(/^\d+ of \d+$/).waitFor();
+  await srvInfo.getByText(/^\d+ characters$/).first().waitFor();
+  await srvInfo.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await srvInfo.waitFor({ state: 'detached' });
+  console.log('ok: server information dialog');
+
+  // Toolbar: description editor and settings
+  await page.locator('.me').getByRole('button', { name: 'Change your description' }).click();
+  await page.locator('.panel .rich').waitFor();
+  await page.locator('.panel').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('.me').getByRole('button', { name: 'Configure' }).click();
+  await page.getByRole('dialog', { name: 'Settings' }).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: toolbar opens the description editor and settings');
+
   // Information: own connection shows client details and the full certificate
   await page.locator('.sidebar .user.self').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Information' }).click();
@@ -589,6 +658,29 @@ try {
     await page.locator('.panel .html', { hasText: 'Welcome to the lobby' }).waitFor();
     assert.equal(await page.locator('.me .who span').textContent(), 'Root');
     console.log('ok: single click shows description without joining');
+
+    // Description marker: only on channels that have one. Resting on the row previews, clicking the marker opens the panel
+    const marker = page.locator('.channel', { hasText: 'Lobby' }).getByRole('button', { name: 'Show description of Lobby' });
+    assert.equal(await page.locator('.channel', { hasText: 'Games' }).locator('.desc').count(), 0);
+    await page.locator('.panel').getByRole('button', { name: 'Close' }).click();
+    await page.locator('.channel .name', { hasText: 'Games' }).hover();
+    await page.waitForTimeout(2000);
+    assert.equal(await page.locator('.desc-pop').count(), 0, 'no preview for a channel without description');
+    for (const spot of [page.locator('.channel .name', { hasText: 'Lobby' }), marker]) {
+      await spot.hover();
+      await page.waitForTimeout(500);
+      assert.equal(await page.locator('.desc-pop').count(), 0, 'no preview before 1 second');
+      await page.locator('.desc-pop .html', { hasText: 'Welcome to the lobby' }).waitFor({ timeout: 3000 });
+      // Opens at the pointer
+      const at = (await spot.boundingBox())!;
+      const pop = (await page.locator('.desc-pop').boundingBox())!;
+      assert.ok(Math.abs(pop.x - (at.x + at.width / 2 + 12)) < 3 && Math.abs(pop.y - (at.y + at.height / 2 + 12)) < 3, 'preview at the pointer');
+      await page.mouse.move(700, 400);
+      await page.locator('.desc-pop').waitFor({ state: 'detached' });
+    }
+    await marker.click();
+    await page.locator('.panel .html', { hasText: 'Welcome to the lobby' }).waitFor();
+    console.log('ok: description previews on hover, marker opens it on click');
 
     // Side chat sends to that channel while staying in Root
     const lobby = [...bob.channels.values()].find(c => c.name === 'Lobby')!;
@@ -721,6 +813,16 @@ try {
     await page.getByRole('button', { name: 'Delete channel' }).click();
     await bobSees('deleted', () => !chByName('Team Room'));
     console.log('ok: channel deleted');
+
+    // Toolbar: expand and collapse the whole tree
+    await page.locator('.me').getByRole('button', { name: 'Expand all channels' }).click();
+    await page.locator('.channel', { hasText: 'Minecraft' }).waitFor();
+    await page.locator('.me').getByRole('button', { name: 'Collapse all channels' }).click();
+    await page.locator('.channel', { hasText: 'Minecraft' }).waitFor({ state: 'detached' });
+    // Channels with people in them stay open
+    assert.notEqual(await page.locator('.me .who span').textContent(), 'Root');
+    await page.locator('.sidebar .row.user.self').waitFor();
+    console.log('ok: toolbar expands and collapses all channels, occupied ones stay open');
   }
 
   // Without an upload host, images are sent inline within Mumble's image limit
@@ -729,6 +831,11 @@ try {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Chat and files' }).click();
   await page.getByLabel('Upload host').fill('');
+  // Settings that need the upload host are disabled and previews show as off
+  assert.ok(await page.getByLabel('Files expire after').isDisabled());
+  assert.ok(await page.getByLabel('Send image previews for regular Mumble clients').isDisabled());
+  assert.equal(await page.getByLabel('Link previews').inputValue(), 'off');
+  assert.ok(await page.getByLabel('Link previews').locator('option[value=host]').isDisabled());
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   const big = path.join(userData, 'big.png');
   writeFileSync(big, testPng(1600, 1200));
