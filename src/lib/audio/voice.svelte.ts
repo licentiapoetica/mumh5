@@ -140,7 +140,7 @@ class VoiceEngine {
     this.error = '';
     try {
       if (typeof AudioEncoder === 'undefined' || !(await AudioEncoder.isConfigSupported(this.encoderConfig())).supported) {
-        throw new Error('This system cannot encode Opus audio');
+        throw new Error('This browser cannot encode Opus audio (WebCodecs is missing), so you cannot talk or hear others here. Chromium-based browsers and the desktop app can.');
       }
       const ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
       this.ctx = ctx;

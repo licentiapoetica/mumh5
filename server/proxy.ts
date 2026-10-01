@@ -46,13 +46,17 @@ export interface ProxyConfig {
   // interface, and a camera round has a stream per pair of people, so these run high.
   turnMax: number;
   turnPerAddress: number;
+  // Addresses to hand to clients instead of this host's port, e.g. a TLS front on port 443
+  turnUrls: string[];
+  // Log relay events
+  debug: boolean;
   maxConnections: number;
   maxPerAddress: number;
 }
 
 export const defaults: ProxyConfig = {
   port: 8080, bind: '127.0.0.1', servers: [], allowAny: false, allowPrivate: false, origins: [],
-  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, maxConnections: 200, maxPerAddress: 8
+  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, turnUrls: [], debug: false, maxConnections: 200, maxPerAddress: 8
 };
 
 // "host", "host:port", "[v6]:port", each optionally followed by "=Label"
@@ -91,6 +95,8 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
     turnMaxPort: Number((env.MUMH5_TURN_PORTS ?? '').split('-')[1]) || defaults.turnMaxPort,
     turnMax: Number(env.MUMH5_TURN_MAX ?? defaults.turnMax),
     turnPerAddress: Number(env.MUMH5_TURN_PER_ADDRESS ?? defaults.turnPerAddress),
+    turnUrls: (env.MUMH5_TURN_URLS ?? '').split(',').map(s => s.trim()).filter(Boolean),
+    debug: on(env.MUMH5_DEBUG),
     maxConnections: Number(env.MUMH5_MAX_CONNECTIONS ?? defaults.maxConnections),
     maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress)
   };
@@ -185,7 +191,8 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
       // The username is the time it runs out; the relay recomputes the password from it
       const username = String(Math.floor(Date.now() / 1000) + CREDENTIAL_TTL);
-      return { port: stunPort, username, credential: turnCredential(turnSecret, username), ttl: CREDENTIAL_TTL };
+      if (config.debug) console.log(new Date().toISOString(), `relay: credentials for ${addr}`);
+      return { port: stunPort, username, credential: turnCredential(turnSecret, username), ttl: CREDENTIAL_TTL, ...(config.turnUrls.length ? { urls: config.turnUrls } : {}) };
     }
     if (req.method !== 'POST') throw new HttpError(404, 'Not found');
     if (!originOk(req)) throw new HttpError(403, 'Origin not allowed');
@@ -348,7 +355,8 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       turn = await startTurn({
         port: config.stunPort, bind: config.stunBind, relay: config.turn, publicIp: config.turnIp,
         minPort: config.turnMinPort, maxPort: config.turnMaxPort, maxAllocations: config.turnMax, maxPerAddress: config.turnPerAddress,
-        peerAllowed: ip => config.allowPrivate || !isPrivateAddress(ip)
+        peerAllowed: ip => config.allowPrivate || !isPrivateAddress(ip),
+        log: config.debug ? line => console.log(new Date().toISOString(), line) : undefined
       }, turnSecret);
       stunPort = turn.port;
     } catch { /* port taken or not permitted */ }
