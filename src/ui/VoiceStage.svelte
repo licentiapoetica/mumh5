@@ -288,7 +288,8 @@
           {@const stream = streamOf(u.session)}
           {@const sharing = session.sharing[u.session]}
           {@const isSelf = u.session === self?.session}
-          {@const cam = camOf(u.session)}
+          <!-- While a camera is shown large, its tile goes back to the avatar: one picture, not two -->
+          {@const cam = focus === u.session ? null : camOf(u.session)}
           {@const w = watchOf(u.session)}
           <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
             onclick={() => tileClick(u.session)}
@@ -359,8 +360,8 @@
         {/if}
       </button>
       {#if anyCamera || share.cams}
-        <button class="icon-btn" class:live={share.cams} aria-pressed={share.cams} title={share.cams ? 'Stop watching the cameras' : 'Watch everyone\'s camera'}
-          aria-label={share.cams ? 'Stop watching the cameras' : 'Watch all cameras'} onclick={() => share.setCams(sessions.active, !share.cams)}>
+        <button class="icon-btn" class:live={share.cams} aria-pressed={share.cams} title={share.cams ? 'Hide everyone\'s camera' : 'Show everyone\'s camera'}
+          aria-label={share.cams ? 'Hide all cameras' : 'Show all cameras'} onclick={() => share.setCams(sessions.active, !share.cams)}>
           <Icon name="camera" size={18} />
         </button>
       {/if}
@@ -410,8 +411,9 @@
   .tile:hover { background: var(--bg-hover); }
   .tile.talking { border-color: var(--speaking); box-shadow: 0 0 0 1px var(--speaking), 0 0 18px -4px var(--speaking); }
   .tile.focused { border-color: var(--accent); }
-  /* A camera fills its tile; your own is mirrored, the way a mirror shows you */
-  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  /* A camera keeps its own shape inside the tile, whatever size the tile is: nothing is cut
+     off, a phone held upright gets bars at the sides. Your own is mirrored, like a mirror. */
+  .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   .tile video.mirror { transform: scaleX(-1); }
   .icon-btn.live, .icon-btn.live:hover { color: var(--speaking); }
   .camgrid { position: relative; display: flex; flex-direction: column; flex: none; }

@@ -46,9 +46,8 @@ class ScreenShare {
   viewers = $state(0);
   // Streams we receive: one screen at a time, and any number of cameras next to it
   watches = $state.raw<Watching[]>([]);
-  // In the camera round: everyone's camera in the channel is watched as it comes on
-  cams = $state(false);
-  private camHost: Session | null = null;
+  // People whose camera we chose not to see, by certificate (or name); until the app restarts
+  hidden = $state<Record<string, boolean>>({});
   error = $state('');
   // The server the start dialog is open for
   dialog = $state.raw<Session | null>(null);
@@ -148,8 +147,6 @@ class ScreenShare {
     this.send(s, this.others(s), SHARE.on, kind);
     s.setSharing(s.client.session!, kind);
     sounds.play('shareStarted');
-    // Turning the camera on joins the round
-    if (kind === 'camera') this.setCams(s, true);
   }
 
   private release(): void {
@@ -193,6 +190,28 @@ class ScreenShare {
     return this.watches.find(w => w.session === session);
   }
 
+  // Cameras come on by themselves, like in a video call, once the note about IP addresses was
+  // confirmed; each person's can be hidden, and the whole thing switched off
+  get cams(): boolean {
+    return store.settings.autoCameras;
+  }
+  private who(s: Session, session: number): string {
+    const u = s.client?.users.get(session);
+    return u ? u.hash || `name:${u.name}` : '';
+  }
+  isHidden(s: Session, session: number): boolean {
+    return !!this.hidden[this.who(s, session)];
+  }
+  hideCamera(s: Session, session: number, hide: boolean): void {
+    const key = this.who(s, session);
+    if (!key) return;
+    if (hide) { this.hidden[key] = true; this.unwatch(session); }
+    else { delete this.hidden[key]; this.watch(s, session); }
+  }
+  private autoWatch(s: Session, session: number): void {
+    if (this.cams && store.settings.shareNoticeSeen && s.sharing[session] === 'camera' && !this.isHidden(s, session)) this.watch(s, session);
+  }
+
   async watch(s: Session, session: number): Promise<void> {
     const kind = s.sharing[session];
     if (!this.supported(s) || !kind || this.watchOf(session) || !(await this.notice())) return;
@@ -200,6 +219,8 @@ class ScreenShare {
     for (const w of this.watches) if (w.host !== s || (kind === 'screen' && w.kind === 'screen')) this.unwatch(w.session);
     if (kind === 'camera' && this.watches.filter(w => w.kind === 'camera').length >= MAX_CAMERAS) return;
     if (!s.sharing[session] || this.watchOf(session)) return;
+    // Asking for it shows it again
+    delete this.hidden[this.who(s, session)];
     this.watches = [...this.watches, { host: s, session, kind, stream: null, state: 'connecting' }];
     this.send(s, [session], SHARE.watch);
     this.watchTimers.set(session, setTimeout(() => this.setWatchState(session, 'failed'), 20000));
@@ -228,20 +249,16 @@ class ScreenShare {
     this.watches = this.watches.map(w => w.session === session ? { ...w, state, stream: stream ?? w.stream } : w);
   }
 
-  // The camera round: watch every camera in the channel, now and as they come on
+  // All cameras on or off, remembered
   async setCams(s: Session, on: boolean): Promise<void> {
+    if (on && (!this.supported(s) || !(await this.notice()))) return;
+    store.settings.autoCameras = on;
+    store.saveSettings();
     if (!on) {
-      this.cams = false;
-      this.camHost = null;
       for (const w of this.watches) if (w.kind === 'camera') this.unwatch(w.session);
       return;
     }
-    if (!this.supported(s) || !(await this.notice())) return;
-    this.cams = true;
-    this.camHost = s;
-    for (const [session, kind] of Object.entries(s.sharing)) {
-      if (kind === 'camera' && Number(session) !== s.client?.session) this.watch(s, Number(session));
-    }
+    for (const session of Object.keys(s.sharing)) if (Number(session) !== s.client?.session) this.autoWatch(s, Number(session));
   }
 
   // Candidates travel inside the description, so wait for them instead of sending each one
@@ -338,7 +355,7 @@ class ScreenShare {
       case SHARE.on:
         if (!s.sharing[sender] && Date.now() - (this.enteredAt.get(s) ?? 0) > 3000) sounds.play('shareStarted');
         s.setSharing(sender, msg.text === 'camera' ? 'camera' : 'screen');
-        if (msg.text === 'camera' && this.cams && this.camHost === s) this.watch(s, sender);
+        this.autoWatch(s, sender);
         break;
       case SHARE.off:
         if (s.sharing[sender]) sounds.play('shareStopped');
@@ -388,7 +405,6 @@ class ScreenShare {
     if (this.host === s) this.release();
     if (this.dialog === s) this.dialog = null;
     for (const w of this.watches) if (w.host === s) this.endWatch(w.session);
-    if (this.camHost === s) { this.cams = false; this.camHost = null; }
   }
 }
 

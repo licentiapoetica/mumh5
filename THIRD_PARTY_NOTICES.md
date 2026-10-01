@@ -41,3 +41,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify and
 others) are distributed under their own licenses, found in each package under `node_modules/`.
+
+## @evan/opus and libopus
+
+The Opus codec compiled to WebAssembly (`opus.wasm`), used for voice in browsers that have no
+audio codec of their own. The package is MIT licensed, Copyright (c) 2021-present evanwashere.
+libopus is under the three-clause BSD license, Copyright 2001-2011 Xiph.Org, Skype Limited,
+Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding,
+Erik de Castro Lopo.

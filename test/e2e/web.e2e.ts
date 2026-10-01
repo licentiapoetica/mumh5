@@ -9,7 +9,9 @@ import { mkdtempSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCodec } from '../../src/core/proto.ts';
-import { decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
+import { decodeVoice, encodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
+import { readFileSync } from 'node:fs';
+import { instantiateOpus, WasmDecoder } from '../../src/lib/audio/opus-wasm.ts';
 import { MumbleClient } from '../../src/core/client.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
@@ -171,13 +173,44 @@ try {
   page2.on('console', m => { if (m.type() === 'error') console.log('[page2]', m.text()); });
   await page2.setViewportSize({ width: 1280, height: 800 });
   await page2.getByRole('button', { name: /Create a new identity/ }).click();
-  await page2.getByLabel('Name', { exact: true }).fill(`webcarol${Date.now() % 100000}`);
+  const carol = `webcarol${Date.now() % 100000}`;
+  // This browser is made to use the built-in Opus codec, as one without WebCodecs audio would
+  await page2.evaluate(() => localStorage.setItem('mumh5.forceWasmOpus', '1'));
+  await page2.getByLabel('Name', { exact: true }).fill(carol);
   await page2.getByRole('button', { name: 'Create', exact: true }).click();
   await page2.getByRole('button', { name: 'Skip for now' }).click();
   await page2.getByRole('button', { name: 'Done' }).click();
   await page2.getByTitle('Add a server').click();
   await page2.getByRole('button', { name: 'Save and connect' }).click();
   await page2.getByText(/Connected/).first().waitFor();
+
+  // Talking with the built-in codec: its packets are real Opus, checked by decoding them here
+  const carolSession = () => [...bob.users.values()].find(u => u.name === carol)!.session;
+  const carolVoice = new Promise<VoicePacket[]>(res => {
+    const packets: VoicePacket[] = [];
+    const off = bob.on('voice', raw => {
+      const p = decodeVoice(raw);
+      if (!p || p.session !== carolSession() || !p.opus.length) return;
+      packets.push(p);
+      if (packets.length >= 20) { off(); res(packets); }
+    });
+  });
+  await page2.getByTitle('Settings').click();
+  await page2.getByRole('radio', { name: /Always on/ }).click();
+  await page2.getByRole('button', { name: 'Done', exact: true }).click();
+  const fromCarol = await within(carolVoice, 'voice from the built-in codec', 20000);
+  const opus = await instantiateOpus(readFileSync(path.join(root, 'node_modules/@evan/opus/wasm/opus.wasm')));
+  const check = new WasmDecoder(opus);
+  const decoded = fromCarol.map(p => check.decode(p.opus));
+  assert.ok(decoded.every(pcm => pcm && pcm.length === 960), 'every packet is 20 ms of decodable Opus');
+  assert.ok(decoded.some(pcm => pcm!.some(v => Math.abs(v) > 0.01)), 'and carries the test tone, not silence');
+  // Hearing: her own packets sent back as bob light him up, and no codec error shows
+  const back = fromCarol.map((p, i) => encodeVoice({ target: 0, frame: 9000 + i * 2, opus: p.opus, last: i === fromCarol.length - 1 }, bob.protobufVoice));
+  const pump = setInterval(() => { const pk = back.shift(); if (pk) bob.sendVoiceTunnel(pk); }, 20);
+  await page2.locator('.sidebar .row.user', { hasText: 'bob' }).locator('.label.talking').waitFor({ timeout: 5000 });
+  clearInterval(pump);
+  assert.equal(await page2.getByText('Voice is not working').count(), 0);
+  console.log(`ok: voice with the built-in Opus codec (${fromCarol[0].opus.length} bytes per packet)`);
 
   await page.locator('.me').getByRole('button', { name: 'Share your screen' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
