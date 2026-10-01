@@ -96,6 +96,8 @@
 </nav>
 
 <style>
+  /* The server you are talking on leads the list, wherever it sits in your own order */
+  .tile.voice { order: -1; }
   .rail {
     width: 68px; flex: none; background: var(--bg-0); display: flex; flex-direction: column;
     align-items: center; gap: 8px; padding: 12px 0; overflow-y: auto;

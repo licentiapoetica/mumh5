@@ -881,6 +881,10 @@ try {
   await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
   await until2('voice moved to the second server', () => !userState('alice-b')?.selfDeaf && !!userState('alice')?.selfDeaf);
   assert.equal(await page.locator('.rail .tile.voice').getAttribute('title').then(t => t?.startsWith('Second')), true);
+  // The server with voice leads the rail, although it was added last
+  const railTop = (title: string) => page.locator(`.rail .tile[title^="${title}"]`).boundingBox().then(b => b!.y);
+  assert.ok(await railTop('Second') < await railTop('Test Server'), 'voice server on top');
+  assert.match(await page.locator('.rail .tile').first().getAttribute('title') ?? '', /^Test Server/, 'the saved order is untouched');
   console.log('ok: voice follows the channel you join');
 
   // Messages on the server not on screen show as unread on its tile
