@@ -39,7 +39,8 @@ export function channelMenu(c: Channel): MenuItem[] {
   return [
     { header: true, label: c.name || 'Root' },
     { label: here ? 'You are here' : 'Join channel', action: () => session.joinChannel(c.id), disabled: here || !c.canEnter },
-    { label: 'Open chat', action: () => { session.showChannel(c.id, 'chat'); ui.panelOpen = true; } },
+    // Opens the channel's chat in the side panel, ready to type, without joining it
+    { label: 'Send message to channel', action: () => { session.showChannel(c.id, 'chat'); ui.panelOpen = true; } },
     { label: 'Show description', action: () => { session.showChannel(c.id, 'info'); ui.panelOpen = true; } },
     { separator: true, label: '' },
     { label: session.isExpanded(c.id) ? 'Collapse' : 'Expand', action: () => session.toggleExpanded(c.id), disabled: c.id === 0 },

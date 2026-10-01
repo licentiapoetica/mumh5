@@ -334,6 +334,21 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: quick audio options on right-click');
 
+  // STUN server for screen sharing: none by default, presets, or a typed address
+  await page.getByTitle('Settings').click();
+  const stun = page.getByLabel('STUN server', { exact: true });
+  assert.equal(await stun.inputValue(), '');
+  await stun.selectOption({ label: 'Cloudflare (stun.cloudflare.com:3478)' });
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), 'stun.cloudflare.com:3478');
+  await stun.selectOption('custom');
+  await page.getByLabel('STUN server address').fill('stun.example.org:3478');
+  await page.getByLabel('STUN server address').blur();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), 'stun.example.org:3478');
+  await stun.selectOption('');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), '');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: STUN server choices');
+
   // Color schemes apply right away and are remembered
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
@@ -716,7 +731,15 @@ try {
     await page.locator('.channel .name', { hasText: 'Lobby' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Join channel' }).click();
     await page.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
-    console.log('ok: channel context menu joins');
+    // Messaging a channel from its menu opens the side chat, ready to type, without joining
+    await page.locator('.channel .name', { hasText: 'Games' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Send message to channel' }).click();
+    const sideInput = page.locator('.panel .composer [contenteditable]');
+    await sideInput.waitFor();
+    assert.equal(await sideInput.getAttribute('data-placeholder'), 'Message #Games');
+    await page.waitForFunction(() => document.activeElement === document.querySelector('.panel .composer [contenteditable]'), null, { timeout: 3000 });
+    await page.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
+    console.log('ok: channel context menu joins, and messages a channel from the side chat');
 
     // Side panel can be resized by dragging its left edge
     const panelBox = (await page.locator('aside.panel').boundingBox())!;
@@ -856,6 +879,19 @@ try {
   assert.ok(inline.length <= 131072, `inline image within the server limit (${inline.length})`);
   console.log(`ok: inline image without upload host (${inline.length} chars)`);
 
+  // A click on an image in the chat shows it large; Escape or a click closes it
+  await page.locator('.chat .msg .html img').last().click();
+  const viewer = page.getByRole('dialog', { name: 'Image' });
+  await viewer.waitFor();
+  const shown = await viewer.locator('img').evaluate((i: HTMLImageElement) => [i.naturalWidth > 0, i.getBoundingClientRect().width]);
+  assert.ok(shown[0] && (shown[1] as number) > 300, `image shown large: ${shown}`);
+  await page.keyboard.press('Escape');
+  await viewer.waitFor({ state: 'detached' });
+  await page.locator('.chat .msg .html img').last().click();
+  await viewer.getByRole('button', { name: 'Close image' }).click({ position: { x: 5, y: 5 } });
+  await viewer.waitFor({ state: 'detached' });
+  console.log('ok: images open large on click');
+
   // ─── Several servers at once ─────────────────────────────────────────────
   const userState = (name: string) => [...bob.users.values()].find(u => u.name === name);
   const until2 = (label: string, cond: () => boolean) => within(new Promise<void>(res => {
@@ -881,6 +917,10 @@ try {
   await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
   await until2('voice moved to the second server', () => !userState('alice-b')?.selfDeaf && !!userState('alice')?.selfDeaf);
   assert.equal(await page.locator('.rail .tile.voice').getAttribute('title').then(t => t?.startsWith('Second')), true);
+  // The server with voice leads the rail, although it was added last
+  const railTop = (title: string) => page.locator(`.rail .tile[title^="${title}"]`).boundingBox().then(b => b!.y);
+  assert.ok(await railTop('Second') < await railTop('Test Server'), 'voice server on top');
+  assert.match(await page.locator('.rail .tile').first().getAttribute('title') ?? '', /^Test Server/, 'the saved order is untouched');
   console.log('ok: voice follows the channel you join');
 
   // Messages on the server not on screen show as unread on its tile

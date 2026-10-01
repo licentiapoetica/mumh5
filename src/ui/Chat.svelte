@@ -29,6 +29,8 @@
 </script>
 
 <section class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat">
+  <!-- Stacked layout: no title bar; the channel list above already names the channel -->
+  {#if !videoOnly}
   <header>
     {#if showMenu}<button class="icon-btn" onclick={onmenu} aria-label="Open channels"><Icon name="menu" /></button>{/if}
     <Icon name={isDm ? 'message' : 'hash'} size={20} />
@@ -37,6 +39,7 @@
     <span class="grow"></span>
     <button class="icon-btn" onclick={onpanel} title="Members"><Icon name="users" /></button>
   </header>
+  {/if}
 
   {#if session.status === 'connected'}<VoiceStage always={showStage} {videoOnly} />{/if}
 

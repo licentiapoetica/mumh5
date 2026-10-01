@@ -140,18 +140,29 @@ try {
   await tile.waitFor();
   console.log('ok: a late joiner sees who is sharing');
 
-  // The tiles fill the stage, and the stage can be made taller or shorter
-  const tileWidth = async () => Math.round((await tile.boundingBox())!.width);
-  const before = await tileWidth();
+  // The tiles fill the stage exactly, whatever its size
+  const fills = () => bob.page.evaluate(() => {
+    const grid = document.querySelector('.stage .tiles')!.getBoundingClientRect();
+    const tiles = [...document.querySelectorAll('.stage .tile')].map(e => e.getBoundingClientRect());
+    const left = Math.min(...tiles.map(r => r.left)), right = Math.max(...tiles.map(r => r.right));
+    const top = Math.min(...tiles.map(r => r.top)), bottom = Math.max(...tiles.map(r => r.bottom));
+    return { ok: left - grid.left < 10 && grid.right - right < 10 && top - grid.top < 10 && grid.bottom - bottom < 10, height: Math.round(tiles[0].height), count: tiles.length };
+  });
+  const first = await fills();
+  assert.ok(first.ok && first.count === 2, `tiles fill the stage: ${JSON.stringify(first)}`);
   const handle = bob.page.getByRole('separator', { name: 'Resize the tiles' });
   await handle.focus();
   for (let i = 0; i < 8; i++) await bob.page.keyboard.press('ArrowDown');
-  await bob.page.waitForFunction(w => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().width) > w, before);
-  const taller = await tileWidth();
+  await bob.page.waitForFunction(h => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().height) > h, first.height);
+  const taller = await fills();
+  assert.ok(taller.ok, 'still filled after making the stage taller');
+  await bob.page.setViewportSize({ width: 820, height: 700 });
+  await bob.page.waitForFunction(() => document.querySelector('.stage .tiles')!.getBoundingClientRect().width < 700);
+  assert.ok((await fills()).ok, 'still filled after making the window narrower');
+  await bob.page.setViewportSize({ width: 1280, height: 800 });
   for (let i = 0; i < 8; i++) await bob.page.keyboard.press('ArrowUp');
-  await bob.page.waitForFunction(w => Math.round(document.querySelector('.stage .tile')!.getBoundingClientRect().width) < w, taller);
   if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/tiles.png` });
-  console.log(`ok: tiles scale with the stage height (${before} to ${taller} px wide)`);
+  console.log(`ok: tiles fill the stage at every size (${first.height} to ${taller.height} px tall)`);
 
   await tile.click();
   await bob.page.getByRole('button', { name: 'Continue' }).click();
