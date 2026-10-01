@@ -137,15 +137,18 @@ class ProxyInfo {
   any = $state(false);
   // UDP port of the proxy's STUN responder, if it runs one
   stun = $state<number | null>(null);
+  // Whether it also relays streams for browsers that cannot connect directly
+  turn = $state(false);
   loaded = $state(false);
   error = $state('');
 
   async load(): Promise<void> {
     try {
-      const c = await call<{ servers: ProxyServer[]; any: boolean; stun?: number | null }>('config');
+      const c = await call<{ servers: ProxyServer[]; any: boolean; stun?: number | null; turn?: boolean }>('config');
       this.servers = c.servers;
       this.any = c.any;
       this.stun = c.stun ?? null;
+      this.turn = !!c.turn;
       this.error = '';
     } catch (e) {
       this.error = (e as Error).message;
@@ -155,8 +158,24 @@ class ProxyInfo {
 }
 export const proxyInfo = new ProxyInfo();
 
-// The proxy's own STUN address: a host the user already uses, so nothing new is contacted
-export function proxyStun(): string | null {
-  if (!proxyInfo.stun || !base) return null;
-  try { return `stun:${new URL(base).hostname}:${proxyInfo.stun}`; } catch { return null; }
+// STUN and relay on the proxy itself: a host the user already uses, so nothing new is contacted.
+// The relay needs credentials, which the proxy hands out for a few hours at a time.
+let relay: { servers: RTCIceServer[]; until: number } | null = null;
+export async function proxyIce(): Promise<RTCIceServer[]> {
+  if (!proxyInfo.loaded) await proxyInfo.load();
+  if (!proxyInfo.stun || !base) return [];
+  let host: string;
+  try { host = new URL(base).hostname; } catch { return []; }
+  const stun: RTCIceServer = { urls: `stun:${host}:${proxyInfo.stun}` };
+  if (!proxyInfo.turn) return [stun];
+  if (relay && relay.until > Date.now()) return relay.servers;
+  try {
+    const c = await call<{ username: string; credential: string; ttl: number; port: number }>('turn', {});
+    // UDP where it is allowed, TCP for networks and browsers that forbid it
+    const servers = [stun, { urls: [`turn:${host}:${c.port}?transport=udp`, `turn:${host}:${c.port}?transport=tcp`], username: c.username, credential: c.credential }];
+    relay = { servers, until: Date.now() + Math.max(60, c.ttl - 3600) * 1000 };
+    return servers;
+  } catch {
+    return [stun];
+  }
 }

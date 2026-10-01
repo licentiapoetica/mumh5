@@ -82,7 +82,7 @@ mumh5 keeps the foundation and replaces the experience.
 - Sound: on Linux one program or everything except mumh5 itself (through PipeWire, so viewers do not hear the voice chat twice); on Windows the whole system; in a browser what the browser offers
 - People in the channel see an indicator next to your name, on your tile and in your profile, and click to watch. The tiles above the chat fill a stage you can drag taller or shorter. A stream opens large, with everyone as a strip of tiles below, like a meeting, and can move to a window of its own; in the stacked layout it is just the picture, as wide as the chat. Sounds announce streams and viewers. Viewers set the stream's volume
 - No server setup and no extra account: the setup messages travel through the Mumble server, the stream goes directly between the two clients (WebRTC), up to 8 viewers. Regular Mumble clients do not see streams
-- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Across the internet both sides need a STUN server. The browser version uses the one built into its proxy; in the desktop app you choose one in Settings, Voice (Google, Cloudflare, or any address such as your proxy's), and none is contacted unless you do
+- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Across the internet both sides need a STUN server. The browser version uses the one built into its proxy, and the proxy's relay when no direct connection is possible (mobile networks, Vanadium); in the desktop app you choose one in Settings, Voice (Google, Cloudflare, or any address such as your proxy's), and none is contacted unless you do
 - Tested between two desktop instances on one machine with a test picture. Sound capture, real screens, connections across the internet, Windows and the browser build are untested
 
 ### Chat
@@ -175,7 +175,9 @@ echo 'MUMH5_SERVERS=mumble.example.com=My server' > .env
 docker compose up -d --build
 ```
 
-The container uses the host's network: the proxy listens on `127.0.0.1:8080` for your reverse proxy and on UDP 3478 for STUN, and a Mumble server on the same machine is reachable as `localhost`.
+The container uses the host's network: the proxy listens on `127.0.0.1:8080` for your reverse proxy, and a Mumble server on the same machine is reachable as `localhost`.
+
+For screen sharing, open these in the firewall (and forward them on a router in front of the server): port 3478 for UDP and TCP, and UDP 49160-49359. They carry STUN and the relay, which the browser version uses without any setting. Relayed streams pass through your server and use its bandwidth, a few Mbit/s per viewer; only people using your site get credentials for it, and there is no bandwidth cap yet.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -185,7 +187,10 @@ The container uses the host's network: the proxy listens on `127.0.0.1:8080` for
 | `MUMH5_ORIGINS` | same host | Origins allowed to use the API, comma-separated, when the page is hosted elsewhere |
 | `MUMH5_TRUST_PROXY` | off | Take client addresses from `X-Forwarded-For` (set this behind a reverse proxy) |
 | `MUMH5_SEND_PROXY` | off | Announce each visitor's address to the server with the PROXY protocol (see below). Breaks connections to a plain Mumble server |
-| `MUMH5_STUN_PORT`, `MUMH5_STUN_BIND` | `3478`, all addresses | UDP port of the built-in STUN responder that lets browser users find a direct route for screen sharing. Open this UDP port in the firewall; it does not go through nginx. `0` turns it off |
+| `MUMH5_STUN_PORT`, `MUMH5_STUN_BIND` | `3478`, all addresses | Port for screen sharing between browser users: STUN over UDP, and the relay over UDP and TCP. Browsers reach it directly, not through nginx. `0` turns both off |
+| `MUMH5_TURN` | on | The relay (TURN) for people who cannot connect directly: mobile networks, strict company networks, browsers that forbid direct UDP such as Vanadium. `0` leaves only STUN |
+| `MUMH5_TURN_PORTS` | `49160-49359` | UDP ports the relayed streams use |
+| `MUMH5_TURN_IP` | found automatically | The server's public address, announced for relayed streams. Set it when the server sits behind a 1:1 NAT, as on many cloud hosts |
 | `MUMH5_STATIC` | `../dist-web` | Folder with the web build |
 | `MUMH5_MAX_CONNECTIONS`, `MUMH5_MAX_PER_ADDRESS` | `200`, `8` | Connection limits, in total and per client address |
 

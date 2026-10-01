@@ -42,7 +42,9 @@ function within<T>(p: Promise<T>, label: string, ms = 10000): Promise<T> {
 const proxyPort = 18000 + Math.floor(Math.random() * 1000);
 const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
 const proxy = spawn(process.execPath, [path.join(root, 'dist-proxy/proxy.mjs')], {
-  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit']
+  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1',
+    // Everything is on this machine, so the relay has to be allowed to reach loopback
+    MUMH5_ALLOW_PRIVATE: '1', MUMH5_TURN_IP: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit']
 });
 await within(new Promise<void>((res, rej) => {
   proxy.stdout.on('data', d => { if (String(d).includes('listening')) res(); });
@@ -184,6 +186,9 @@ try {
   await page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 60000 });
   await dialog.getByRole('button', { name: 'Start sharing' }).click();
   await page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
+  // The viewer is limited to what a browser without direct UDP has (Vanadium's default): only
+  // the proxy's relay, reached over TCP
+  await page2.evaluate(() => localStorage.setItem('mumh5.iceDebug', 'relay-tcp'));
   await page2.locator('.stage .tile', { hasText: name }).click();
   await page2.getByRole('button', { name: 'Continue' }).click();
   await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
@@ -195,7 +200,17 @@ try {
     return !!v && v.videoWidth > 0 && !v.paused && v.getBoundingClientRect().height > 100 && v.getBoundingClientRect().width > 300;
   }, null, { timeout: 15000 });
   if (process.env.SHOTS_DIR) await page2.screenshot({ path: `${process.env.SHOTS_DIR}/phone.png` });
-  console.log('ok: screen sharing between two browsers');
+  // The statistics confirm which way the stream came
+  await page2.setViewportSize({ width: 1280, height: 800 });
+  await page2.locator('.spot video').click({ button: 'right' });
+  await page2.getByRole('menuitem', { name: 'Stats for nerds' }).click();
+  const stats = page2.getByRole('status', { name: 'Stream statistics' });
+  await stats.getByText(/^(direct|relayed)/).first().waitFor({ timeout: 8000 });
+  const route = (await stats.innerText()).replace(/\n+/g, ' | ');
+  assert.match(route, /relayed \(TURN\), reached over TCP/, route);
+  assert.match(route, /0 direct, 0 through STUN, [1-9]\d* relayed/, route);
+  await stats.getByText(/^\d+ kbit\/s$/).first().waitFor({ timeout: 8000 });
+  console.log('ok: screen sharing to a browser without direct UDP, through the relay over TCP');
 
   console.log('WEB E2E PASSED');
 } finally {

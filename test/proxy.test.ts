@@ -50,7 +50,7 @@ test('refuses to start without allowed servers', async () => {
 
 test('config lists the allowed servers', async () => {
   await withProxy({ servers: parseServers('voice.example.org=Friends') }, async base => {
-    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false, stun: null });
+    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false, stun: null, turn: false });
   });
 });
 
@@ -108,6 +108,12 @@ test('the proxy answers STUN over UDP and announces the port', async () => {
       setTimeout(() => reject(new Error('no STUN answer')), 3000);
     });
     assert.equal(((answer[26] << 8) | answer[27]) ^ 0x2112, client.address().port);
+    // Relay credentials for people on this site: a username that expires and its password
+    const base = `http://127.0.0.1:${proxy.port}`;
+    assert.equal((await (await fetch(`${base}/api/config`)).json()).turn, true);
+    const cred = await (await post(base, 'turn', {})).json();
+    assert.ok(Number(cred.username) > Date.now() / 1000 && cred.credential.length > 20 && cred.port === proxy.stunPort);
+    assert.equal((await post(base, 'turn', {}, { Origin: 'https://evil.example' })).status, 200, 'origins are open in this test');
     assert.deepEqual([...answer.subarray(28)].map((b, i) => b ^ [0x21, 0x12, 0xa4, 0x42][i]), [127, 0, 0, 1]);
     client.close();
   } finally {

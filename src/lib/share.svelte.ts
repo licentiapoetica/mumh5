@@ -6,7 +6,7 @@ import { SHARE, SHARE_DATA_ID, encodeShare, ShareAssembler, type ShareType } fro
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
 import { desktop, isWeb } from './native.ts';
-import { proxyStun } from './web.svelte.ts';
+import { proxyIce } from './web.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
@@ -55,12 +55,23 @@ class ScreenShare {
     return !!s.client && s.client.serverVersionNum >= 0x010400 && typeof RTCPeerConnection !== 'undefined';
   }
 
-  private iceServers(): RTCIceServer[] {
+  private async iceServers(): Promise<RTCIceServer[]> {
     const stun = store.settings.stunServer.trim();
-    if (stun) return [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }];
-    // The browser build falls back to the proxy it is served from
-    const own = isWeb ? proxyStun() : null;
-    return own ? [{ urls: own }] : [];
+    const chosen: RTCIceServer[] = stun ? [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }] : [];
+    // The browser build also has the proxy it is served from: its STUN, and its relay for
+    // networks and browsers that allow no direct connection
+    return isWeb ? [...chosen, ...await proxyIce()] : chosen;
+  }
+
+  // For testing the relay: localStorage mumh5.iceDebug = "relay" uses only relayed routes,
+  // "relay-tcp" only the relay reached over TCP (what a browser without direct UDP is left with)
+  private async rtcConfig(): Promise<RTCConfiguration> {
+    const iceServers = await this.iceServers();
+    let debug = '';
+    try { debug = localStorage.getItem('mumh5.iceDebug') ?? ''; } catch { /* storage unavailable */ }
+    if (!debug.startsWith('relay')) return { iceServers };
+    const tcpOnly = (urls: string | string[]) => [urls].flat().filter(u => !u.startsWith('turn') || u.includes('transport=tcp'));
+    return { iceTransportPolicy: 'relay', iceServers: debug === 'relay-tcp' ? iceServers.map(s => ({ ...s, urls: tcpOnly(s.urls) })) : iceServers };
   }
 
   private others(s: Session): number[] {
@@ -198,9 +209,11 @@ class ScreenShare {
   private async offerTo(s: Session, viewer: number): Promise<void> {
     const stream = this.stream;
     if (!stream || this.host !== s) return;
+    const config = await this.rtcConfig();
+    if (this.stream !== stream || this.host !== s) return;
     this.dropPeer(viewer);
     if (this.peers.size >= MAX_VIEWERS) return;
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers() });
+    const pc = new RTCPeerConnection(config);
     this.peers.set(viewer, pc);
     this.viewers = this.peers.size;
     pc.addEventListener('connectionstatechange', () => {
@@ -227,8 +240,10 @@ class ScreenShare {
   private async answerTo(s: Session, sharer: number, sdp: string): Promise<void> {
     const w = this.watching;
     if (!w || w.host !== s || w.session !== sharer) return;
+    const config = await this.rtcConfig();
+    if (this.watching?.host !== s || this.watching.session !== sharer) return;
     this.watchPc?.close();
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers() });
+    const pc = new RTCPeerConnection(config);
     this.watchPc = pc;
     // The track is announced with the description, before any route exists: the stream only
     // counts as live once the connection is up, otherwise the viewer stares at a black picture
