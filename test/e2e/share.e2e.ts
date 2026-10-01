@@ -104,6 +104,26 @@ try {
   await alice.page.setViewportSize({ width: 600, height: 800 });
   await alice.page.locator('.app.stacked .stage.solo video').waitFor();
   assert.ok(await fits(), 'still as wide as the chat on a narrow window');
+  // On a short window the picture gives way and the chat keeps about five lines
+  await alice.page.setViewportSize({ width: 600, height: 700 });
+  const heights = () => alice.page.evaluate(() => [document.querySelector('.chat [role=log]')!.getBoundingClientRect().height, document.querySelector('.stage.solo video')!.getBoundingClientRect().height]);
+  await alice.page.waitForFunction(() => document.querySelector('.stage.solo video')!.getBoundingClientRect().height < 250);
+  const [logH, videoH] = await heights();
+  assert.ok(logH >= 120, `chat keeps its lines: ${logH}`);
+  assert.ok(videoH > 40, `the picture is still shown: ${videoH}`);
+  await alice.page.setViewportSize({ width: 600, height: 800 });
+  // The chat can be dragged taller, never below its minimum; the picture takes the rest
+  const chatHandle = alice.page.getByRole('separator', { name: 'Resize the chat' });
+  await chatHandle.focus();
+  for (let i = 0; i < 12; i++) await alice.page.keyboard.press('ArrowUp');
+  await alice.page.waitForFunction(() => document.querySelector('.chat [role=log]')!.getBoundingClientRect().height > 200);
+  const grown = (await heights())[0];
+  for (let i = 0; i < 40; i++) await alice.page.keyboard.press('ArrowDown');
+  await alice.page.waitForFunction(() => document.querySelector('.chat [role=log]')!.getBoundingClientRect().height < 130);
+  const [smallest, videoNow] = await heights();
+  assert.ok(smallest >= 124, `not below the minimum: ${smallest}`);
+  assert.ok(videoNow > 100, `the picture fills the rest: ${videoNow}`);
+  console.log(`ok: stacked chat resizable (${Math.round(grown)} px down to ${Math.round(smallest)} px)`);
   if (process.env.SHOTS_DIR) await alice.page.screenshot({ path: `${process.env.SHOTS_DIR}/stacked.png` });
   await alice.page.getByText('0 watching').waitFor();
   await alice.page.setViewportSize({ width: 1280, height: 800 });
@@ -143,9 +163,27 @@ try {
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
 
   if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(500); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/meeting.png` }); }
+  // Right-click on the picture: statistics for both sides
+  const nerd = async (page: Page, expect: RegExp[]) => {
+    await page.locator('.spot video').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Stats for nerds' }).click();
+    const box = page.getByRole('status', { name: 'Stream statistics' });
+    for (const e of expect) await box.getByText(e).first().waitFor({ timeout: 8000 });
+    const text = (await box.innerText()).replace(/\n+/g, ' | ');
+    await box.getByRole('button', { name: 'Close statistics' }).click();
+    await box.waitFor({ state: 'detached' });
+    return text;
+  };
+  const viewerStats = await nerd(bob.page, [/^(VP8|VP9|H264|AV1)/, /^\d+x\d+/, /^\d+ kbit\/s$/, /^direct/]);
+  const sharerStats = await nerd(alice.page, [new RegExp(`To ${bobName}`), /^(VP8|VP9|H264|AV1)/, /^\d+ kbit\/s$/]);
+  console.log(`ok: stats for nerds (viewer: ${viewerStats.slice(0, 200)}...)`);
+  assert.ok(sharerStats.includes('Round trip'));
+
   // The large picture can move to a window of its own
   const opened = bob.app.waitForEvent('window');
-  await view.getByRole('button', { name: 'Open in a separate window' }).click();
+  // From the right-click menu on the picture
+  await bob.page.locator('.spot video').click({ button: 'right' });
+  await bob.page.getByRole('menuitem', { name: 'Open in a separate window' }).click();
   const streamWindow = await opened;
   await streamWindow.waitForFunction(() => (document.querySelector('video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
   await view.getByText('Shown in a separate window.').waitFor();
