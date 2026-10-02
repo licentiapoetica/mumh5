@@ -114,6 +114,8 @@
   </div>
 
   <h3>Processing</h3>
+  <label class="check"><input type="checkbox" checked={s.releaseMicMuted} onchange={e => voice.update({ releaseMicMuted: e.currentTarget.checked })} /> Give the microphone back while muted</label>
+  <p class="help">For Bluetooth headsets: with the microphone open, a headset switches to its telephone mode and everything sounds like a phone call. Muted, you then hear in full quality. To talk in full quality too, choose the phone's own microphone above instead of the headset's. No reminder when you speak while muted.{#if s.releaseMicMuted && voice.running} <strong>{voice.micOpen ? 'The microphone is open now.' : 'The microphone is given back now.'}</strong>{/if}</p>
   <label class="check"><input type="checkbox" checked={s.noiseSuppression} onchange={e => voice.update({ noiseSuppression: e.currentTarget.checked })} /> Noise suppression</label>
   <label class="check"><input type="checkbox" checked={s.echoCancellation} onchange={e => voice.update({ echoCancellation: e.currentTarget.checked })} /> Echo cancellation (for speakers instead of headphones)</label>
   <label class="check"><input type="checkbox" checked={s.autoGainControl} onchange={e => voice.update({ autoGainControl: e.currentTarget.checked })} /> Automatic gain control</label>
