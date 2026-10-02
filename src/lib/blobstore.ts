@@ -21,4 +21,7 @@ function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<
 
 export const putBlob = (key: string, blob: Blob) => run('readwrite', s => s.put(blob, key));
 export const getBlob = (key: string) => run<Blob | undefined>('readonly', s => s.get(key));
-export const deleteBlob = (key: string) => run('readwrite', s => s.delete(key));
+// Plain data that outgrows localStorage (text channel messages)
+export const putData = (key: string, value: unknown) => run('readwrite', s => s.put(value, key));
+export const getData = <T>(key: string) => run<T | undefined>('readonly', s => s.get(key));
+export const deleteBlob =(key: string) => run('readwrite', s => s.delete(key));

@@ -14,6 +14,8 @@ import { MumbleClient } from '../../src/core/client.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
+import { byOrder } from '../../src/core/channel-order.ts';
+import { TEXT, TEXT_DATA_ID, TEXT_MARK, TextAssembler, encodeText, parseMsg, parseHistory } from '../../src/core/text-signal.ts';
 
 const target = process.env.MUMBLE_TEST_HOST;
 if (!target) {
@@ -70,6 +72,8 @@ const app = await electron.launch({
 const bob = await headless('bob');
 // SuperUser can create channels; needs MUMBLE_SUPERUSER_PASSWORD on the test server
 const admin = process.env.MUMBLE_SUPERUSER_PASSWORD ? await headless('SuperUser', process.env.MUMBLE_SUPERUSER_PASSWORD) : null;
+// The text channel made further down; checked again after the app reconnects
+let notesId: number | null = null;
 try {
   const page = await app.firstWindow();
   page.on('console', m => { if (m.type() === 'error') console.log('[renderer]', m.text()); });
@@ -839,6 +843,28 @@ try {
     bob.joinChannel(0);
     console.log('ok: drag and drop moves channels and people');
 
+    // Dropped on the lower or upper third of a row, a channel goes behind or in front of it.
+    // A line shows where it will land.
+    const topOrder = () => [...bob.channels.values()].filter(c => c.parent === 0).sort(byOrder).map(c => c.name);
+    assert.deepEqual(topOrder(), ['Games', 'Lobby']);
+    await page.locator('.channel .name', { hasText: 'Games' }).hover();
+    await page.mouse.down();
+    const lobbyBox = (await page.locator('.channel', { hasText: 'Lobby' }).first().boundingBox())!;
+    await page.mouse.move(lobbyBox.x + 60, lobbyBox.y + lobbyBox.height - 4, { steps: 8 });
+    // Lobby is open (people inside), so the line sits below them
+    await page.locator('li.after-end', { hasText: 'Lobby' }).waitFor();
+    if (shots) await page.screenshot({ path: path.join(shots, 'drag-line.png') });
+    assert.equal(await page.locator('.channel.dragging', { hasText: 'Games' }).count(), 1, 'the dragged channel is dimmed');
+    await page.mouse.up();
+    await bobSees('Games behind Lobby', () => topOrder().join() === 'Lobby,Games');
+    assert.equal(await page.locator('li.after-end, .channel.after, .channel.before, .channel.into').count(), 0);
+    await page.locator('.channel .name', { hasText: 'Games' }).dragTo(page.locator('.channel', { hasText: 'Lobby' }).first(), { targetPosition: { x: 60, y: 3 } });
+    await bobSees('Games in front of Lobby again', () => topOrder().join() === 'Games,Lobby');
+    // The pointer rests on a row with a description; move away so no preview covers the list
+    await page.mouse.move(700, 400);
+    await page.locator('.desc-pop').waitFor({ state: 'detached' });
+    console.log('ok: drag and drop puts a channel in front of or behind another, with a line where it lands');
+
     // Delete (Team Room is now inside Games, which stays collapsed while empty)
     await page.locator('.channel', { hasText: 'Games' }).first().getByRole('button', { name: 'Expand' }).click();
     await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
@@ -856,6 +882,84 @@ try {
     assert.notEqual(await page.locator('.me .who span').textContent(), 'Root');
     await page.locator('.sidebar .row.user.self').waitFor();
     console.log('ok: toolbar expands and collapses all channels, occupied ones stay open');
+
+    // ─── Text channels: read and written without joining, between mumh5 clients ───
+    // Bob plays a second mumh5 client by speaking the plugin data protocol
+    const assembler = new TextAssembler();
+    const signals: { type: number; text?: string }[] = [];
+    const waiting: { want: (s: { type: number; text?: string }) => boolean; res: (s: { type: number; text?: string }) => void }[] = [];
+    const bobSend = async (to: number[], type: Parameters<typeof encodeText>[0], body?: unknown) => {
+      for (const p of await encodeText(type, body)) { bob.sendPluginData(to, TEXT_DATA_ID, p); await new Promise(r => setTimeout(r, 120)); }
+    };
+    bob.on('pluginData', async (sender, dataId, data) => {
+      if (dataId !== TEXT_DATA_ID) return;
+      const signal = await assembler.push(sender, data);
+      if (!signal) return;
+      // Like a mumh5 client that was here before: answers a newcomer and hands over an old message
+      if (signal.type === TEXT.hello) bobSend([sender], TEXT.here);
+      if (signal.type === TEXT.want && notesId != null) {
+        bobSend([sender], TEXT.history, { c: notesId, m: [{ i: 'from-before', t: Date.now() - 3600_000, n: 'dave', k: '', h: 'said while you were away' }] });
+      }
+      signals.push(signal);
+      const at = waiting.findIndex(w => w.want(signal));
+      if (at >= 0) waiting.splice(at, 1)[0].res(signal);
+    });
+    const bobGets = (label: string, want: (s: { type: number; text?: string }) => boolean) =>
+      within(new Promise<{ type: number; text?: string }>(res => waiting.push({ want, res })), label);
+
+    await page.mouse.click(listBox.x + listBox.width / 2, listBox.y + listBox.height - 20, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Create channel...' }).click();
+    await page.getByLabel('Name').fill('notes');
+    await page.getByLabel('Text channel (mumh5 only)').check();
+    await page.getByRole('button', { name: 'Create channel' }).click();
+    await bobSees('text channel', () => !!chByName('notes')?.description.startsWith(TEXT_MARK));
+    notesId = chByName('notes')!.id;
+    const notesRow = page.locator('.channel', { hasText: 'notes' });
+    // No description marker for a channel whose description is only the text channel mark
+    assert.equal(await notesRow.locator('.desc').count(), 0);
+    const voiceChannel = await page.locator('.me .who span').textContent();
+    await notesRow.locator('.name').click();
+    await page.locator('.chat h1', { hasText: 'notes' }).waitFor();
+    assert.equal(await page.locator('.me .who span').textContent(), voiceChannel, 'opening a text channel does not join it');
+    const sent = bobGets('text channel message', m => m.type === TEXT.msg);
+    await page.locator('.chat .composer [contenteditable]').fill('text hello');
+    await page.locator('.chat .composer [contenteditable]').press('Enter');
+    const got = parseMsg((await sent).text);
+    assert.equal(got?.c, notesId);
+    assert.equal(got?.h, 'text hello');
+    await page.locator('.chat .msg', { hasText: 'text hello' }).waitFor();
+    console.log('ok: text channel created, opened without joining, message reaches others');
+
+    // A message from someone in another channel arrives; unread while another chat is open
+    await bobSend([aliceSession()], TEXT.msg, { i: 'bob-1', c: notesId, h: 'hello from <b>bob</b>' });
+    await page.locator('.chat .msg', { hasText: 'hello from bob' }).locator('strong', { hasText: 'bob' }).first().waitFor();
+    await page.locator('.channel .name', { hasText: voiceChannel! }).first().dblclick();
+    await page.locator('.chat h1', { hasText: voiceChannel! }).waitFor();
+    await bobSend([aliceSession()], TEXT.msg, { i: 'bob-2', c: notesId, h: 'second from bob' });
+    await notesRow.locator('.badge', { hasText: '1' }).waitFor();
+    // The same message again is not shown twice
+    await bobSend([aliceSession()], TEXT.msg, { i: 'bob-2', c: notesId, h: 'second from bob' });
+    await page.waitForTimeout(500);
+    await notesRow.locator('.name').click();
+    await page.locator('.chat .msg', { hasText: 'second from bob' }).waitFor();
+    assert.equal(await page.locator('.chat .html', { hasText: 'second from bob' }).count(), 1);
+    assert.equal(await notesRow.locator('.badge').count(), 0);
+    // Not into ordinary channels
+    await bobSend([aliceSession()], TEXT.msg, { i: 'bob-3', c: gamesId, h: 'sneaked in' });
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator('.channel', { hasText: 'Games' }).first().locator('.badge').count(), 0);
+    console.log('ok: text channel messages arrive, count as unread, no duplicates, only in text channels');
+
+    // The app hands its messages to a client that asks
+    const handed = bobGets('history', m => m.type === TEXT.history && parseHistory(m.text).length > 0);
+    await bobSend([aliceSession()], TEXT.want);
+    const history = parseHistory((await handed).text);
+    assert.deepEqual(history.map(m => m.h), ['text hello', 'hello from <b>bob</b>', 'second from bob']);
+    assert.deepEqual(history.map(m => m.n), ['alice', 'bob', 'bob']);
+    assert.equal(history[0].c, notesId);
+    await page.locator('.channel .name', { hasText: voiceChannel! }).first().dblclick();
+    await page.locator('.chat h1', { hasText: voiceChannel! }).waitFor();
+    console.log('ok: text channel messages handed to a client that asks');
   }
 
   // Without an upload host, images are sent inline within Mumble's image limit
@@ -982,6 +1086,18 @@ try {
     bob.on('user', u => { if (u.name === newName) res(); });
   }), 'bob sees the new name');
   console.log('ok: name changed by reconnecting');
+
+  // Text channel after reconnecting: what this computer kept, plus what another client hands over
+  if (notesId != null) {
+    await page.locator('.channel .name', { hasText: 'notes' }).click();
+    await page.locator('.chat .msg', { hasText: 'said while you were away' }).locator('strong', { hasText: 'dave' }).waitFor();
+    const texts = await page.locator('.chat .msg .html').allTextContents();
+    assert.deepEqual(texts.map(t => t.trim()).filter(t => !t.startsWith('You joined')), ['said while you were away', 'text hello', 'hello from bob', 'second from bob']);
+    assert.equal(await page.locator('.channel', { hasText: 'notes' }).locator('.badge').count(), 0, 'old messages are not unread');
+    await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
+    await page.locator('.chat h1', { hasText: 'Root' }).waitFor();
+    console.log('ok: text channel keeps its messages and catches up from another client');
+  }
 
   // Self-registration from the right-click menu on yourself; the profile shows no badge either way
   const meRow = page.locator('.sidebar .user.self');

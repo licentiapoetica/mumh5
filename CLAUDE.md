@@ -50,6 +50,8 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 - Screen sharing: `src/core/share-signal.ts` (signals as Mumble plugin data, id `mumh5.share`, compressed and chunked) and `src/lib/share.svelte.ts` (one WebRTC connection per viewer and stream, candidates inside the description, no trickle; a viewer holds one screen and any number of cameras in `share.watches`). The start dialog is `ShareDialog.svelte`, the tiles and the large view are `VoiceStage.svelte`. Desktop source listing is `share:sources` / `share:pick` in `electron/main.ts`; Linux sound is `electron/pipewire.ts` (a virtual microphone fed with pw-link, never with this app's own playback).
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
 
+- Text channels: `src/core/text-signal.ts` (a marker in the channel description, messages as plugin data, id `mumh5.text`, sent to everyone on the server) and `src/lib/text-channels.ts` (pacing under Murmur's plugin limit, messages kept in IndexedDB per server, catch-up from one other client after connecting). They share the `ch:<id>` chat view; `session.isText(id)` tells them apart. Channel order for drag and drop is `src/core/channel-order.ts`.
+
 Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
 
 ## Conventions
@@ -79,7 +81,8 @@ Voice runs on one server at a time (where you last joined a channel); background
 - Murmur silently drops own UserState, TextMessage, ChannelState, ACL and Version past a leaky bucket (burst 5, 1/s). The client paces these; don't bypass `send()`.
 - 1.5 servers use the protobuf UDP voice format (type byte 0 + MumbleUDP.Audio) with clients announcing 1.5; older ones the legacy format. The UDPTunnel TCP body is the raw voice packet, not a protobuf message. Sequence numbers count 10 ms frames.
 - Long comments and descriptions arrive as a hash only; a new hash invalidates the old text; fetch with RequestBlob.
-- Murmur drops PluginDataTransmission over 1000 bytes and rate limits it; keep packets at 900 bytes and few.
+- Murmur drops PluginDataTransmission over 1000 bytes and rate limits it (measured: burst 15, then 4 per second, per sender, dropped silently); keep packets at 900 bytes and few.
+- Murmur gives the id of a removed channel to the next one created; anything kept per channel id must be dropped on ChannelRemove.
 - Renaming while connected is not possible; mumh5 reconnects with the new name.
 - Murmur never sends SuperUser (user id 0) PermissionQuery answers; treat SuperUser as allowed everything.
 - In ACLs, Write overrides denies. Grant test rights to one user (`$<certhash>` group), not `@all`.

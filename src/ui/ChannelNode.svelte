@@ -14,6 +14,8 @@
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
   import type { Channel } from '../core/client.ts';
+  import { stripMark } from '../core/text-signal.ts';
+  import { planMove } from '../core/channel-order.ts';
 
   let { channel, depth = 0, onnavigate }: { channel: Channel; depth?: number; onnavigate: () => void } = $props();
 
@@ -21,12 +23,14 @@
   const children = $derived(session.childrenOf(channel.id));
   const expanded = $derived(session.isExpanded(channel.id));
   const here = $derived(session.self?.channelId === channel.id);
-  const selected = $derived(session.panel.kind === 'channel' && session.panel.id === channel.id);
+  // Read and written without joining: a click opens its chat
+  const isText = $derived(session.isText(channel.id));
+  const selected = $derived((session.panel.kind === 'channel' && session.panel.id === channel.id) || (isText && session.view === `ch:${channel.id}`));
   const unread = $derived(session.unread[`ch:${channel.id}`] ?? 0);
   const total = $derived(session.subtreeUserCount(channel.id));
 
   // Resting on a channel that has a description for 1 second opens a quick preview next to its row
-  const hasDescription = $derived(!!(channel.description || channel.descriptionHash));
+  const hasDescription = $derived(!!(stripMark(channel.description) || (!channel.description && channel.descriptionHash)));
   const descriptionHtml = $derived(channel.description ? renderIncoming(channel.description, store.trustedHosts).html : '');
   let preview = $state<{ x: number; y: number } | null>(null);
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
@@ -40,6 +44,8 @@
     trackPointer(e);
     clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => {
+      // Not while something is dragged, and not when the row moved away in the meantime
+      if (drag.item || !rowEl?.matches(':hover')) return;
       // Long descriptions are only announced by hash; the text is fetched now
       session.loadDescription(channel.id);
       // Just below and right of the pointer, kept inside the window
@@ -52,6 +58,20 @@
     // An image opened from the preview covers it; the preview stays underneath
     hoverTimer = setTimeout(() => { if (!ui.image) preview = null; }, 250);
   }
+  // A row that moves away under the pointer (after a drop) never reports the pointer leaving,
+  // so an open preview also watches where the pointer is
+  let rowEl = $state<HTMLElement>();
+  $effect(() => {
+    if (!preview) return;
+    let away: ReturnType<typeof setTimeout> | undefined;
+    const inside = () => !!rowEl?.matches(':hover') || !!popEl?.matches(':hover') || !!ui.image;
+    const check = () => {
+      if (inside()) { clearTimeout(away); away = undefined; }
+      else away ??= setTimeout(() => { away = undefined; if (!inside()) preview = null; }, 300);
+    };
+    window.addEventListener('mousemove', check);
+    return () => { window.removeEventListener('mousemove', check); clearTimeout(away); };
+  });
   // Back from the image: the preview stays while the pointer is on it, and goes when it is not
   let popEl = $state<HTMLElement>();
   let hadImage = false;
@@ -80,44 +100,99 @@
     };
   }
 
-  // Drop a person to move them here, or a channel to make it a subchannel of this one
-  let over = $state(false);
-  const canDrop = $derived.by(() => {
+  // Drop a person to move them here. A channel dropped on the middle of a row becomes a
+  // subchannel; dropped on the upper or lower third it goes in front of or behind this one.
+  type Zone = 'before' | 'after' | 'into';
+  let zone = $state<Zone | null>(null);
+  const dragging = $derived(drag.item?.kind === 'channel' && drag.item.id === channel.id);
+  const open = $derived(expanded && (children.length > 0 || users.length > 0));
+
+  function intoAllowed(): boolean {
     const d = drag.item;
     if (!d) return false;
     if (d.kind === 'user') return session.user(d.id)?.channelId !== channel.id;
     return d.id !== channel.id && channel.id !== session.channel(d.id)?.parent && !session.isInside(channel.id, d.id);
-  });
+  }
 
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    over = false;
-    // Check before clearing: canDrop is derived from the dragged item
+  function zoneAt(e: DragEvent, row: HTMLElement): Zone | null {
     const d = drag.item;
-    const ok = canDrop;
+    if (!d) return null;
+    const into = intoAllowed();
+    if (d.kind === 'user' || channel.id === 0) return into ? 'into' : null;
+    if (d.id === channel.id || session.isInside(channel.id, d.id)) return null;
+    const box = row.getBoundingClientRect();
+    const y = (e.clientY - box.top) / box.height;
+    if (y < 0.34) return 'before';
+    if (y > 0.66) return 'after';
+    if (into) return 'into';
+    return y < 0.5 ? 'before' : 'after';
+  }
+
+  // Resting on a closed channel opens it, to reach the channels inside
+  let openTimer: ReturnType<typeof setTimeout> | undefined;
+  function setZone(z: Zone | null) {
+    if (z === zone) return;
+    zone = z;
+    clearTimeout(openTimer);
+    if (z === 'into' && !expanded && children.length) openTimer = setTimeout(() => { if (zone === 'into' && !expanded) session.toggleExpanded(channel.id); }, 700);
+  }
+
+  function onDragOver(e: DragEvent, fixed?: Zone) {
+    const z = fixed ? (intoAllowed() ? fixed : null) : zoneAt(e, e.currentTarget as HTMLElement);
+    if (z) e.preventDefault();
+    setZone(z);
+  }
+
+  // Leaving for an element inside the same target is not leaving
+  function onDragLeave(e: DragEvent) {
+    if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) setZone(null);
+  }
+
+  function onDrop(e: DragEvent, fixed?: Zone) {
+    e.preventDefault();
+    // Work out the target before clearing: it depends on the dragged item
+    const d = drag.item;
+    const z = fixed ? (intoAllowed() ? fixed : null) : zoneAt(e, e.currentTarget as HTMLElement);
+    setZone(null);
     drag.item = null;
-    if (!d || !ok) return;
+    const client = session.client;
+    if (!d || !z || !client) return;
     if (d.kind === 'user') {
       if (d.id === session.self?.session) session.joinChannel(channel.id);
       else session.moveUser(d.id, channel.id);
-    } else {
-      session.client?.updateChannel(d.id, { parent: channel.id });
-      sounds.play('channelMoved');
+      return;
     }
+    if (z === 'into') {
+      client.updateChannel(d.id, { parent: channel.id });
+    } else {
+      const moved = session.channel(d.id);
+      if (!moved || channel.parent == null) return;
+      const rest = session.childrenOf(channel.parent).filter(c => c.id !== d.id);
+      const plan = planMove(rest, moved, rest.findIndex(c => c.id === channel.id) + (z === 'after' ? 1 : 0));
+      const own = plan.find(u => u.id === d.id);
+      const reparent = moved.parent !== channel.parent;
+      if (!reparent && !plan.length) return;
+      if (reparent || own) client.updateChannel(d.id, { ...(reparent ? { parent: channel.parent } : {}), ...(own ? { position: own.position } : {}) });
+      for (const u of plan) if (u.id !== d.id) client.updateChannel(u.id, { position: u.position });
+    }
+    sounds.play('channelMoved');
   }
 
-  const channelClicks = clickOrDouble(
+  const openText = () => { session.selectView(`ch:${channel.id}`); onnavigate(); };
+  const channelClicks = $derived(isText ? { onclick: openText } : clickOrDouble(
     () => { session.showChannel(channel.id); ui.panelOpen = true; },
     () => { session.joinChannel(channel.id); onnavigate(); }
-  );
+  ));
 </script>
 
-<li>
-  <div class="row channel" class:here class:selected class:over style:padding-left="{8 + depth * 14}px"
+<!-- Behind an open channel is below its people and subchannels; the line is drawn there -->
+<li class:after-end={zone === 'after' && open} style:--indent="{8 + depth * 14}px">
+  <div class="row channel" class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
+    style:padding-left="{8 + depth * 14}px"
     oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
-    ondragover={e => { if (canDrop) { e.preventDefault(); over = true; } }}
-    ondragleave={() => (over = false)}
-    ondrop={onDrop}
+    ondragover={onDragOver}
+    ondragleave={onDragLeave}
+    ondrop={onDrop} bind:this={rowEl}
     onmouseenter={hoverRow} onmousemove={trackPointer} onmouseleave={leaveRow}>
     {#if children.length || users.length}
       <button class="caret" class:collapsed={!expanded} onclick={() => session.toggleExpanded(channel.id)}
@@ -128,11 +203,11 @@
       <span class="caret"></span>
     {/if}
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
-    <button class="name" title="Click for details, double-click to join" {...channelClicks}
+    <button class="name" class:text={isText} title={isText ? 'Text channel: click to open' : 'Click for details, double-click to join'} {...channelClicks}
       draggable={channel.id !== 0}
       ondragstart={e => { clearTimeout(hoverTimer); preview = null; drag.item = { kind: 'channel', id: channel.id }; e.dataTransfer?.setData('text/plain', channel.name); }}
-      ondragend={() => { drag.item = null; over = false; }}>
-      {#if !channel.canEnter}<Icon name="lock" size={14} />{/if}
+      ondragend={() => { drag.item = null; setZone(null); }}>
+      {#if isText}<Icon name="hash" size={14} />{:else if !channel.canEnter}<Icon name="lock" size={14} />{/if}
       <span class="label">{channel.name || 'Root'}</span>
       {#if !expanded && total > 0}<span class="count" title="{total} {total === 1 ? 'person' : 'people'} inside">{total}</span>{/if}
       {#if unread}<span class="badge">{unread}</span>{/if}
@@ -151,7 +226,9 @@
   {/if}
 
   {#if users.length && expanded}
-    <ul class="users">
+    <!-- The people under a channel belong to its drop target, so there is more to aim at -->
+    <ul class="users" class:into={zone === 'into'} role="presentation"
+      ondragover={e => onDragOver(e, 'into')} ondragleave={onDragLeave} ondrop={e => onDrop(e, 'into')}>
       {#each users as u (u.session)}
         {@const isSelf = u.session === session.self?.session}
         {@const clicks = clickOrDouble(
@@ -208,8 +285,20 @@
   .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); }
   .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); }
   .channel.selected { background: var(--bg-active); color: var(--text); }
-  .channel.over { background: var(--accent); color: var(--accent-text); }
-  .channel.over .label { color: var(--accent-text); }
+  /* Drop targets: the whole row for "into", a line with a square end for "in front of" and "behind" */
+  .channel { position: relative; }
+  .channel.dragging { opacity: 0.4; }
+  .channel.into { background: var(--accent); color: var(--accent-text); outline: 2px solid var(--accent-hover); outline-offset: -2px; }
+  .channel.into .label { color: var(--accent-text); }
+  .users.into { background: var(--bg-active); box-shadow: inset 3px 0 0 var(--accent); }
+  li.after-end { position: relative; }
+  .channel.before::before, .channel.after::before, li.after-end::before { content: ''; position: absolute; z-index: 2; left: var(--indent); right: 4px; height: 4px; background: var(--accent); pointer-events: none; }
+  .channel.before::after, .channel.after::after, li.after-end::after { content: ''; position: absolute; z-index: 2; left: calc(var(--indent) - 4px); width: 12px; height: 12px; background: var(--accent); pointer-events: none; }
+  .channel.before::before { top: -2px; }
+  .channel.before::after { top: -6px; }
+  .channel.after::before, li.after-end::before { bottom: -2px; }
+  .channel.after::after, li.after-end::after { bottom: -6px; }
+  .channel.before, .channel.after, .channel.target { background: var(--bg-hover); color: var(--text); }
   .channel.here .label { color: var(--text); font-weight: 600; }
   .channel.here { box-shadow: inset 3px 0 0 var(--speaking); }
   .caret { width: 14px; flex: none; display: inline-flex; justify-content: center; color: var(--text-faint); }

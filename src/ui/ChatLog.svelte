@@ -32,7 +32,7 @@
 
   const grouped = (i: number) => {
     const a = entries[i - 1], b = entries[i];
-    return !!a && a.kind === 'text' && b.kind === 'text' && a.authorSession === b.authorSession && a.self === b.self && b.time - a.time < 5 * 60000;
+    return !!a && a.kind === 'text' && b.kind === 'text' && a.authorSession === b.authorSession && a.author === b.author && a.self === b.self && b.time - a.time < 5 * 60000;
   };
 </script>
 

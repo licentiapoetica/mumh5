@@ -21,6 +21,7 @@
   const logFixed = $derived(streamAbove && logHeight >= LOG_MIN);
 
   const isDm = $derived(session.view.startsWith('dm:'));
+  const isText = $derived(!isDm && session.isText(Number(session.view.slice(3))));
   const title = $derived(session.status === 'connected' ? session.viewTitle() : 'mumh5');
   const topic = $derived.by(() => {
     if (isDm || session.status !== 'connected') return '';
@@ -71,7 +72,7 @@
       <div class="empty">
         {#if session.status === 'connected'}
           <h2>{isDm ? `Direct messages with ${title}` : `Welcome to #${title}`}</h2>
-          <p>{isDm ? 'Messages here are only visible to the two of you.' : 'Messages go to everyone in this channel. Drop files here to share them.'}</p>
+          <p>{isDm ? 'Messages here are only visible to the two of you.' : isText ? 'A text channel: everyone on this server who uses mumh5 can read and write here, from any channel. Other Mumble clients do not see these messages.' : 'Messages go to everyone in this channel. Drop files here to share them.'}</p>
         {:else if session.status === 'connecting'}
           <h2>Connecting...</h2>
         {:else}
