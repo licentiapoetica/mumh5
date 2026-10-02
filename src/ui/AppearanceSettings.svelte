@@ -7,10 +7,25 @@
     { id: 'stacked', name: 'Stacked', note: 'Channels on top, chat below, like Mumble' }
   ];
 
+  const INTERFACES: { id: 'standard' | 'rooms'; name: string; note: string }[] = [
+    { id: 'standard', name: 'Standard', note: 'Channel tree, chat and members side by side' },
+    { id: 'rooms', name: 'Rooms', note: 'One screen at a time, made for phones. New and not complete yet' }
+  ];
+  function choose(id: 'standard' | 'rooms') {
+    store.settings.interface = id;
+    store.saveSettings();
+  }
+
   function arrange(id: Arrangement) {
     store.settings.arrangement = id;
     store.saveSettings();
   }
+
+  // With this many schemes the list can be narrowed by name and by dark or light
+  let find = $state('');
+  let shade = $state<'all' | 'dark' | 'light'>('all');
+  const shown = $derived(THEMES.filter(t => (shade === 'all' || (shade === 'light') === t.light)
+    && (!find.trim() || `${t.name} ${t.note}`.toLowerCase().includes(find.trim().toLowerCase()))));
 
   function pick(id: ThemeId) {
     store.settings.theme = id;
@@ -19,8 +34,16 @@
 </script>
 
 <h3>Color scheme</h3>
+<div class="narrow">
+  <input type="search" placeholder="Find a color scheme" aria-label="Find a color scheme" bind:value={find} />
+  <div class="shades" role="group" aria-label="Show">
+    {#each ['all', 'dark', 'light'] as const as k (k)}
+      <button class:on={shade === k} aria-pressed={shade === k} onclick={() => (shade = k)}>{k === 'all' ? `All ${THEMES.length}` : k === 'dark' ? 'Dark' : 'Light'}</button>
+    {/each}
+  </div>
+</div>
 <div class="themes" role="radiogroup" aria-label="Color scheme">
-  {#each THEMES as t (t.id)}
+  {#each shown as t (t.id)}
     <button role="radio" aria-checked={store.settings.theme === t.id} class:active={store.settings.theme === t.id}
       onclick={() => pick(t.id)} aria-label={t.name}>
       <!-- A miniature of the app in that theme -->
@@ -38,7 +61,32 @@
     </button>
   {/each}
 </div>
+{#if !shown.length}<p class="nothing">No color scheme matches.</p>{/if}
 
+<h3 class="gap">Interface</h3>
+<div class="themes" role="radiogroup" aria-label="Interface">
+  {#each INTERFACES as f (f.id)}
+    {@const on = (store.settings.interface ?? 'standard') === f.id}
+    <button role="radio" aria-checked={on} class:active={on} onclick={() => choose(f.id)} aria-label={f.name}>
+      <span class="mini face {f.id}" aria-hidden="true">
+        {#if f.id === 'standard'}
+          <span class="m-rail"><span></span><span></span></span>
+          <span class="m-side"><i></i><i class="sel"></i><i></i></span>
+          <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><span class="m-box"></span></span>
+        {:else}
+          <span class="m-col">
+            <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><i class="short"></i></span>
+            <span class="m-tabs"><i class="sel"></i><i></i><i></i><i></i></span>
+          </span>
+        {/if}
+      </span>
+      <span class="name">{f.name}</span>
+      <span class="note">{f.note}</span>
+    </button>
+  {/each}
+</div>
+
+{#if (store.settings.interface ?? 'standard') === 'standard'}
 <h3 class="gap">Layout</h3>
 <div class="themes" role="radiogroup" aria-label="Layout">
   {#each ARRANGEMENTS as a (a.id)}
@@ -64,9 +112,16 @@
   {/each}
 </div>
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
+{/if}
 
 <style>
   .gap { margin-top: 22px; }
+  .narrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .narrow input { flex: 1 1 180px; width: auto; }
+  .shades { display: flex; border: 1px solid var(--line); }
+  .shades button { padding: 0 14px; font-size: 14px; color: var(--text-dim); }
+  .shades button.on { background: var(--accent); color: var(--accent-text); }
+  .nothing { margin: 10px 0 0; font-size: 14px; color: var(--text-dim); }
   .help { margin: 6px 0 0; font-size: 13px; color: var(--text-dim); }
   .m-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .m-col .m-chat { flex: 1; }
@@ -93,5 +148,9 @@
   .m-chat i { height: 4px; background: var(--text-dim); width: 80%; }
   .m-chat i.a { background: var(--accent); width: 35%; }
   .m-chat i.short { width: 55%; }
+  .face.rooms .m-col { flex: 1; display: flex; flex-direction: column; }
+  .m-tabs { flex: none; height: 12px; display: flex; gap: 6px; align-items: center; justify-content: center; background: var(--bg-0); border-top: 1px solid var(--line); }
+  .m-tabs i { width: 10px; height: 4px; background: var(--text-faint); }
+  .m-tabs i.sel { background: var(--accent); }
   .m-box { margin-top: auto; height: 10px; background: var(--bg-3); border: 1px solid var(--line); }
 </style>

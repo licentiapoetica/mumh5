@@ -18,7 +18,8 @@
   // as are on, and a click enlarges one.
   // videoOnly: just the picture, as wide as the chat (stacked layout, where the channel list
   // above already shows who is here)
-  let { always = false, videoOnly = false }: { always?: boolean; videoOnly?: boolean } = $props();
+  // fill: take all the room the parent gives, without a height of its own (the voice screen)
+  let { always = false, videoOnly = false, fill = false }: { always?: boolean; videoOnly?: boolean; fill?: boolean } = $props();
 
   const self = $derived(session.self);
   const channel = $derived(self ? session.channel(self.channelId) : undefined);
@@ -119,13 +120,15 @@
     return Math.max(24, Math.min(128, Math.round(Math.min(cellH * 0.5, cellW * 0.34))));
   });
 
-  let collapsed = $state(load());
+  let folded = $state(load());
+  const collapsed = $derived(folded && !fill);
   function load(): boolean {
     try { return localStorage.getItem('mumh5.stageCollapsed') === '1'; } catch { return false; }
   }
   function toggle() {
-    collapsed = !collapsed;
-    try { localStorage.setItem('mumh5.stageCollapsed', collapsed ? '1' : '0'); } catch { /* storage unavailable */ }
+    if (fill) return;
+    folded = !folded;
+    try { localStorage.setItem('mumh5.stageCollapsed', folded ? '1' : '0'); } catch { /* storage unavailable */ }
   }
 
   const talking = (s: number) => !!voice.talking[s] || (s === self?.session && voice.transmitting);
@@ -349,9 +352,9 @@
     {/if}
   </section>
 {:else if visible && self}
-  <section class="stage" class:meeting={!!focused} class:collapsed aria-label="Voice channel"
-    style:height={collapsed ? undefined : `${focused ? meetingHeight : tilesHeight}px`}>
-    {#if !collapsed}
+  <section class="stage" class:meeting={!!focused} class:collapsed class:fill aria-label="Voice channel"
+    style:height={collapsed || fill ? undefined : `${focused ? meetingHeight : tilesHeight}px`}>
+    {#if !collapsed && !fill}
       {#if focused}
         <ResizeHandle bind:width={meetingHeight} edge="bottom" min={240} max={maxHeight} initial={460} storageKey="mumh5.stageHeightMeeting" label="Resize the meeting view" />
       {:else}
@@ -404,6 +407,7 @@
 {/if}
 
 <style>
+  .stage.fill { flex: 1; border-bottom: 0; }
   .stage { position: relative; flex: none; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--line); background: var(--bg-0); }
   header { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px 4px 4px; background: var(--bg-1); }
   .title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; }

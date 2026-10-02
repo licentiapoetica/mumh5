@@ -47,7 +47,7 @@ async function inflate(bytes: Uint8Array): Promise<Uint8Array | null> {
 }
 
 // One packet for a bare signal, several for a signal with text: [type, id, index, total, ...data]
-export async function encodeShare(type: ShareType, text?: string): Promise<Uint8Array[]> {
+export async function encodeSignal(type: number, text?: string): Promise<Uint8Array[]> {
   if (text == null) return [new Uint8Array([type])];
   const data = await deflate(new TextEncoder().encode(text));
   const total = Math.max(1, Math.ceil(data.length / CHUNK));
@@ -62,15 +62,23 @@ export async function encodeShare(type: ShareType, text?: string): Promise<Uint8
   });
 }
 
-export interface ShareSignal { type: ShareType; text?: string }
+export const encodeShare = (type: ShareType, text?: string) => encodeSignal(type, text);
+
+export interface Signal<T extends number> { type: T; text?: string }
+export type ShareSignal = Signal<ShareType>;
 
 // Puts chunked signals back together, per sender
-export class ShareAssembler {
+export class SignalAssembler<T extends number> {
   private pending = new Map<string, { parts: (Uint8Array | undefined)[]; got: number; at: number }>();
+  private types: readonly T[];
 
-  async push(sender: number, packet: Uint8Array, now = Date.now()): Promise<ShareSignal | null> {
-    const type = packet[0] as ShareType;
-    if (!Object.values(SHARE).includes(type)) return null;
+  constructor(types: readonly T[]) {
+    this.types = types;
+  }
+
+  async push(sender: number, packet: Uint8Array, now = Date.now()): Promise<Signal<T> | null> {
+    const type = packet[0] as T;
+    if (!this.types.includes(type)) return null;
     if (packet.length === 1) return { type };
     if (packet.length < 4) return null;
     const [, id, index, total] = packet;
@@ -93,5 +101,11 @@ export class ShareAssembler {
     for (const p of entry.parts) { joined.set(p!, at); at += p!.length; }
     const plain = await inflate(joined);
     return plain ? { type, text: new TextDecoder().decode(plain) } : null;
+  }
+}
+
+export class ShareAssembler extends SignalAssembler<ShareType> {
+  constructor() {
+    super(Object.values(SHARE));
   }
 }

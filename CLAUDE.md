@@ -27,6 +27,7 @@ npm run dev:web        # browser build with hot reload: starts the proxy (any se
 npm run proxy          # run the proxy from source (MUMH5_SERVERS=host:port required)
 npm run test:e2e:web   # drives the browser build through the proxy (needs npm run build:web first)
 npm run test:e2e:share # screen sharing between two instances of the built app
+npm run themes         # regenerate src/themes-generated.css and src/lib/themes-generated.ts (scripts/gen-themes.mjs)
 npm run proto          # regenerate src/core/mumble-pb.js and mumble-udp-pb.js from proto/
 ```
 
@@ -49,6 +50,9 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 - `src/lib/`: app state. `session.svelte.ts` has one `Session` per server plus the `sessions` manager; `session` is a Proxy to the active one. `audio/voice.svelte.ts` is the voice engine (WebCodecs Opus, capture and playback AudioWorklets); where a browser has no WebCodecs audio it uses libopus in WebAssembly (`audio/opus-wasm.ts`, `localStorage mumh5.forceWasmOpus = 1` forces it). `html.ts` sanitizes incoming HTML and serializes outgoing rich text.
 - Screen sharing: `src/core/share-signal.ts` (signals as Mumble plugin data, id `mumh5.share`, compressed and chunked) and `src/lib/share.svelte.ts` (one WebRTC connection per viewer and stream, candidates inside the description, no trickle; a viewer holds one screen and any number of cameras in `share.watches`). The start dialog is `ShareDialog.svelte`, the tiles and the large view are `VoiceStage.svelte`. Desktop source listing is `share:sources` / `share:pick` in `electron/main.ts`; Linux sound is `electron/pipewire.ts` (a virtual microphone fed with pw-link, never with this app's own playback).
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
+- `src/ui2/`: the Rooms interface (`settings.interface === 'rooms'`), a second shell on the same state: `Shell.svelte` (screens and bar, rooms beside the screen from 900px), `Rooms`, `ChatScreen`, `VoiceScreen`, `People`, `You`, `Dock`. It reuses `ChatLog`, `Composer`, `VoiceStage` (`fill`), `RightPanel` (as a sheet) and every dialog and menu from `src/ui/`. A feature added to one interface needs its place in the other. Class names there must not collide with ones `themes.css` styles (`.tabs`, `.rail`, `.tile`).
+
+- Text channels: `src/core/text-signal.ts` (a marker in the channel description, messages as plugin data, id `mumh5.text`, sent to everyone on the server) and `src/lib/text-channels.ts` (pacing under Murmur's plugin limit, messages kept in IndexedDB per server, catch-up from one other client after connecting). They share the `ch:<id>` chat view; `session.isText(id)` tells them apart. Channel order for drag and drop is `src/core/channel-order.ts`.
 
 Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
 
@@ -79,7 +83,8 @@ Voice runs on one server at a time (where you last joined a channel); background
 - Murmur silently drops own UserState, TextMessage, ChannelState, ACL and Version past a leaky bucket (burst 5, 1/s). The client paces these; don't bypass `send()`.
 - 1.5 servers use the protobuf UDP voice format (type byte 0 + MumbleUDP.Audio) with clients announcing 1.5; older ones the legacy format. The UDPTunnel TCP body is the raw voice packet, not a protobuf message. Sequence numbers count 10 ms frames.
 - Long comments and descriptions arrive as a hash only; a new hash invalidates the old text; fetch with RequestBlob.
-- Murmur drops PluginDataTransmission over 1000 bytes and rate limits it; keep packets at 900 bytes and few.
+- Murmur drops PluginDataTransmission over 1000 bytes and rate limits it (measured: burst 15, then 4 per second, per sender, dropped silently); keep packets at 900 bytes and few.
+- Murmur gives the id of a removed channel to the next one created; anything kept per channel id must be dropped on ChannelRemove.
 - Renaming while connected is not possible; mumh5 reconnects with the new name.
 - Murmur never sends SuperUser (user id 0) PermissionQuery answers; treat SuperUser as allowed everything.
 - In ACLs, Write overrides denies. Grant test rights to one user (`$<certhash>` group), not `@all`.

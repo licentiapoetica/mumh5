@@ -24,10 +24,16 @@ export interface VoiceSettings {
   frameMs: 10 | 20 | 40 | 60;
   jitterMs: number;
   forceTcp: boolean;         // send voice through the TCP connection even when UDP works
+  // Give the microphone back while muted. An open microphone puts a Bluetooth headset into its
+  // telephone mode, which also makes what you hear sound like a phone call.
+  releaseMicMuted: boolean;
   // Per-user local volume and mute, keyed by certificate hash (or name without one)
   userVolumes: Record<string, number>;
   localMutes: Record<string, boolean>;
 }
+
+// Phones and tablets, where Bluetooth headsets are the usual case
+const handheld = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 
 const defaults: VoiceSettings = {
   inputDevice: 'default',
@@ -45,6 +51,7 @@ const defaults: VoiceSettings = {
   frameMs: 20,
   jitterMs: 60,
   forceTcp: false,
+  releaseMicMuted: handheld,
   userVolumes: {},
   localMutes: {}
 };
@@ -63,6 +70,7 @@ class VoiceEngine {
   inputDevices = $state<DeviceInfo[]>([]);
   outputDevices = $state<DeviceInfo[]>([]);
   running = $state(false);
+  micOpen = $state(false);     // the microphone is held right now
   error = $state('');
   level = $state(-100);        // current input level, dBFS
   transmitting = $state(false);
@@ -122,7 +130,8 @@ class VoiceEngine {
     if ('jitterMs' in patch) this.playback?.port.postMessage({ jitterMs: this.settings.jitterMs });
     if ('outputDevice' in patch) this.applyOutputDevice();
     if ('bitrate' in patch || 'frameMs' in patch) this.configureEncoder();
-    if (['inputDevice', 'echoCancellation', 'noiseSuppression', 'autoGainControl'].some(k => k in patch)) this.restartInput();
+    if (['inputDevice', 'echoCancellation', 'noiseSuppression', 'autoGainControl'].some(k => k in patch)) this.syncInput(true);
+    else if ('releaseMicMuted' in patch) this.syncInput();
   }
 
   // ─── Devices ────────────────────────────────────────────────────────────────
@@ -174,7 +183,7 @@ class VoiceEngine {
       this.inputGainNode.connect(this.capture);
 
       await this.applyOutputDevice();
-      await this.restartInput();
+      await this.syncInput();
       this.configureEncoder();
       await ctx.resume();
       this.levelTimer = setInterval(() => { this.level = this.levelRaw; }, 50);
@@ -192,6 +201,7 @@ class VoiceEngine {
     this.levelTimer = null;
     this.stream?.getTracks().forEach(t => t.stop());
     this.stream = null;
+    this.micOpen = false;
     for (const d of this.decoders.values()) { try { d.decoder.close(); } catch { /* closed */ } }
     this.decoders.clear();
     try { this.encoder?.close(); } catch { /* closed */ }
@@ -205,13 +215,39 @@ class VoiceEngine {
     this.level = -100;
   }
 
+  // The microphone is not needed while we cannot talk anyway (muted or deafened, by us or the server)
+  private micWanted(): boolean {
+    if (!this.settings.releaseMicMuted || this.testing) return true;
+    const self = this.client?.self;
+    return !self || !(self.selfMute || self.mute || self.suppress || self.selfDeaf || self.deaf);
+  }
+
+  // Opens or gives back the microphone as the mute state asks. restart: open it anew (settings changed).
+  private async syncInput(restart = false): Promise<void> {
+    if (!this.ctx) return;
+    const wanted = this.micWanted();
+    if (wanted && (restart || !this.stream)) return this.restartInput();
+    if (!wanted && this.stream) {
+      this.endTransmission();
+      this.source?.disconnect();
+      this.source = null;
+      this.stream.getTracks().forEach(t => t.stop());
+      this.stream = null;
+      this.micOpen = false;
+      this.levelRaw = -100;
+    }
+  }
+
   private async restartInput(): Promise<void> {
     if (!this.ctx || !this.inputGainNode) return;
     this.source?.disconnect();
     this.stream?.getTracks().forEach(t => t.stop());
+    this.stream = null;
+    this.micOpen = false;
     const s = this.settings;
+    let stream: MediaStream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: s.inputDevice && s.inputDevice !== 'default' ? { exact: s.inputDevice } : undefined,
           echoCancellation: s.echoCancellation,
@@ -225,6 +261,10 @@ class VoiceEngine {
       this.error = `Microphone unavailable: ${(e as Error).message}`;
       return;
     }
+    // Muted again, or opened a second time, while the browser was getting the microphone
+    if (!this.ctx || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
+    this.stream = stream;
+    this.micOpen = true;
     this.error = '';
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.source.connect(this.inputGainNode);
@@ -249,7 +289,8 @@ class VoiceEngine {
     this.stats = { sent: 0, received: 0, decoded: 0, lost: 0 };
     this.unsubscribe = [
       client.on('voice', raw => { if (this.client === client) this.receive(raw); }),
-      client.on('userRemove', u => this.dropSession(u.session))
+      client.on('userRemove', u => this.dropSession(u.session)),
+      client.on('user', u => { if (this.client === client && u.session === client.session) this.syncInput(); })
     ];
     this.limitBitrate();
     this.start();
@@ -490,6 +531,7 @@ class VoiceEngine {
 
   setTesting(on: boolean): void {
     this.testing = on;
+    this.syncInput();
     if (on) this.start();
     else {
       this.playback?.port.postMessage({ drop: -1 });

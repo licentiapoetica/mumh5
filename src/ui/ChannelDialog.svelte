@@ -4,6 +4,9 @@
   import { session } from '../lib/session.svelte.ts';
   import { PERM, type ChannelAcl, type AclEntry, type AclGroup } from '../core/client.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
+  import { isTextChannel, markText, stripMark } from '../core/text-signal.ts';
+  import { textChannels } from '../lib/text-channels.ts';
+  import { sessions } from '../lib/session.svelte.ts';
 
   type Props =
     | { mode: 'create'; parent: number; onclose: () => void; tab?: undefined; id?: undefined }
@@ -30,7 +33,11 @@
   // svelte-ignore state_referenced_locally
   const initial = channelId != null ? session.channel(channelId) : undefined;
   let name = $state(initial?.name ?? '');
-  let description = $state(initial?.description ?? '');
+  // The editor never sees the text channel marker; it is put back when saving
+  let description = $state(stripMark(initial?.description ?? ''));
+  let textChannel = $state(isTextChannel(initial?.description ?? ''));
+  // The marker is an HTML comment and the messages are plugin data
+  const textPossible = textChannels.supported(sessions.active) && session.serverInfo?.config.allowHtml !== false;
   let position = $state(initial?.position ?? 0);
   let maxUsers = $state(initial?.maxUsers ?? 0);
   let temporary = $state(false);
@@ -43,7 +50,7 @@
   let descLoaded = $state(!(initial?.descriptionHash && !initial?.description));
   $effect(() => {
     if (channelId != null && descPending) session.loadDescription(channelId);
-    if (!descLoaded && channel?.description) { description = channel.description; descLoaded = true; }
+    if (!descLoaded && channel?.description) { description = stripMark(channel.description); textChannel = isTextChannel(channel.description); descLoaded = true; }
   });
 
   // ─── ACL ────────────────────────────────────────────────────────────────────
@@ -217,7 +224,7 @@
     error = '';
     if (mode === 'create') {
       if (!name.trim()) { error = 'The channel needs a name.'; return; }
-      client.createChannel(parentId!, name.trim(), { temporary, description, position, maxUsers });
+      client.createChannel(parentId!, name.trim(), { temporary, description: markText(description, textChannel), position, maxUsers });
       sounds.play('channelCreated');
       return onclose();
     }
@@ -225,7 +232,9 @@
     if (!ch || channelId == null) return onclose();
     const fields: { name?: string; description?: string; position?: number; maxUsers?: number } = {};
     if (!isRoot && name.trim() && name.trim() !== ch.name) fields.name = name.trim();
-    if (descLoaded && description !== ch.description) fields.description = description;
+    // An untouched description may not start with the marker; that alone is no change
+    const changed = description !== stripMark(ch.description) || textChannel !== isTextChannel(ch.description);
+    if (descLoaded && changed) fields.description = markText(description, textChannel);
     if (position !== ch.position) fields.position = Number(position) || 0;
     if (maxUsers !== ch.maxUsers) fields.maxUsers = Number(maxUsers) || 0;
     if (Object.keys(fields).length) client.updateChannel(channelId, fields);
@@ -268,6 +277,12 @@
         <label class="check"><input type="checkbox" bind:checked={temporary} disabled={!canTemp || !canPermanent} /> Temporary (removed when empty)</label>
       {/if}
     </div>
+    {#if !isRoot}
+      <label class="check top" title="Read and written without joining, from any channel. Only mumh5 shows it this way; in other Mumble clients it is an ordinary channel and its messages are not visible there. The server keeps no messages: mumh5 clients keep them and pass the recent ones on to people who connect later. Everyone on the server who uses mumh5 can read it.">
+        <input type="checkbox" bind:checked={textChannel} disabled={!textPossible} /> Text channel (mumh5 only)
+      </label>
+      {#if !textPossible}<p class="dim small">Text channels need a server from version 1.4 that allows HTML.</p>{/if}
+    {/if}
     <p class="dim small">Lower positions come first. A user limit of 0 uses the server default.</p>
   {:else if !acl}
     <p class="dim">Loading permissions...</p>

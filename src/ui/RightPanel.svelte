@@ -89,7 +89,9 @@
         {/if}
         <p class="dim small">{session.usersIn(channel.id).length} here, {session.subtreeUserCount(channel.id)} including subchannels{channel.maxUsers ? `, limit ${channel.maxUsers}` : ''}{channel.temporary ? ', temporary' : ''}</p>
         <div class="actions">
-          {#if session.self?.channelId === channel.id}
+          {#if session.isText(channel.id)}
+            <button class="btn primary" onclick={() => { session.selectView(`ch:${channel.id}`); onnavigate(); }}>Open text channel</button>
+          {:else if session.self?.channelId === channel.id}
             <span class="here">You are in this channel</span>
           {:else}
             <button class="btn primary" disabled={!channel.canEnter} onclick={() => { session.joinChannel(channel.id); onnavigate(); }}>

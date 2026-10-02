@@ -2,6 +2,8 @@ import { createCodec } from '../core/proto.ts';
 import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
 import { native, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
+import { textChannels } from './text-channels.ts';
+import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
@@ -188,6 +190,12 @@ export class Session {
   }
 
   // Whether a channel lies somewhere below another (a channel cannot move into its own subtree)
+  // A channel that is read and written without joining it (mumh5 clients only)
+  isText(channelId: number): boolean {
+    void this.tick;
+    return textChannels.isText(this, channelId);
+  }
+
   isInside(channelId: number, ancestor: number): boolean {
     let c = this.client?.channels.get(channelId);
     while (c && c.parent != null) {
@@ -292,6 +300,7 @@ export class Session {
     this.client = null;
     client?.disconnect();
     share.closed(this);
+    textChannels.closed(this);
     this.sharing = {};
     sessions.onClosed(this);
     this.status = 'idle';
@@ -318,11 +327,17 @@ export class Session {
       for (const id of client.channels.keys()) client.requestPermissions(id);
       if (client.welcomeText) this.system(this.view, client.welcomeText, true);
       share.entered(this);
+      textChannels.entered(this);
       bump();
     });
-    client.on('pluginData', (sender, dataId, data) => { if (live()) share.receive(this, sender, dataId, data); });
+    client.on('pluginData', (sender, dataId, data) => {
+      if (!live()) return;
+      share.receive(this, sender, dataId, data);
+      textChannels.receive(this, sender, dataId, data);
+    });
     client.on('channel', ch => {
       if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
+      if (live() && client.synced) textChannels.channelChanged(this, ch.id);
       bump();
     });
     client.on('permissions', () => {
@@ -334,6 +349,11 @@ export class Session {
     client.on('channelRemove', id => {
       if (!live()) return;
       if (this.panel.kind === 'channel' && this.panel.id === id) this.panel = { kind: 'members' };
+      textChannels.channelRemoved(this, id);
+      // The chat on screen is gone: back to the channel we are in
+      if (this.view === `ch:${id}`) this.view = `ch:${client.self?.channelId ?? 0}`;
+      delete this.logs[`ch:${id}`];
+      delete this.unread[`ch:${id}`];
       bump();
     });
     client.on('ping', rtt => { if (live()) this.rtt = rtt; });
@@ -378,6 +398,7 @@ export class Session {
       }
       const self = client.self;
       share.userMoved(this, user, true);
+      textChannels.userLeft(this, user.session);
       if (self && user.session !== self.session && this.isVoice() && user.channelId === self.channelId) {
         const byOther = actor != null && actor !== user.session;
         sounds.play(ban ? 'userBanned' : byOther ? 'userKicked' : 'userDisconnected');
@@ -427,6 +448,7 @@ export class Session {
       const kind = this.disconnectInfo?.kind;
       sounds.play(kind === 'kicked' ? 'kicked' : kind === 'banned' ? 'banned' : kind === 'lost' ? 'connectionLost' : kind === 'rejected' ? 'error' : 'disconnected');
       this.client = null;
+      textChannels.closed(this);
       sessions.onClosed(this);
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
@@ -519,11 +541,27 @@ export class Session {
 
   // ─── Chat ───────────────────────────────────────────────────────────────────
 
-  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time'>): void {
+  // time: for messages from earlier, which go where they belong in the log. quiet: not counted as unread.
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time'>, opts: { time?: number; quiet?: boolean } = {}): void {
     // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
     if (!this.logs[key]) this.logs[key] = [];
-    this.logs[key].push({ ...entry, id: nextId++, time: Date.now() });
-    if (sessions.active !== this || !this.visibleKeys().includes(key)) this.unread[key] = (this.unread[key] ?? 0) + 1;
+    const log = this.logs[key];
+    const time = opts.time ?? Date.now();
+    let at = log.length;
+    while (at > 0 && log[at - 1].time > time) at--;
+    log.splice(at, 0, { ...entry, id: nextId++, time });
+    if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
+  }
+
+  // A text channel message: live, kept from earlier, or handed over by another client
+  addText(m: TextMsg, self: boolean, quiet: boolean, sender: number | null = null): void {
+    const client = this.client;
+    if (!client) return;
+    const online = sender != null ? client.users.get(sender) : self ? client.self : m.k ? [...client.users.values()].find(u => u.hash === m.k) : undefined;
+    this.push(`ch:${m.c}`, {
+      kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self,
+      ...renderIncoming(m.h, store.trustedHosts)
+    }, { time: m.t, quiet });
   }
 
   private system(key: string, html: string, trusted = false): void {
@@ -592,6 +630,16 @@ export class Session {
   sendHtml(html: string, key: string = this.view): boolean {
     const client = this.client;
     if (!client || this.status !== 'connected') return false;
+    if (key.startsWith('ch:') && this.isText(Number(key.slice(3)))) {
+      if (html.length > MAX_HTML) {
+        this.system(key, `Message too long for a text channel (${html.length} / ${MAX_HTML} characters)`);
+        return false;
+      }
+      // Shown in the log by the text channel code once it is on its way
+      textChannels.post(this, Number(key.slice(3)), html).then(problem => { if (problem) this.system(key, escapeHtml(problem)); });
+      sounds.play('messageSent');
+      return true;
+    }
     const limit = /<img/i.test(html) ? client.config.imageMessageLength : client.config.messageLength;
     if (limit && html.length > limit) {
       this.system(key, `Message too long for this server (${html.length} / ${limit} characters)`);
@@ -623,6 +671,7 @@ export class Session {
       const problem = checkFile(info, f);
       if (problem) this.system(key, escapeHtml(problem));
     }
+    const textKey = key.startsWith('ch:') && this.isText(Number(key.slice(3)));
     for (const file of files.filter(f => !checkFile(info, f))) {
       const job = { id: nextId++, key, name: file.name, progress: 0, error: '' };
       this.uploads.push(job);
@@ -633,7 +682,8 @@ export class Session {
         const link = `<a href="${escapeHtml(res.url)}">${escapeHtml(res.name)}</a> (${formatBytes(res.size)})`;
         let html = link;
         const cfg = this.client?.config;
-        if (sendThumbnails && cfg?.allowHtml !== false) {
+        // Text channels only reach mumh5, which shows the file itself instead of a thumbnail
+        if (sendThumbnails && cfg?.allowHtml !== false && !textKey) {
           const budget = Math.min(cfg?.imageMessageLength || 131072, 100000) - link.length - 64;
           const thumb = await makeThumbnail(file, budget);
           if (thumb) html += `<br/><img src="${thumb}"/>`;
@@ -654,17 +704,18 @@ export class Session {
   // scaled to the server's image limit. Other files need an upload host.
   private async sendInlineImages(files: File[], key: string): Promise<void> {
     const cfg = this.client?.config;
+    const textKey = key.startsWith('ch:') && this.isText(Number(key.slice(3)));
     for (const file of files) {
       if (!file.type.startsWith('image/')) {
         this.system(key, `${escapeHtml(file.name)}: sending files needs file hosting. Set up an upload host in Settings; without one only images can be sent.`);
         continue;
       }
-      if (cfg?.allowHtml === false) {
+      if (cfg?.allowHtml === false && !textKey) {
         this.system(key, 'This server does not allow images in messages.');
         return;
       }
       // 0 means no limit; stay reasonable anyway
-      const limit = cfg?.imageMessageLength || 1024 * 1024;
+      const limit = textKey ? MAX_HTML : cfg?.imageMessageLength || 1024 * 1024;
       const uri = await makeInlineImage(file, limit - 64);
       if (!uri) {
         this.system(key, `${escapeHtml(file.name)}: could not make this image small enough for the server (limit ${formatBytes(limit)})`);

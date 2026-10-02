@@ -1,4 +1,5 @@
 import { load, loadList, save } from './storage.ts';
+import { GENERATED_THEMES } from './themes-generated.ts';
 
 export interface SavedServer {
   id: string;
@@ -24,6 +25,8 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  // standard: the channel tree in one of the layouts above. rooms: one screen at a time, made for phones.
+  interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
   autoCameras: boolean;   // show other people's cameras as they come on
   shareVolume: number;    // volume of streams we watch, 0 to 1
@@ -36,14 +39,22 @@ export interface Settings {
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
 export type Arrangement = 'side' | 'classic' | 'stacked';
 
-export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'win95';
+export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'forest' | 'ember' | 'ocean' | 'plum' | 'paper' | 'contrast' | 'win95' | typeof GENERATED_THEMES[number]['id'];
 
-export const THEMES: { id: ThemeId; name: string; note: string }[] = [
-  { id: 'dark', name: 'Dark', note: 'The default' },
-  { id: 'light', name: 'Light', note: 'For bright rooms' },
-  { id: 'midnight', name: 'Midnight', note: 'True black, red accents' },
-  { id: 'frost', name: 'Frost', note: 'Cool blue-grey' },
-  { id: 'win95', name: 'Windows 95', note: 'Start me up' }
+// Hand-made schemes first, then the generated ones (scripts/gen-themes.mjs), dark before light
+export const THEMES: { id: ThemeId; name: string; note: string; light: boolean }[] = [
+  { id: 'dark', name: 'Dark', note: 'The default', light: false },
+  { id: 'light', name: 'Light', note: 'For bright rooms', light: true },
+  { id: 'midnight', name: 'Midnight', note: 'True black, red accents', light: false },
+  { id: 'frost', name: 'Frost', note: 'Cool blue-grey', light: false },
+  { id: 'forest', name: 'Forest', note: 'Deep green, warm light', light: false },
+  { id: 'ember', name: 'Ember', note: 'Warm dark, orange accents', light: false },
+  { id: 'ocean', name: 'Ocean', note: 'Deep navy, cyan accents', light: false },
+  { id: 'plum', name: 'Plum', note: 'Dark purple, pink accents', light: false },
+  { id: 'paper', name: 'Paper', note: 'Warm light, easy on the eyes', light: true },
+  { id: 'contrast', name: 'High contrast', note: 'Black and white, strong lines', light: false },
+  { id: 'win95', name: 'Windows 95', note: 'Start me up', light: true },
+  ...GENERATED_THEMES
 ];
 
 const defaults: Settings = {
@@ -58,6 +69,7 @@ const defaults: Settings = {
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'side',
+  interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,
   shareVolume: 1,
