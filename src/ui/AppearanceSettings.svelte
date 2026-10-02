@@ -21,6 +21,12 @@
     store.saveSettings();
   }
 
+  // With this many schemes the list can be narrowed by name and by dark or light
+  let find = $state('');
+  let shade = $state<'all' | 'dark' | 'light'>('all');
+  const shown = $derived(THEMES.filter(t => (shade === 'all' || (shade === 'light') === t.light)
+    && (!find.trim() || `${t.name} ${t.note}`.toLowerCase().includes(find.trim().toLowerCase()))));
+
   function pick(id: ThemeId) {
     store.settings.theme = id;
     store.saveSettings();
@@ -28,8 +34,16 @@
 </script>
 
 <h3>Color scheme</h3>
+<div class="narrow">
+  <input type="search" placeholder="Find a color scheme" aria-label="Find a color scheme" bind:value={find} />
+  <div class="shades" role="group" aria-label="Show">
+    {#each ['all', 'dark', 'light'] as const as k (k)}
+      <button class:on={shade === k} aria-pressed={shade === k} onclick={() => (shade = k)}>{k === 'all' ? `All ${THEMES.length}` : k === 'dark' ? 'Dark' : 'Light'}</button>
+    {/each}
+  </div>
+</div>
 <div class="themes" role="radiogroup" aria-label="Color scheme">
-  {#each THEMES as t (t.id)}
+  {#each shown as t (t.id)}
     <button role="radio" aria-checked={store.settings.theme === t.id} class:active={store.settings.theme === t.id}
       onclick={() => pick(t.id)} aria-label={t.name}>
       <!-- A miniature of the app in that theme -->
@@ -47,6 +61,7 @@
     </button>
   {/each}
 </div>
+{#if !shown.length}<p class="nothing">No color scheme matches.</p>{/if}
 
 <h3 class="gap">Interface</h3>
 <div class="themes" role="radiogroup" aria-label="Interface">
@@ -101,6 +116,12 @@
 
 <style>
   .gap { margin-top: 22px; }
+  .narrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .narrow input { flex: 1 1 180px; width: auto; }
+  .shades { display: flex; border: 1px solid var(--line); }
+  .shades button { padding: 0 14px; font-size: 14px; color: var(--text-dim); }
+  .shades button.on { background: var(--accent); color: var(--accent-text); }
+  .nothing { margin: 10px 0 0; font-size: 14px; color: var(--text-dim); }
   .help { margin: 6px 0 0; font-size: 13px; color: var(--text-dim); }
   .m-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .m-col .m-chat { flex: 1; }

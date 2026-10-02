@@ -359,7 +359,28 @@ try {
   await page.getByRole('radio', { name: 'Windows 95' }).click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'win95');
   assert.equal(await page.locator('.rail').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 128, 128)');
-  await page.getByRole('radio', { name: 'Dark' }).click();
+  for (const [name, id, bg] of [['Forest', 'forest', 'rgb(22, 35, 28)'], ['Ember', 'ember', 'rgb(33, 25, 20)'], ['Ocean', 'ocean', 'rgb(15, 30, 44)'],
+    ['Plum', 'plum', 'rgb(32, 22, 40)'], ['Paper', 'paper', 'rgb(248, 243, 231)'], ['High contrast', 'contrast', 'rgb(0, 0, 0)']]) {
+    await page.getByRole('radio', { name }).click();
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), id);
+    assert.equal(await page.locator('.chat').evaluate(el => getComputedStyle(el).backgroundColor), bg, `${name} colors the chat`);
+    if (shots) await page.screenshot({ path: path.join(shots, `theme-pick-${id}.png`) });
+  }
+  // Generated schemes, and narrowing the list
+  assert.equal(await page.getByRole('radiogroup', { name: 'Color scheme' }).getByRole('radio').count(), 100);
+  await page.getByRole('button', { name: 'Light', exact: true }).click();
+  assert.equal(await page.getByRole('radiogroup', { name: 'Color scheme' }).getByRole('radio').count(), 28);
+  await page.getByRole('radio', { name: 'Lavender' }).click();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'lavender');
+  if (shots) await page.screenshot({ path: path.join(shots, 'theme-pick-lavender.png') });
+  await page.getByRole('button', { name: 'All 100' }).click();
+  await page.getByLabel('Find a color scheme').fill('synth');
+  assert.equal(await page.getByRole('radiogroup', { name: 'Color scheme' }).getByRole('radio').count(), 1);
+  await page.getByRole('radio', { name: 'Synthwave' }).click();
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('color-scheme').trim()), 'dark');
+  if (shots) { await page.getByRole('button', { name: 'Done', exact: true }).click(); await page.screenshot({ path: path.join(shots, 'theme-synthwave.png') }); await page.getByTitle('Settings').click(); await page.getByRole('tab', { name: 'Appearance' }).click(); }
+  await page.getByLabel('Find a color scheme').fill('');
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined);
   // Hints are off by default: the title under the pointer is set aside while hovered, and back afterwards
   const hintTarget = page.locator('.rail').getByRole('button', { name: 'Add a server' });
@@ -1108,6 +1129,36 @@ try {
   assert.equal(await page.getByRole('menuitem', { name: 'Register on this server' }).count(), 0, 'no register item once registered');
   await page.keyboard.press('Escape');
   console.log('ok: registered on the server');
+
+  // Giving the microphone back while muted (for Bluetooth headsets), and taking it again
+  {
+    const muteBtn = (name: 'Mute' | 'Unmute') => page.locator('.me').getByRole('button', { name, exact: true });
+    if (!userState(newName)!.selfMute) {
+      await muteBtn('Mute').click();
+      await until2('muted', () => !!userState(newName)!.selfMute);
+    }
+    await page.getByTitle('Settings').click();
+    assert.equal(await page.getByLabel('Give the microphone back while muted').isChecked(), false, 'off by default on a desktop');
+    await page.getByLabel('Give the microphone back while muted').check();
+    await page.getByText('The microphone is given back now.').waitFor();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    // Unmuting takes it again
+    const heard = new Promise<void>(res => { const off = bob.on('voice', raw => { if (decodeVoice(raw)?.session === userState(newName)!.session) { off(); res(); } }); });
+    await muteBtn('Unmute').click();
+    await until2('unmuted', () => !userState(newName)!.selfMute);
+    await page.getByTitle('Settings').click();
+    await page.getByText('The microphone is open now.').waitFor();
+    await page.getByLabel('Give the microphone back while muted').uncheck();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    // Push to talk is the mode at this point: hold the key until bob hears the fake microphone
+    await page.locator('.chat header h1').click();
+    await page.keyboard.down('Backquote');
+    await within(heard, 'voice after taking the microphone again', 15000);
+    await page.keyboard.up('Backquote');
+    await muteBtn('Mute').click();
+    await until2('muted again', () => !!userState(newName)!.selfMute);
+    console.log('ok: microphone given back while muted and taken again on unmute');
+  }
 
   // ─── The Rooms interface: the same app arranged for phones ─────────────────
   {

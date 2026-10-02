@@ -89,6 +89,138 @@
   color-scheme: dark;
 }
 
+:root[data-theme="forest"], [data-theme-preview="forest"] {
+  --rail: var(--bg-0);
+  --bg-0: #0c1410;
+  --bg-1: #111c16;
+  --bg-2: #16231c;
+  --bg-3: #1f3027;
+  --bg-hover: #263a2f;
+  --bg-active: #2f4739;
+  --line: #243529;
+  --text: #e2ebe4;
+  --text-dim: #9db3a4;
+  --text-faint: #67806f;
+  --accent: #4fbf7b;
+  --accent-hover: #66d08f;
+  --accent-text: #07140c;
+  --speaking: #f2c14e;
+  --danger: #f0605a;
+  --warn: #e8b23c;
+  --link: #7fd4c1;
+  color-scheme: dark;
+}
+
+:root[data-theme="ember"], [data-theme-preview="ember"] {
+  --rail: var(--bg-0);
+  --bg-0: #120d0a;
+  --bg-1: #1a130f;
+  --bg-2: #211914;
+  --bg-3: #2d221b;
+  --bg-hover: #372a21;
+  --bg-active: #443428;
+  --line: #33271f;
+  --text: #efe6dd;
+  --text-dim: #b5a596;
+  --text-faint: #7d6f62;
+  --accent: #f08a3c;
+  --accent-hover: #ff9d52;
+  --accent-text: #1a0d03;
+  --speaking: #5fd08a;
+  --danger: #f0554e;
+  --warn: #f0c04a;
+  --link: #f4b27a;
+  color-scheme: dark;
+}
+
+:root[data-theme="ocean"], [data-theme-preview="ocean"] {
+  --rail: var(--bg-0);
+  --bg-0: #071018;
+  --bg-1: #0b1722;
+  --bg-2: #0f1e2c;
+  --bg-3: #172a3c;
+  --bg-hover: #1d3348;
+  --bg-active: #254058;
+  --line: #1b2f42;
+  --text: #e0ebf5;
+  --text-dim: #93a9bd;
+  --text-faint: #5f7689;
+  --accent: #2fc4e0;
+  --accent-hover: #56d6ee;
+  --accent-text: #041018;
+  --speaking: #4be0a0;
+  --danger: #ff6259;
+  --warn: #f0c04a;
+  --link: #7cc4ff;
+  color-scheme: dark;
+}
+
+:root[data-theme="plum"], [data-theme-preview="plum"] {
+  --rail: var(--bg-0);
+  --bg-0: #120c16;
+  --bg-1: #19111f;
+  --bg-2: #201628;
+  --bg-3: #2c1f37;
+  --bg-hover: #372743;
+  --bg-active: #443152;
+  --line: #32243e;
+  --text: #eee4f3;
+  --text-dim: #b3a2bf;
+  --text-faint: #7a6a86;
+  --accent: #e667a8;
+  --accent-hover: #f07fba;
+  --accent-text: #1c0612;
+  --speaking: #5fd08a;
+  --danger: #ff6259;
+  --warn: #f0c04a;
+  --link: #c9a2ff;
+  color-scheme: dark;
+}
+
+:root[data-theme="paper"], [data-theme-preview="paper"] {
+  --rail: var(--bg-0);
+  --bg-0: #e4dccb;
+  --bg-1: #efe8d9;
+  --bg-2: #f8f3e7;
+  --bg-3: #e6dfcf;
+  --bg-hover: #ded6c3;
+  --bg-active: #d2c9b3;
+  --line: #d3cab6;
+  --text: #2b2620;
+  --text-dim: #5f574b;
+  --text-faint: #8a8172;
+  --accent: #a2542a;
+  --accent-hover: #8a441f;
+  --accent-text: #ffffff;
+  --speaking: #2e7d46;
+  --danger: #b93a2f;
+  --warn: #96690f;
+  --link: #2a5f9e;
+  color-scheme: light;
+}
+
+:root[data-theme="contrast"], [data-theme-preview="contrast"] {
+  --rail: var(--bg-0);
+  --bg-0: #000000;
+  --bg-1: #000000;
+  --bg-2: #000000;
+  --bg-3: #1a1a1a;
+  --bg-hover: #262626;
+  --bg-active: #3a3a3a;
+  --line: #8c8c8c;
+  --text: #ffffff;
+  --text-dim: #e0e0e0;
+  --text-faint: #b0b0b0;
+  --accent: #ffd400;
+  --accent-hover: #ffe14d;
+  --accent-text: #000000;
+  --speaking: #00ff7f;
+  --danger: #ff6b6b;
+  --warn: #ffd400;
+  --link: #7fd4ff;
+  color-scheme: dark;
+}
+
 /* ─── Windows 95 ───────────────────────────────────────────────────────────── */
 
 :root[data-theme="win95"], [data-theme-preview="win95"] {

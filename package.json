@@ -21,6 +21,7 @@
     "test:e2e": "node test/e2e/app.e2e.ts",
     "test:e2e:web": "node test/e2e/web.e2e.ts",
     "test:e2e:share": "node test/e2e/share.e2e.ts",
+    "themes": "node scripts/gen-themes.mjs",
     "proto": "pbjs -t static-module -w es6 --keep-case --no-delimited --no-service --no-comments --force-number proto/Mumble.proto -o src/core/mumble-pb.js && pbjs -t static-module -w es6 --keep-case --no-delimited --no-service --no-comments --force-number proto/MumbleUDP.proto -o src/core/mumble-udp-pb.js",
     "screenshots": "node test/e2e/screenshots.ts"
   },

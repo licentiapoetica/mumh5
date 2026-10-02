@@ -1,102 +1,92 @@
 # mumh5
 
-**Mumble, the way it should feel in 2026.**
+mumh5 is a client for [Mumble](https://www.mumble.info/), the open source voice chat. It runs on Windows, macOS and Linux, and in a browser through a small proxy you host yourself.
 
-mumh5 is a modern client for [Mumble](https://www.mumble.info/), the free, open source, low-latency voice chat. It gives Mumble the kind of interface people know from Discord: servers on the left, channels and people in the middle, chat that can do more than text. Underneath, it's plain Mumble, so it connects to **any existing Mumble server** without changing anything on the server side.
-
-Your community keeps its own server, its own rules and its own data. You get an app that's nice to use.
+It connects to any Mumble server as it is. Nothing has to be installed or changed on the server, and people on the regular Mumble client see and hear you like anyone else.
 
 ![mumh5 main window: channel tree, chat with a YouTube card, member list](docs/screenshots/main.png)
 
 ---
 
-## Why mumh5
+## What it does
 
-Mumble has the best foundation of any voice chat: tiny latency, strong encryption, self-hosting, no accounts, no ads, no tracking. What held it back was the desktop client, which still looks and behaves like 2010.
+- **Voice**: Opus over encrypted UDP, with voice activity, push to talk or always on.
+- **Chat**: a separate chat per channel and person, with files, pictures, formatting and link previews.
+- **Several servers at once**: text on all of them, voice on the one where you joined a channel.
+- **Screen and camera sharing** between mumh5 users in a channel.
+- **Text channels** between mumh5 users: read and written without joining them.
+- **Channel management**: create, edit, move and link channels, and edit permissions and groups.
+- **Two interfaces**: Standard (channel tree, chat and members side by side) and Rooms (one screen at a time, made for phones).
+- **100 color schemes**, from Dark and Light to Windows 95.
 
-mumh5 keeps the foundation and replaces the experience.
+Some features only work between mumh5 users, because Mumble itself has no such thing: screen and camera sharing, text channels, and inline players for shared files. People on other Mumble clients are not disturbed by them; they see a normal channel, a normal link, or nothing.
 
-- **Works with the servers you already use.** No plugins, no server changes, no migration. Friends on the regular Mumble client see you and hear you like anyone else.
-- **Feels familiar.** A server rail, a channel tree, a real chat with message grouping, profiles, right-click menus everywhere. Anyone who has used Discord knows where things are.
-- **Chat that is actually useful.** Drop in files, paste screenshots, share videos and YouTube links. Formatting works, links work, and everything stays compatible with the desktop client.
-- **Several servers at once.** Stay in the text chat of every server you like, with unread badges, while voice runs where you actually are.
-- **Private by default.** Opening a chat never contacts servers you didn't choose. No remote images or trackers, and YouTube links stay plain links unless you turn on the click-to-play player.
-- **Runs everywhere.** Windows, macOS and Linux, with a layout that also works on narrow windows and small screens.
+### Not in mumh5 yet
 
-### mumh5 compared to the Mumble desktop client
-
-| | Mumble desktop | mumh5 |
-|---|---|---|
-| Interface | Qt widgets, dense dialogs | Modern layout (server rail, channel tree, chat, side panels), or the classic and stacked layouts of the desktop client |
-| Several servers at the same time | One connection | Many; voice on one, text on all, unread badges |
-| Sharing files | Images only, pasted inline and heavily limited | Any allowed file through your own [f0ckm](#file-sharing-with-f0ckm) host, inline players for images, video and audio. Images still work without one |
-| YouTube links | Plain links | Plain links by default; optional click-to-play player (privacy mode) and thumbnails |
-| Link previews | None | Title, description and image, fetched by your upload host so linked sites never see your IP |
-| Chat per channel | One shared log for everything | Separate chats per channel and person, plus a side chat for any channel next to your own |
-| Descriptions | Rich text editor | Rich text editor with pictures, and a live size counter against the server limit |
-| Identities | One certificate per installation | Several identities, a different one per server if you like; imports your desktop certificate |
-| Server certificate trust | Remembered after a warning dialog | Pinned on first use, green header for CA-signed servers, full chain viewer |
-| Fast actions in a row | The server silently drops them past its rate limit | Paced to the server's limit, nothing gets lost |
-| Right-click on mute or deafen | Nothing | Quick device and volume options |
-| Look | One Qt style (plus skins) | Five built-in color schemes, including Windows 95 |
-| Channel and permission editing | Dialogs, drag and drop | Same power: create, edit, link, drag and drop, rule and group editor |
-
-**Where the desktop client is still ahead, today:** system-wide push-to-talk, whisper and shout, positional audio, the in-game overlay, recording, and the ban list and registered-user editors. Push-to-talk and whisper are on the roadmap below.
+System-wide push to talk, whisper and shout, positional audio, the in-game overlay, recording, and the ban list and registered-user editors. The Mumble desktop client has these.
 
 ---
 
 ## Features
 
 ### Voice
-- Opus voice with voice activity detection, push to talk or always-on
-- Live level meter with an adjustable threshold, so you set it once and forget it
+- Voice activity detection with a live level meter and an adjustable threshold, push to talk, or always on
 - Noise suppression, echo cancellation and automatic gain control
-- Microphone and output device selection, input and output volume
+- Microphone and output selection, input and output volume
 - Per-person volume (0 to 300%) and "mute for me"
-- Speaking indicators in the channel tree, member list and your own panel
-- On small windows, your voice channel appears as tiles above the chat, lighting up as people talk, with mute and deafen at hand
-- Low-latency voice over encrypted UDP (Mumble's OCB2-AES128), with automatic fallback to the TCP connection and a TCP-only switch
-- Bitrate automatically limited to what the server allows
-- Right-click the mute or deafen button for quick device and volume options
-- Hear-yourself microphone test
+- Speaking indicators in the channel tree, the member list and your own panel
+- Encrypted UDP (Mumble's OCB2-AES128), with fallback to the TCP connection and a TCP-only switch
+- Bitrate limited to what the server allows
+- Right-click mute or deafen for quick device and volume options
+- Microphone test that plays your voice back to you
+- Optional: give the microphone back while muted, so a Bluetooth headset stays out of its telephone mode. On by default on phones; not yet tried on a real phone
 
 ![Voice settings](docs/screenshots/voice-settings.png)
 
 ### Channels and people
 - Channel tree that starts collapsed; channels with people in them open up
-- Single click previews a channel's description, double click joins
+- Single click shows a channel's description, double click joins
 - Side chat: write in any channel without leaving yours
-- Profiles with rich descriptions (formatting, lists, links, pictures), local nicknames, registration status
-- Change your name (mumh5 reconnects for you) and register on a server with one click
-- Connection information: ping, packet loss, client version and, for admins, the user's certificate chain
+- Profiles with formatted descriptions, local nicknames and registration status
+- Change your name (mumh5 reconnects for you) and register on a server
+- Connection information: ping, packet loss, client version and, for admins, the certificate chain
 - Moderation from the right-click menu: move, server mute and deafen, priority speaker, kick, ban, register
-- Channel management: create, edit, delete, link, and drag and drop channels and people
-- Full permission editor: rules per channel with inheritance, groups and members, like the desktop ACL editor
-- If you get kicked, you see who kicked you and why, with a Reconnect button
+- Create, edit, delete and link channels. Drag a channel into another, or in front of or behind it; drag people between channels
+- Permission editor: rules per channel with inheritance, groups and members
+- If you are kicked, you see who did it and why, with a Reconnect button
 
 ![Profile with a formatted description](docs/screenshots/profile.png)
 
-### Screen sharing
-
-- Camera rounds: everyone who turns their camera on appears in the tiles at once, like a video meeting; one click joins or leaves the round, and a click on a tile enlarges that camera
-- Share a screen, a window or a camera with the mumh5 users in your channel. A dialog lets you choose what to show, with a live preview, which sound goes with it and the quality, before anything is sent
-- Sound: on Linux one program or everything except mumh5 itself (through PipeWire, so viewers do not hear the voice chat twice); on Windows the whole system; in a browser what the browser offers
-- People in the channel see an indicator next to your name, on your tile and in your profile, and click to watch. The tiles above the chat fill a stage you can drag taller or shorter. A stream opens large, with everyone as a strip of tiles below, like a meeting, and can move to a window of its own; in the stacked layout it is just the picture, as wide as the chat. Sounds announce streams and viewers. Viewers set the stream's volume
-- No server setup and no extra account: the setup messages travel through the Mumble server, the stream goes directly between the two clients (WebRTC), up to 8 viewers. Regular Mumble clients do not see streams
-- Direct connections mean sharer and viewer see each other's IP address; mumh5 says so before the first use. Across the internet both sides need a STUN server. The browser version uses the one built into its proxy, and the proxy's relay when no direct connection is possible (mobile networks, Vanadium); in the desktop app you choose a STUN server in Settings, Voice (Google, Cloudflare, or any address), and can enter the address of a mumh5 web version as a relay, which then takes over by itself when no direct connection comes up. Nothing is contacted unless you set it
-- Tested between two desktop instances on one machine with a test picture. Sound capture, real screens, connections across the internet, Windows and the browser build are untested
-
 ### Chat
 - Messages grouped by author, direct messages, unread badges
-- File sharing: drag and drop, paste, or the attach button, with upload progress
-- Inline images, video and audio players for shared media
+- Files by drag and drop, paste or the attach button, with upload progress (needs an [upload host](#file-sharing-with-f0ckm); pictures work without one)
+- Inline pictures, video and audio for shared files
 - YouTube links as click-to-play players (off by default)
-- Link previews with title, description and image; fetched by your upload host by default, so posting a link cannot reveal who reads it
-- Incoming HTML is sanitized; remote images from unknown hosts are never loaded
-- Messages stay compatible with the desktop client, including picture previews
+- Link previews with title, description and picture
+- Incoming HTML is sanitized, and pictures from unknown hosts are never loaded
+- Messages stay readable in the Mumble desktop client
 
-### Color schemes
-Dark, Light, Midnight (true black), Frost, and a faithful **Windows 95** theme with beveled buttons, navy title bars and the teal desktop.
+### Text channels
+- A channel marked as a text channel is read and written without joining it, from any voice channel
+- It is a normal Mumble channel on the server, created and removed with the usual channel permissions
+- The server keeps no messages. Each client keeps the last 200 per channel and passes the last 50 to people who connect later
+- Everyone on the server who uses mumh5 can read them; there are no private text channels yet
+- Needs a server from version 1.4 that allows HTML
+
+### Screen and camera sharing
+- Share a screen, a window or a camera with the mumh5 users in your channel. A dialog shows a preview and lets you choose the sound and the quality first
+- Cameras appear in the voice tiles, several at once; a click enlarges one
+- A screen opens large, with the people as a strip of tiles below, and can move to its own window
+- Sound: on Linux one program or everything except mumh5 (through PipeWire); on Windows the whole system; in a browser what the browser offers
+- The stream goes directly between the two clients (WebRTC), up to 8 viewers per stream. Only the setup messages pass through the Mumble server
+- Sharer and viewer see each other's IP address; mumh5 says so before the first use
+- Across the internet both sides need a STUN server. The browser version uses its proxy's, with a relay when no direct connection works. In the desktop app you set one in Settings, Voice. Nothing is contacted unless you set it
+- Tested between two instances on one machine with a test picture. Sound capture, real screens, connections across the internet, Windows and the browser build are untested
+
+### Interfaces and look
+- Standard interface in three layouts: channels left and members right, chat left and channels right, or channels on top
+- Rooms interface: rooms as a list with the people inside, a voice screen, a people screen, and mute and deafen always in reach. New and not complete: channels and people cannot be moved by dragging there yet
+- 100 color schemes with a search box. Eleven are made by hand, the rest are generated from a hue and an accent
 
 | Windows 95 | Light | Frost | Midnight |
 |---|---|---|---|
@@ -104,15 +94,15 @@ Dark, Light, Midnight (true black), Frost, and a faithful **Windows 95** theme w
 
 ### Sounds
 - Notification sounds for joins, leaves, messages, mute, push to talk, kicks and more
-- Replace any sound with your own file, or load a whole sound pack at once (matched by file name)
+- Replace any sound with your own file, or load a sound pack at once (matched by file name)
 
 ### Servers and identity
-- Server rail with custom icons, drag-and-drop ordering, connection status and unread counts
-- Public server browser with live user counts and ping, like the desktop client
-- Several servers connected at once; voice follows the channel you join
-- Identity setup wizard: create a new certificate, import a `.p12`, or reuse your desktop Mumble identity
-- Password-protected backups of your identity
-- Trust on first use for server certificates, a green header for CA-signed ones, and a certificate viewer
+- Server list with custom icons, your own order, connection status and unread counts
+- Public server browser with user counts and ping (desktop app)
+- Identity setup: create a certificate, import a `.p12`, or reuse the one from the Mumble desktop client
+- Several identities, and a different one per server if you like
+- Password-protected backups of an identity
+- Server certificates are pinned on first use; a certificate viewer shows the chain
 - Tray icon that shows whether you are talking, muted or deafened
 
 <p align="center"><img src="docs/screenshots/mobile.png" alt="mumh5 in a narrow window" width="300"></p>
@@ -323,11 +313,9 @@ test/       unit, server and end-to-end tests
 
 ## AI disclosure and credits
 
-mumh5 is built by **Kibi** together with **Claude**, Anthropic's AI model, working in Claude Code.
+mumh5 is built by **Kibi** together with **Claude**, Anthropic's AI model, working in Claude Code. Kibi decides what mumh5 should be and whether a result is good enough. Claude writes most of the code, the tests and this documentation. Commits written with Claude carry a `Co-Authored-By: Claude` line.
 
-Kibi sets the direction: what mumh5 should be, how it should look and feel, which trade-offs to make, and whether a result is good enough. Claude writes most of the code, the tests and this documentation, and checks each feature against a real Mumble server before calling it done. Commits written with Claude carry a `Co-Authored-By: Claude` line.
-
-We say this openly because you should know how the software you run was made. Features are covered by automated tests, including end-to-end tests against a real Mumble server. If something is wrong, please open an issue.
+Features are covered by automated tests, including end-to-end tests against a real Mumble server. If something is wrong, please open an issue.
 
 ## License
 

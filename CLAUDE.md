@@ -27,6 +27,7 @@ npm run dev:web        # browser build with hot reload: starts the proxy (any se
 npm run proxy          # run the proxy from source (MUMH5_SERVERS=host:port required)
 npm run test:e2e:web   # drives the browser build through the proxy (needs npm run build:web first)
 npm run test:e2e:share # screen sharing between two instances of the built app
+npm run themes         # regenerate src/themes-generated.css and src/lib/themes-generated.ts (scripts/gen-themes.mjs)
 npm run proto          # regenerate src/core/mumble-pb.js and mumble-udp-pb.js from proto/
 ```
 
