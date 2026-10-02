@@ -19,6 +19,7 @@
   import ShareDialog from './ui/ShareDialog.svelte';
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
+  import Shell from './ui2/Shell.svelte';
   import { identities } from './lib/identities.svelte.ts';
   import { session } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
@@ -92,6 +93,9 @@
     onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
+{#if store.settings.interface === 'rooms'}
+<Shell onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
+{:else}
 <div class="app {layout} {arrangement}">
   {#if arrangement === 'classic'}
     {@render rail()}
@@ -127,6 +131,7 @@
     {/if}
   {/if}
 </div>
+{/if}
 
 {#if editing}<ConnectDialog server={editing.server} onclose={() => (editing = null)} />{/if}
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}

@@ -6,6 +6,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ### Added
 
+- A second interface, "Rooms" (Settings, Appearance, Interface), made for phones first: one screen at a time with a bar for Rooms, Chat, Voice, People and You. Rooms are a list with the people inside shown inline and a Join button; your room and a mute and deafen dock stay in reach; the voice screen shows the room as tiles with large controls. Wide windows keep the rooms next to the chosen screen. It uses the same dialogs and menus as the standard interface. Not in it yet: moving channels and people by dragging.
 - Text channels (mumh5 only): a channel marked as a text channel in its dialog is read and written without joining it, from any voice channel. Messages travel between mumh5 clients; other Mumble clients see an ordinary channel and none of the messages. The server keeps nothing: each client keeps the last 200 messages per channel and hands the last 50 to people who connect later. Everyone on the server who uses mumh5 can read them.
 - Channels can be dragged in front of or behind another channel, not only into one. A line shows where the channel will land, the dragged channel is dimmed, the people under a channel count as part of its drop target, and resting on a closed channel opens it.
 - Voice in browsers without an audio codec of their own (Firefox on Android): a built-in Opus codec takes over there.

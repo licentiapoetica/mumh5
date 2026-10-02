@@ -282,7 +282,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 - System-wide push to talk
 - Whisper and shout
 - Text channels: private ones, and history while nobody is online (needs a helper on the server)
-- A second, mobile-first interface with the same features in a different layout
+- Rooms interface: moving channels and people without dragging, gestures, more polish
 - Rich chat between mumh5 users: replies, reactions, edits, typing indicators
 - Screen sharing: a media server for large rounds (today every sender uploads once per viewer, up to 8)
 - Release builds for all platforms

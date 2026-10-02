@@ -24,6 +24,8 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  // standard: the channel tree in one of the layouts above. rooms: one screen at a time, made for phones.
+  interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
   autoCameras: boolean;   // show other people's cameras as they come on
   shareVolume: number;    // volume of streams we watch, 0 to 1
@@ -58,6 +60,7 @@ const defaults: Settings = {
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'side',
+  interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,
   shareVolume: 1,

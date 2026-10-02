@@ -35,5 +35,10 @@ export const ICON_PATHS: Record<string, string> = {
   link: 'M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1',
   image: 'M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21',
   code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
+  more: 'M4 11h2v2H4zM11 11h2v2h-2zM18 11h2v2h-2z',
+  back: 'M19 12H5M11 6l-6 6 6 6',
+  search: 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5',
+  user: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1',
+  rooms: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
   eraser: 'M20 20H7L3 16l10-10 7 7-6.5 7M6 11l7 7'
 };

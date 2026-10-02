@@ -1109,6 +1109,90 @@ try {
   await page.keyboard.press('Escape');
   console.log('ok: registered on the server');
 
+  // ─── The Rooms interface: the same app arranged for phones ─────────────────
+  {
+    const before = page.viewportSize()!;
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'Appearance' }).click();
+    await page.getByRole('radio', { name: 'Rooms' }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 800 });
+    const nav = page.getByRole('navigation', { name: 'Screens' });
+    const rooms = page.getByRole('region', { name: 'Rooms' });
+    await rooms.getByRole('heading', { name: 'Test Server' }).waitFor();
+    assert.equal(await page.locator('.sidebar').count(), 0, 'the standard interface is gone');
+    // People show in their room without opening it; the dock names the room you are in
+    await rooms.locator('.room.here .person', { hasText: 'bob' }).waitFor();
+    await page.locator('.dock', { hasText: 'Root' }).waitFor();
+    if (admin) {
+      await rooms.getByRole('button', { name: 'Join Games' }).click();
+      await until2('alice in Games', () => bob.channels.get(userState(newName)!.channelId)?.name === 'Games');
+      await page.locator('.dock', { hasText: 'Games' }).waitFor();
+      await rooms.getByRole('button', { name: 'Join Root' }).click();
+      await until2('alice back in Root', () => userState(newName)!.channelId === 0);
+      await page.locator('.dock', { hasText: 'Root' }).waitFor();
+    }
+    console.log('ok: rooms interface lists rooms with their people and joins from the list');
+
+    // Mute from the dock
+    const wasMuted = !!userState(newName)!.selfMute;
+    await page.locator('.dock').getByRole('button', { name: wasMuted ? 'Unmute' : 'Mute', exact: true }).click();
+    await until2('mute toggled from the dock', () => !!userState(newName)!.selfMute === !wasMuted);
+    await page.locator('.dock').getByRole('button', { name: wasMuted ? 'Mute' : 'Unmute', exact: true }).click();
+    await until2('mute restored', () => !!userState(newName)!.selfMute === wasMuted);
+
+    // Chat is a screen of its own
+    await nav.getByRole('button', { name: 'Chat' }).click();
+    const roomsMsg = new Promise<void>(res => bob.on('text', m => { if (m.html === 'hello from rooms') res(); }));
+    await page.locator('.chat2 .composer [contenteditable]').fill('hello from rooms');
+    await page.locator('.chat2 .composer [contenteditable]').press('Enter');
+    await within(roomsMsg, 'message from the rooms interface');
+    await page.locator('.chat2 .msg', { hasText: 'hello from rooms' }).waitFor();
+    await page.getByRole('button', { name: 'Back to rooms' }).click();
+    await rooms.waitFor();
+
+    // The voice screen shows the room as tiles with the large controls
+    await nav.getByRole('button', { name: 'Voice' }).click();
+    const voiceScreen = page.getByRole('region', { name: 'Voice', exact: true });
+    await voiceScreen.locator('.tile', { hasText: 'bob' }).waitFor();
+    await voiceScreen.getByRole('button', { name: /^Share your screen or camera$/ }).waitFor();
+    assert.equal(await page.locator('.dock').count(), 0, 'no dock on the voice screen');
+
+    // People: a profile opens over the screen, a message opens the chat
+    await nav.getByRole('button', { name: 'People' }).click();
+    const people = page.getByRole('region', { name: 'People' });
+    await people.locator('.entry', { hasText: 'bob' }).locator('.main').click();
+    await page.locator('.sheet h3', { hasText: 'bob' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.locator('.sheet').waitFor({ state: 'detached' });
+    await people.getByRole('button', { name: 'Message bob' }).click();
+    await page.locator('.chat2 h1', { hasText: 'bob' }).waitFor();
+    if (shots) await page.screenshot({ path: path.join(shots, 'rooms-phone.png') });
+
+    // Wide windows keep the rooms next to the screen
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await rooms.waitFor();
+    await page.locator('.chat2').waitFor();
+    assert.equal(await nav.getByRole('button', { name: 'Rooms' }).count(), 0);
+    if (notesId != null) {
+      await rooms.locator('.entry', { hasText: 'notes' }).locator('.main').click();
+      await page.locator('.chat2 .msg', { hasText: 'text hello' }).waitFor();
+    }
+    if (shots) await page.screenshot({ path: path.join(shots, 'rooms-wide.png') });
+    console.log('ok: rooms interface: dock, chat, voice screen, people, profile sheet, wide layout');
+
+    // Back to the standard interface from the You screen
+    await nav.getByRole('button', { name: 'You' }).click();
+    await page.getByRole('region', { name: 'You' }).getByRole('button', { name: /^Appearance/ }).click();
+    await page.getByRole('radio', { name: 'Standard' }).click();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.locator('.sidebar').waitFor();
+    await page.setViewportSize(before);
+    await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
+    await page.locator('.chat h1', { hasText: 'Root' }).waitFor();
+    console.log('ok: back to the standard interface from the You screen');
+  }
+
   // Kicked: the reason is shown with a Reconnect button
   if (admin) {
     const me = [...admin.users.values()].find(u => u.name === newName)!;
