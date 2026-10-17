@@ -2,7 +2,7 @@
 
 All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
-## Unreleased
+## 0.2.0 - 2026-10-17
 
 ### Added
 

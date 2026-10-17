@@ -719,7 +719,7 @@ try {
   await page.locator('.sidebar .user.self').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Information' }).click();
   const info = page.getByRole('dialog', { name: /^Information: alice/ });
-  await info.getByText('mumh5 0.1.0').waitFor();
+  await info.getByText('mumh5 0.2.0').waitFor();
   await info.getByText('linux', { exact: false }).first().waitFor();
   await info.getByText('Online for').waitFor();
   // Live: the online time advances while the dialog is open
@@ -739,7 +739,7 @@ try {
   const bobInfo = page.getByRole('dialog', { name: 'Information: bob' });
   await bobInfo.getByText('Ping (TCP)').waitFor();
   await bobInfo.getByText('only shown to admins', { exact: false }).first().waitFor();
-  assert.equal(await bobInfo.getByText('mumh5 0.1.0').count(), 0);
+  assert.equal(await bobInfo.getByText('mumh5 0.2.0').count(), 0);
   await bobInfo.getByRole('button', { name: 'Close', exact: true }).last().click();
   console.log('ok: other user information respects server permissions');
 

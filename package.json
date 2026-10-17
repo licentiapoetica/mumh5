@@ -1,7 +1,7 @@
 {
   "name": "mumh5",
   "productName": "mumh5",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A modern Mumble client: Discord-like interface, file sharing, voice and more, for any Mumble server",
   "license": "MIT",
   "type": "module",
