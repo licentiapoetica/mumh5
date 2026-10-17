@@ -2,9 +2,7 @@
   import Icon from './Icon.svelte';
   import FormatToolbar from './FormatToolbar.svelte';
   import { session } from '../lib/session.svelte.ts';
-  import { store } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { acceptAttr } from '../lib/upload.ts';
   import { toMumbleHtml } from '../lib/html.ts';
 
   // target: the chat this composer sends to ("ch:<id>" or "dm:<session>")
@@ -17,7 +15,7 @@
   // The formatting toolbar is opt-in and remembered
   let formatting = $state(loadFormatting());
   const disabled = $derived(session.status !== 'connected');
-  const uploads = $derived(session.uploads.filter(u => u.key === target));
+  const preparing = $derived(session.preparing.filter(u => u.key === target));
 
   function loadFormatting(): boolean {
     try { return localStorage.getItem('mumh5.formatBar') === '1'; } catch { return false; }
@@ -27,11 +25,6 @@
     try { localStorage.setItem('mumh5.formatBar', formatting ? '1' : '0'); } catch { /* storage unavailable */ }
     input.focus();
   }
-
-  // Know the host's allowed types before the picker opens
-  $effect(() => {
-    if (store.settings.uploadHost && store.settings.uploadKey) session.loadUploadInfo().catch(() => {});
-  });
 
   const sync = () => { empty = !input.textContent?.trim() && !input.querySelector('img'); };
 
@@ -69,7 +62,7 @@
   function onpaste(e: ClipboardEvent) {
     const files = [...(e.clipboardData?.files ?? [])];
     e.preventDefault();
-    if (files.length) return session.uploadFiles(files, target);
+    if (files.length) return session.sendFiles(files, target);
     const html = e.clipboardData?.getData('text/html');
     if (html && formatting) exec('insertHTML', toMumbleHtml(html));
     else exec('insertText', e.clipboardData?.getData('text/plain') ?? '');
@@ -99,13 +92,13 @@
 </script>
 
 <div class="composer">
-  {#if uploads.length}
-    <ul class="uploads">
-      {#each uploads as u (u.id)}
-        <li class:error={u.error}>
+  {#if preparing.length}
+    <ul class="preparing">
+      {#each preparing as u (u.id)}
+        <li title="Reading the file before it is announced">
           <Icon name="file" size={16} />
           <span class="name">{u.name}</span>
-          {#if u.error}<span>{u.error}</span>{:else}<span class="bar"><span style:width="{u.progress * 100}%"></span></span>{/if}
+          <span class="bar"><span style:width="{u.progress * 100}%"></span></span>
         </li>
       {/each}
     </ul>
@@ -115,12 +108,11 @@
       <FormatToolbar {exec} onlink={link} onimage={() => imagePicker.click()} />
     {/if}
     <div class="box">
-      <button class="icon-btn" title={store.settings.uploadHost ? 'Upload a file' : 'Send an image'} {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
+      <button class="icon-btn" title="Send a file" {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
       <input bind:this={picker} type="file" multiple hidden
-        accept={store.settings.uploadHost && store.settings.uploadKey ? acceptAttr(session.uploadInfo) : 'image/*'}
-        onchange={() => { session.uploadFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
+        onchange={() => { session.sendFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
       <input bind:this={imagePicker} type="file" accept="image/*" hidden
-        onchange={() => { session.uploadFiles([...(imagePicker.files ?? [])], target); imagePicker.value = ''; }} />
+        onchange={() => { session.sendFiles([...(imagePicker.files ?? [])], target); imagePicker.value = ''; }} />
       <div class="input" class:blank={empty} bind:this={input} contenteditable={!disabled}
         role="textbox" aria-multiline="true" aria-label="Message" tabindex="0" data-placeholder={placeholder}
         oninput={sync} {onkeydown} {onpaste}></div>
@@ -145,9 +137,8 @@
   .fmt { font-weight: 700; font-size: 13px; }
   .fmt.on { color: var(--accent-hover); }
   .send:not(:disabled) { color: var(--accent-hover); }
-  .uploads { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-  .uploads li { display: flex; align-items: center; gap: 8px; background: var(--bg-1); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
-  .uploads li.error { color: var(--danger); border-color: var(--danger); }
+  .preparing { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .preparing li { display: flex; align-items: center; gap: 8px; background: var(--bg-1); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
   .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bar { flex: 1; height: 4px; background: var(--bg-3); }
   .bar span { display: block; height: 100%; background: var(--accent); transition: width 120ms; }

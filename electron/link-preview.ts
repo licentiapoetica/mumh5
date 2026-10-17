@@ -3,9 +3,8 @@ import https from 'node:https';
 import dns from 'node:dns';
 import net from 'node:net';
 
-// Link preview fetched from this computer ("direct" mode, reveals the user's IP to the linked
-// site). Same safeguards as the f0ckm endpoint: public addresses only, redirects re-checked,
-// size and time limits.
+// Link preview fetched from this computer (reveals the user's IP to the linked site). Public
+// addresses only, redirects re-checked, size and time limits.
 
 export interface LinkPreview {
   url: string;

@@ -2,6 +2,7 @@
   import Avatar from './Avatar.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import LinkPreview from './LinkPreview.svelte';
+  import FileCard from './FileCard.svelte';
   import { store } from '../lib/settings.svelte.ts';
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -42,7 +43,9 @@
       {/if}
       {#if entry.html}<div class="html">{@html entry.html}</div>{/if}
       {#each entry.embeds as m (m.url)}
-        {#if m.kind === 'link'}
+        {#if m.kind === 'file'}
+          <div class="embed"><FileCard meta={m.file!} poster={m.poster ?? ''} author={entry.self ? null : entry.authorSession} /></div>
+        {:else if m.kind === 'link'}
           <div class="embed"><LinkPreview url={m.url} /></div>
         {:else if m.kind === 'youtube'}
           {#if store.settings.youtube !== 'off'}<div class="embed"><YouTubeEmbed videoId={m.videoId!} start={m.start} url={m.url} /></div>{/if}

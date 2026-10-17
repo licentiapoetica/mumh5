@@ -19,7 +19,7 @@
     { tab: 'sounds', name: 'Sounds', note: 'Notification sounds' },
     { tab: 'appearance', name: 'Appearance', note: 'Colors and interface' },
     { tab: 'accessibility', name: 'Accessibility', note: '' },
-    { tab: 'files', name: 'Chat and files', note: 'Uploads, previews, embeds' },
+    { tab: 'files', name: 'Chat and files', note: 'Files, previews, embeds' },
     { tab: 'identities', name: 'Identities', note: 'Your certificates' }
   ];
   const openSettings = (tab: Tab) => { ui.settingsTab = tab; ui.settingsOpen = true; };

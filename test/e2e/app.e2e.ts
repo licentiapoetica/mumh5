@@ -1,6 +1,6 @@
 // Drives the built Electron app against a real Mumble server, with a headless second client.
 //   npm run build && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e
-// Optional: UPLOAD_HOST + UPLOAD_KEY to also test file sharing, SHOTS_DIR to save screenshots.
+// Optional: E2E_INTERNET=1 to also test link previews (fetches github.com), SHOTS_DIR to save screenshots.
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
@@ -16,6 +16,10 @@ import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
 import { byOrder } from '../../src/core/channel-order.ts';
 import { TEXT, TEXT_DATA_ID, TEXT_MARK, TextAssembler, encodeText, parseMsg, parseHistory } from '../../src/core/text-signal.ts';
+import {
+  FILE, FILE_DATA_ID, FileAssembler, Sender, pump as pumpPieces, announce, takeFiles, encodeFileSignal, isPiece, parsePiece, decode15, encode15,
+  pieceBytes, pieceCount, pieceSize, pieceForm, pieceMessage, fromRanges, sha256, rootHash
+} from '../../src/core/file-transfer.ts';
 
 const target = process.env.MUMBLE_TEST_HOST;
 if (!target) {
@@ -108,17 +112,6 @@ try {
   await me.getByRole('button', { name: 'Deafen', exact: true }).waitFor();
   await me.getByRole('button', { name: 'Mute', exact: true }).waitFor();
   console.log('ok: mute and deafen shown while disconnected');
-
-  // Settings: upload host + key
-  if (process.env.UPLOAD_HOST && process.env.UPLOAD_KEY) {
-    await page.getByTitle('Settings').click();
-    await page.getByRole('tab', { name: 'Chat and files' }).click();
-    await page.getByLabel('Upload host').fill(process.env.UPLOAD_HOST);
-    await page.getByLabel('Upload key').fill(process.env.UPLOAD_KEY);
-    await page.getByRole('button', { name: 'Test key' }).click();
-    await page.getByText(/^Key works\./).waitFor();
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
-  }
 
   // Add and connect to the server
   await page.getByTitle('Add a server').click();
@@ -530,55 +523,126 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: TeamSpeak sound pack mapped from settings.ini');
 
-  if (process.env.UPLOAD_HOST) {
-    const png = path.join(userData, 'gradient.png');
-    writeFileSync(png, testPng());
-    const gotUpload = new Promise<string>(res => bob.on('text', m => res(m.html)));
-    await page.locator('.chat .composer input[type=file]').first().setInputFiles(png);
-    const up = await within(gotUpload, 'upload message');
-    assert.match(up, /<a href="http[^"]+\/cu\/[A-Za-z0-9_-]{12}\/gradient\.png">gradient\.png<\/a>/);
-    assert.match(up, /<br\/><img src="data:image\/jpeg;base64,[^"]+"\/>$/);
-    assert.ok(up.length > 5000, `preview should exceed the text limit (${up.length})`);
-    await page.locator('.embed img').waitFor();
-    await page.waitForFunction(() => (document.querySelector('.embed img') as HTMLImageElement)?.naturalWidth === 400);
-    console.log('ok: upload posted with vanilla thumbnail, embed loads for mumh5');
+  // ─── Files through the Mumble server ─────────────────────────────────────
+  {
+    const alice = aliceSession();
+    const fileAsm = new FileAssembler();
+    const signals: { from: number; type: number; body: any }[] = [];
+    let onSignal: (() => void) | null = null;
+    const bobSignal = async (to: number[], type: (typeof FILE)[keyof typeof FILE], body: unknown) => {
+      for (const packet of await encodeFileSignal(type, body)) bob.sendPluginData(to, FILE_DATA_ID, packet);
+    };
+    const signalFrom = (type: number) => new Promise<{ from: number; body: any }>(res => {
+      const look = () => { const i = signals.findIndex(x => x.type === type); if (i >= 0) { onSignal = null; res(signals.splice(i, 1)[0]); } };
+      onSignal = look;
+      look();
+    });
+    // Bob serves his own files the way the app does
+    const sender = new Sender();
+    const served = new Map<string, { meta: { s: number; c: number }; data: Buffer }>();
+    let pumping = false;
+    bob.on('pluginData', async (from, id, packet) => {
+      if (id !== FILE_DATA_ID) return;
+      const sig = await fileAsm.push(from, packet);
+      if (!sig) return;
+      const body = JSON.parse(sig.text!);
+      const mine = served.get(body.i);
+      if (sig.type === FILE.who && mine) return bobSignal([from], FILE.have, { i: body.i });
+      if (sig.type === FILE.want && mine) {
+        sender.want(body.i, from, fromRanges(body.r, pieceCount(mine.meta))!);
+        if (!pumping) {
+          pumping = true;
+          pumpPieces({
+            client: bob, sender, alive: () => true,
+            read: async (f, k) => { const x = served.get(f)!; return pieceMessage(pieceForm(bob.config), f, k, encode15(x.data.subarray(k * x.meta.c, k * x.meta.c + pieceSize(x.meta, k)))); },
+            done: (r, f) => bobSignal([r], FILE.done, { i: f }), gone: () => {}
+          }).finally(() => { pumping = false; });
+        }
+        return;
+      }
+      signals.push({ from, type: sig.type, body });
+      onSignal?.();
+    });
 
-    // Link previews through the upload host: fetched and image-proxied by f0ckm (needs internet)
-    bob.sendText({ channels: [0] }, '<a href="https://github.com/mumble-voip/mumble">https://github.com/mumble-voip/mumble</a>');
-    const gh = page.locator('.msg', { hasText: 'github.com/mumble-voip' }).locator('.card');
-    await gh.locator('.title', { hasText: /mumble/i }).waitFor({ timeout: 15000 });
-    await gh.locator('.site', { hasText: 'GitHub' }).waitFor();
-    const ghImg = gh.locator('img');
-    assert.ok((await ghImg.getAttribute('src'))!.startsWith(`${process.env.UPLOAD_HOST}/api/chat/preview/image?`), 'image proxied by the upload host');
-    await page.waitForFunction(() => ((document.querySelector('.card img') as HTMLImageElement)?.naturalWidth ?? 0) > 0, null, { timeout: 15000 });
-    console.log('ok: link preview through the upload host');
+    // The app sends a file: announced in the chat, then sent in pieces to whoever asks
+    const data = Buffer.alloc(600_000);
+    for (let i = 0; i < data.length; i += 65536) crypto.getRandomValues(data.subarray(i, i + 65536));
+    const bin = path.join(userData, 'clip.bin');
+    writeFileSync(bin, data);
+    const announced = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('<!--mumh5:file:')) res(m.html); }));
+    await page.locator('.chat .composer input[type=file]').first().setInputFiles(bin);
+    const html = await within(announced, 'file announcement', 15000);
+    assert.match(html, /<b>clip\.bin<\/b> \(585\.9 KB, file shared with mumh5\)/);
+    const [f] = takeFiles(html).files;
+    assert.equal(f.meta.n, 'clip.bin');
+    assert.equal(f.meta.s, data.length);
+    const count = pieceCount(f.meta);
+    const parts: Buffer[] = [];
+    const gotAll = new Promise<void>(res => bob.on('text', m => {
+      if (!isPiece(m.html) || m.actor !== alice) return;
+      const p = parsePiece(m.html)!;
+      parts[p.index] = Buffer.from(decode15(p.payload, pieceSize(f.meta, p.index))!);
+      if (parts.filter(Boolean).length === count) res();
+    }));
+    const done = signalFrom(FILE.done);
+    await bobSignal([alice], FILE.want, { i: f.meta.i, r: [[0, count]] });
+    await within(gotAll, 'file pieces', 20000);
+    assert.ok(Buffer.concat(parts).equals(data), 'the file arrives as it was');
+    assert.equal(await rootHash(await Promise.all(parts.map(p => sha256(p)))), f.meta.h);
+    assert.equal((await within(done, 'done signal')).body.i, f.meta.i);
+    await page.locator('.chat .msg .file', { hasText: 'clip.bin' }).locator('a[download="clip.bin"]').waitFor();
+    // Asked who has it, the app says it does
+    const have = signalFrom(FILE.have);
+    await bobSignal([alice], FILE.who, { i: f.meta.i });
+    assert.equal((await within(have, 'have signal')).body.i, f.meta.i);
+    console.log(`ok: a file goes from the app to another client through the server (${count} pieces)`);
 
-    // Direct mode: this computer fetches the preview itself
+    // Someone else sends a picture: the app fetches it by itself and shows it
+    const png = testPng(700, 500);
+    const c = pieceBytes(bob.config);
+    const pm = { s: png.length, c };
+    const digests: Uint8Array[] = [];
+    for (let k = 0; k < pieceCount(pm); k++) digests.push(await sha256(png.subarray(k * c, k * c + pieceSize(pm, k))));
+    const meta = { i: 'e2enoise' + Date.now().toString(36), n: 'noise.png', s: png.length, m: 'image/png', c, h: await rootHash(digests) };
+    served.set(meta.i, { meta, data: png });
+    bob.sendText({ channels: [0] }, announce(meta, `<b>noise.png</b> (${png.length} B, file shared with mumh5)<br/><img src="data:image/png;base64,${testPng(40, 30).toString('base64')}"/>`));
+    const shown = page.locator('.chat .msg .file img[alt="noise.png"]');
+    await shown.waitFor({ timeout: 30000 });
+    await page.waitForFunction(() => (document.querySelector('.chat .msg .file img[alt="noise.png"]') as HTMLImageElement)?.naturalWidth === 700);
+    assert.equal(await page.locator('.chat .msg', { hasText: 'file shared with mumh5' }).count(), 0, 'the text for other clients is not shown');
+    console.log(`ok: the app fetches a file by itself and shows it (${pieceCount(pm)} pieces)`);
+
+    // Posted by someone who left right after: the app finds another client that has the file
+    const relay = Buffer.alloc(300_000);
+    crypto.getRandomValues(relay.subarray(0, 65536));
+    relay.copyWithin(65536, 0, 300_000 - 65536);
+    const rm = { s: relay.length, c };
+    const rd: Uint8Array[] = [];
+    for (let k = 0; k < pieceCount(rm); k++) rd.push(await sha256(relay.subarray(k * c, k * c + pieceSize(rm, k))));
+    const relayMeta = { i: 'e2erelay' + Date.now().toString(36), n: 'relay.bin', s: relay.length, m: '', c, h: await rootHash(rd) };
+    served.set(relayMeta.i, { meta: relayMeta, data: relay });
+    const carol = await headless('carol');
+    carol.sendText({ channels: [0] }, announce(relayMeta, '<b>relay.bin</b> (293 KB, file shared with mumh5)'));
+    await new Promise(r => setTimeout(r, 200));
+    carol.disconnect();
+    await page.locator('.chat .msg .file', { hasText: 'relay.bin' }).locator('a[download="relay.bin"]').waitFor({ timeout: 30000 });
+    console.log('ok: a file whose sender left comes from someone else who has it');
+  }
+
+  if (process.env.E2E_INTERNET) {
+    // Link previews, fetched by this computer
     await page.getByTitle('Settings').click();
     await page.getByRole('tab', { name: 'Chat and files' }).click();
     await page.getByLabel('Link previews').selectOption('direct');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
-    bob.sendText({ channels: [0] }, '<a href="https://www.mumble.info/">https://www.mumble.info/</a>');
-    const direct = page.locator('.msg', { hasText: 'www.mumble.info' }).locator('.card');
-    await direct.locator('.title').waitFor({ timeout: 15000 });
-    assert.ok(!(await direct.locator('img').getAttribute('src').catch(() => ''))?.includes('/api/chat/preview/image'), 'direct mode does not use the proxy');
+    bob.sendText({ channels: [0] }, '<a href="https://github.com/mumble-voip/mumble">https://github.com/mumble-voip/mumble</a>');
+    const gh = page.locator('.msg', { hasText: 'github.com/mumble-voip' }).locator('.card');
+    await gh.locator('.title', { hasText: /mumble/i }).waitFor({ timeout: 15000 });
     await page.getByTitle('Settings').click();
     await page.getByRole('tab', { name: 'Chat and files' }).click();
-    await page.getByLabel('Link previews').selectOption('host');
+    await page.getByLabel('Link previews').selectOption('off');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     console.log('ok: link preview fetched directly');
-
-    // Types the upload host does not allow are refused before uploading
-    const txt = path.join(userData, 'notes.txt');
-    writeFileSync(txt, 'plain text');
-    let leaked = false;
-    const off = bob.on('text', () => { leaked = true; });
-    await page.locator('.chat .composer input[type=file]').first().setInputFiles(txt);
-    await page.getByText('notes.txt: file type not allowed on this upload host').waitFor();
-    await page.waitForTimeout(500);
-    off();
-    assert.equal(leaked, false);
-    console.log('ok: disallowed file type refused');
   }
 
   // Server certificate viewer from the header (the Docker server is self-signed, so no green header)
@@ -655,7 +719,7 @@ try {
   await page.locator('.sidebar .user.self').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Information' }).click();
   const info = page.getByRole('dialog', { name: /^Information: alice/ });
-  await info.getByText('mumh5 0.1.0').waitFor();
+  await info.getByText('mumh5 0.2.0').waitFor();
   await info.getByText('linux', { exact: false }).first().waitFor();
   await info.getByText('Online for').waitFor();
   // Live: the online time advances while the dialog is open
@@ -675,7 +739,7 @@ try {
   const bobInfo = page.getByRole('dialog', { name: 'Information: bob' });
   await bobInfo.getByText('Ping (TCP)').waitFor();
   await bobInfo.getByText('only shown to admins', { exact: false }).first().waitFor();
-  assert.equal(await bobInfo.getByText('mumh5 0.1.0').count(), 0);
+  assert.equal(await bobInfo.getByText('mumh5 0.2.0').count(), 0);
   await bobInfo.getByRole('button', { name: 'Close', exact: true }).last().click();
   console.log('ok: other user information respects server permissions');
 
@@ -951,6 +1015,19 @@ try {
     await page.locator('.chat .msg', { hasText: 'text hello' }).waitFor();
     console.log('ok: text channel created, opened without joining, message reaches others');
 
+    // Files go into text channels too, announced with a preview that fits a text channel message
+    const notePng = path.join(userData, 'note.png');
+    writeFileSync(notePng, testPng(800, 600));
+    const sentFile = bobGets('file in a text channel', m => m.type === TEXT.msg && !!parseMsg(m.text)?.h.includes('note.png'));
+    await page.locator('.chat .composer input[type=file]').first().setInputFiles(notePng);
+    const fileMsg = parseMsg((await sentFile).text)!;
+    assert.equal(fileMsg.c, notesId);
+    const [noteFile] = takeFiles(fileMsg.h).files;
+    assert.equal(noteFile.meta.n, 'note.png');
+    assert.ok(noteFile.poster.startsWith('data:image/jpeg;base64,'), 'with a preview picture');
+    await page.locator('.chat .msg .file img[alt="note.png"]').waitFor();
+    console.log(`ok: file sent into a text channel (${fileMsg.h.length} chars)`);
+
     // A message from someone in another channel arrives; unread while another chat is open
     await bobSend([aliceSession()], TEXT.msg, { i: 'bob-1', c: notesId, h: 'hello from <b>bob</b>' });
     await page.locator('.chat .msg', { hasText: 'hello from bob' }).locator('strong', { hasText: 'bob' }).first().waitFor();
@@ -975,37 +1052,34 @@ try {
     const handed = bobGets('history', m => m.type === TEXT.history && parseHistory(m.text).length > 0);
     await bobSend([aliceSession()], TEXT.want);
     const history = parseHistory((await handed).text);
-    assert.deepEqual(history.map(m => m.h), ['text hello', 'hello from <b>bob</b>', 'second from bob']);
-    assert.deepEqual(history.map(m => m.n), ['alice', 'bob', 'bob']);
+    assert.deepEqual(history.map(m => m.h), ['text hello', fileMsg.h, 'hello from <b>bob</b>', 'second from bob']);
+    assert.deepEqual(history.map(m => m.n), ['alice', 'alice', 'bob', 'bob']);
     assert.equal(history[0].c, notesId);
     await page.locator('.channel .name', { hasText: voiceChannel! }).first().dblclick();
     await page.locator('.chat h1', { hasText: voiceChannel! }).waitFor();
     console.log('ok: text channel messages handed to a client that asks');
   }
 
-  // Without an upload host, images are sent inline within Mumble's image limit
+  // A picture too large for a message goes as a file, with a scaled preview for other clients
   await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
   await page.locator('.me .who span', { hasText: 'Root' }).waitFor();
-  await page.getByTitle('Settings').click();
-  await page.getByRole('tab', { name: 'Chat and files' }).click();
-  await page.getByLabel('Upload host').fill('');
-  // Settings that need the upload host are disabled and previews show as off
-  assert.ok(await page.getByLabel('Files expire after').isDisabled());
-  assert.ok(await page.getByLabel('Send image previews for regular Mumble clients').isDisabled());
-  assert.equal(await page.getByLabel('Link previews').inputValue(), 'off');
-  assert.ok(await page.getByLabel('Link previews').locator('option[value=host]').isDisabled());
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
   const big = path.join(userData, 'big.png');
   writeFileSync(big, testPng(1600, 1200));
-  const gotInline = new Promise<string>(res => bob.on('text', m => { if (m.html.startsWith('<img')) res(m.html); }));
+  const gotBig = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('big.png')) res(m.html); }));
   await page.locator('.chat .composer input[type=file]').first().setInputFiles(big);
-  const inline = await within(gotInline, 'inline image', 15000);
-  assert.match(inline, /^<img src="data:image\/jpeg;base64,[^"]+"\/>$/);
-  assert.ok(inline.length <= 131072, `inline image within the server limit (${inline.length})`);
-  console.log(`ok: inline image without upload host (${inline.length} chars)`);
+  const announcedBig = await within(gotBig, 'large picture', 15000);
+  assert.match(announcedBig, /<b>big\.png<\/b> \([\d.]+ MB, file shared with mumh5\)<br\/><img src="data:image\/jpeg;base64,[^"]+"\/><!--\/mumh5:file-->$/);
+  assert.ok(announcedBig.length <= 131072, `within the server limit (${announcedBig.length})`);
+  // A small one goes inline as it is, for everyone
+  const small = path.join(userData, 'small.png');
+  writeFileSync(small, testPng(60, 40));
+  const gotSmall = new Promise<string>(res => bob.on('text', m => { if (m.html.startsWith('<img')) res(m.html); }));
+  await page.locator('.chat .composer input[type=file]').first().setInputFiles(small);
+  assert.match(await within(gotSmall, 'small picture'), /^<img src="data:image\/png;base64,[^"]+"\/>$/);
+  console.log(`ok: large picture sent as a file with a preview (${announcedBig.length} chars), small one inline`);
 
   // A click on an image in the chat shows it large; Escape or a click closes it
-  await page.locator('.chat .msg .html img').last().click();
+  await page.locator('.chat .msg .file img[alt="big.png"]').click();
   const viewer = page.getByRole('dialog', { name: 'Image' });
   await viewer.waitFor();
   const shown = await viewer.locator('img').evaluate((i: HTMLImageElement) => [i.naturalWidth > 0, i.getBoundingClientRect().width]);
@@ -1013,6 +1087,7 @@ try {
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
   await page.locator('.chat .msg .html img').last().click();
+  await viewer.waitFor();
   await viewer.getByRole('button', { name: 'Close image' }).click({ position: { x: 5, y: 5 } });
   await viewer.waitFor({ state: 'detached' });
   console.log('ok: images open large on click');
@@ -1115,6 +1190,8 @@ try {
     const texts = await page.locator('.chat .msg .html').allTextContents();
     assert.deepEqual(texts.map(t => t.trim()).filter(t => !t.startsWith('You joined')), ['said while you were away', 'text hello', 'hello from bob', 'second from bob']);
     assert.equal(await page.locator('.channel', { hasText: 'notes' }).locator('.badge').count(), 0, 'old messages are not unread');
+    // The file sent there was kept on this computer
+    await page.locator('.chat .msg .file img[alt="note.png"]').waitFor();
     await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
     await page.locator('.chat h1', { hasText: 'Root' }).waitFor();
     console.log('ok: text channel keeps its messages and catches up from another client');

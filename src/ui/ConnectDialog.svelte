@@ -3,7 +3,7 @@
   import { store, type SavedServer } from '../lib/settings.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
   import { identities } from '../lib/identities.svelte.ts';
-  import { makeServerIcon } from '../lib/upload.ts';
+  import { makeServerIcon } from '../lib/images.ts';
   import { isWeb } from '../lib/native.ts';
   import { proxyInfo } from '../lib/web.svelte.ts';
 

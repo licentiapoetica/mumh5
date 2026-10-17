@@ -8,7 +8,7 @@
   import { channelMenu, userMenu } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
-  import { makeServerIcon } from '../lib/upload.ts';
+  import { makeServerIcon } from '../lib/images.ts';
   import { PERM, type Channel } from '../core/client.ts';
   import { stripMark } from '../core/text-signal.ts';
 

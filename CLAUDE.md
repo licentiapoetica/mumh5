@@ -11,7 +11,7 @@
 
 mumh5 is a Mumble client: Electron desktop app (Windows, macOS, Linux), Svelte 5 + TypeScript + Vite UI, Discord-like layout, responsive down to phone width. It must stay compatible with stock Murmur servers and with people on the desktop Mumble client. There is also a browser build that connects through a self-hosted WebSocket proxy with a server allowlist (`server/`).
 
-File sharing uploads to a f0ckm instance (`../f0ckm`, `src/chat_upload_handler.mjs` there) with an upload-only key; links are posted in chat.
+Files go through the Mumble server itself, no file host (see File transfer below).
 
 ## Commands
 
@@ -52,6 +52,7 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 - `src/ui/`: Svelte components. `App.svelte` owns layout and global dialogs (`ui.svelte.ts` store).
 - `src/ui2/`: the Rooms interface (`settings.interface === 'rooms'`), a second shell on the same state: `Shell.svelte` (screens and bar, rooms beside the screen from 900px), `Rooms`, `ChatScreen`, `VoiceScreen`, `People`, `You`, `Dock`. It reuses `ChatLog`, `Composer`, `VoiceStage` (`fill`), `RightPanel` (as a sheet) and every dialog and menu from `src/ui/`. A feature added to one interface needs its place in the other. Class names there must not collide with ones `themes.css` styles (`.tabs`, `.rail`, `.tile`).
 
+- File transfer: `src/core/file-transfer.ts` (announcement marker in a chat message, pieces as chat messages addressed to the downloaders with 15 bits per character inside `<img src="data:,...">`, requests as plugin data `mumh5.file`, the `Sender` scheduler and `pump`) and `src/lib/files.svelte.ts` (downloads split between up to four holders, serving, files kept in IndexedDB up to 2 GB). Pieces use `MumbleClient.sendBulk`, which leaves two messages of the rate limit to the user and waits for `flushed()` (a ping round trip) every three pieces. The card is `FileCard.svelte`. Small pictures still go inline as `<img>`.
 - Text channels: `src/core/text-signal.ts` (a marker in the channel description, messages as plugin data, id `mumh5.text`, sent to everyone on the server) and `src/lib/text-channels.ts` (pacing under Murmur's plugin limit, messages kept in IndexedDB per server, catch-up from one other client after connecting). They share the `ch:<id>` chat view; `session.isText(id)` tells them apart. Channel order for drag and drop is `src/core/channel-order.ts`.
 
 Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
@@ -62,7 +63,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 - The protobuf codec is generated static code (no eval) because the CSP forbids `unsafe-eval`. `wasm-unsafe-eval` is allowed, for the built-in Opus codec only. Field names keep snake_case from the .proto.
 - TypeScript files imported by Node tests use `.ts` extensions and erasable syntax only (no parameter properties, no enums).
 - New features get an E2E step in `test/e2e/app.e2e.ts`; protocol logic gets unit or server tests.
-- Privacy rule: opening a chat must never contact hosts the user did not choose. Remote media only from the upload host and user-listed hosts; YouTube is click-to-play (`youtube-nocookie.com`).
+- Privacy rule: opening a chat must never contact hosts the user did not choose. Remote media only from user-listed hosts; YouTube is click-to-play (`youtube-nocookie.com`).
 
 ## Browser and CSP pitfalls (all hit before)
 
@@ -83,6 +84,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 - Murmur silently drops own UserState, TextMessage, ChannelState, ACL and Version past a leaky bucket (burst 5, 1/s). The client paces these; don't bypass `send()`.
 - 1.5 servers use the protobuf UDP voice format (type byte 0 + MumbleUDP.Audio) with clients announcing 1.5; older ones the legacy format. The UDPTunnel TCP body is the raw voice packet, not a protobuf message. Sequence numbers count 10 ms frames.
 - Long comments and descriptions arrive as a hash only; a new hash invalidates the old text; fetch with RequestBlob.
+- A chat message may be as long as `imagemessagelength` (131072 characters by default) only if what remains after removing `src="data:..."` values from `<img>` tags fits the text limit. Murmur counts UTF-16 units, not bytes, so BMP characters carry more than base64 (measured: U+4000 to U+BFFF pass unchanged).
 - Murmur drops PluginDataTransmission over 1000 bytes and rate limits it (measured: burst 15, then 4 per second, per sender, dropped silently); keep packets at 900 bytes and few.
 - Murmur gives the id of a removed channel to the next one created; anything kept per channel id must be dropped on ChannelRemove.
 - Renaming while connected is not possible; mumh5 reconnects with the new name.

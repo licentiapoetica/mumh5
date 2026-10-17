@@ -6,8 +6,9 @@
   import SoundSettings from './SoundSettings.svelte';
   import { store } from '../lib/settings.svelte.ts';
   import { native, desktop, isWeb } from '../lib/native.ts';
-  import { fetchUploadInfo } from '../lib/upload.ts';
   import { previewMode } from '../lib/preview.ts';
+  import { files } from '../lib/files.svelte.ts';
+  import { formatBytes } from '../lib/html.ts';
 
   let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' } = $props();
 
@@ -15,7 +16,6 @@
   let tab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities'>(initialTab);
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
-  let testResult = $state('');
 
   // Public STUN servers to pick from; anything else is typed in
   const STUN_PRESETS = [
@@ -31,28 +31,13 @@
     else if (STUN_PRESETS.some(p => p.url === s.stunServer)) s.stunServer = '';
     store.saveSettings();
   }
-  // Settings that only work through the upload host are disabled until it is set up
-  const hasUpload = $derived(!!(s.uploadHost.trim() && s.uploadKey.trim()));
-  const needsUpload = $derived(hasUpload ? undefined : 'Needs an upload host and key');
-
   // Changes apply right away
   function saveFiles() {
-    s.uploadHost = s.uploadHost.trim().replace(/\/+$/, '');
-    s.uploadKey = s.uploadKey.trim();
     s.embedHosts = embedHosts.split(/[\s,]+/).map(h => h.trim()).filter(Boolean);
     store.saveSettings();
   }
-
-  async function test() {
-    saveFiles();
-    testResult = 'Checking...';
-    try {
-      const info = await fetchUploadInfo(s.uploadHost, s.uploadKey);
-      testResult = `Key works. Allowed: ${info.allowed_extensions.join(', ')} (max ${Math.round(info.max_bytes / 1048576)} MB)`;
-    } catch (e) {
-      testResult = (e as Error).message;
-    }
-  }
+  // How much the kept files take, once the tab is open
+  $effect(() => { if (tab === 'files') files.measure(); });
 
   type Tab = 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities';
   const tabs: { id: Tab; label: string }[] = [
@@ -97,34 +82,27 @@
     <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> Show hints when the pointer rests on buttons and icons</label>
     <p class="help">Hints are the small labels that appear on hover. Screen readers get the names either way.</p>
   {:else if tab === 'files'}
-    <p class="help">Files go to a f0ckm instance and are posted as links. Other mumh5 users see them inline; regular Mumble users get a link and a small preview. Without an upload host you can still send images, inline and scaled to the server's limit.</p>
-    <label for="s-host">Upload host</label>
-    <input id="s-host" bind:value={s.uploadHost} onchange={saveFiles} placeholder="https://f0ck.dev" />
-    <label for="s-key">Upload key</label>
-    <input id="s-key" type="password" bind:value={s.uploadKey} onchange={saveFiles} placeholder="cu_..." autocomplete="off" />
-    <div class="row">
-      <div title={needsUpload}>
-        <label for="s-exp" class:off={!hasUpload}>Files expire after</label>
-        <select id="s-exp" bind:value={s.uploadExpiry} onchange={saveFiles} disabled={!hasUpload}>
-          <option value="1h">1 hour</option>
-          <option value="24h">24 hours</option>
-          <option value="7d">7 days</option>
-          <option value="30d">30 days</option>
-        </select>
-      </div>
-      <button class="btn" disabled={!hasUpload} title={needsUpload} onclick={test}>Test key</button>
+    <p class="help">Files go through the Mumble server to other mumh5 users, about 12 MB a minute from each person who has the file on a server with default limits. Regular Mumble users see the name and the preview picture. Small pictures go inline for everyone.</p>
+    <label for="s-auto">Download files by themselves up to</label>
+    <select id="s-auto" value={String(s.autoDownload)} onchange={e => { s.autoDownload = Number(e.currentTarget.value); saveFiles(); }}>
+      <option value="0">Never, only when clicked</option>
+      <option value="5">5 MB</option>
+      <option value="20">20 MB</option>
+      <option value="100">100 MB</option>
+      <option value="500">500 MB</option>
+    </select>
+    <label class="check"><input type="checkbox" bind:checked={s.sendThumbnails} onchange={saveFiles} /> Send a preview picture with pictures and videos</label>
+    <div class="row kept">
+      <p class="help">Files sent and received are kept on this computer, up to 2 GB, so others can get them from you later. {files.usage != null ? `In use: ${formatBytes(files.usage)}.` : ''}</p>
+      <button class="btn" disabled={!files.usage} onclick={() => files.clear()}>Delete kept files</button>
     </div>
-    {#if testResult}<p class="help">{testResult}</p>{/if}
-    <label class="check" class:off={!hasUpload} title={needsUpload}><input type="checkbox" bind:checked={s.sendThumbnails} onchange={saveFiles} disabled={!hasUpload} /> Send image previews for regular Mumble clients</label>
 
     <h3>Embeds</h3>
     <label for="s-embed">Also show media inline from these hosts</label>
     <textarea id="s-embed" bind:value={embedHosts} onchange={saveFiles} rows="3" placeholder="one host per line, e.g. i.example.com"></textarea>
     <p class="help">Links from other hosts stay plain links, so opening a chat never contacts servers you did not choose.</p>
     <label for="s-lp">Link previews</label>
-    <!-- Shows the mode in effect; a stored "upload host" choice comes back once the key is set -->
     <select id="s-lp" value={previewMode()} onchange={e => { s.linkPreviews = e.currentTarget.value as typeof s.linkPreviews; saveFiles(); }}>
-      <option value="host" disabled={!hasUpload}>Fetched by the upload host (keeps your IP private){hasUpload ? '' : ' - needs an upload host and key'}</option>
       <option value="direct" disabled={!desktop}>Fetched by this computer (linked sites see your IP){desktop ? '' : ' - needs the desktop app'}</option>
       <option value="off">Off</option>
     </select>
@@ -153,10 +131,10 @@
   .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
   .help { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); }
   .row { display: flex; align-items: flex-end; gap: 8px; }
-  .row > div { flex: 1; }
+  .row.kept { align-items: center; margin-top: 10px; }
+  .row.kept .help { flex: 1; margin: 0; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
   .check input { width: auto; }
-  .off { color: var(--text-faint); }
   select:disabled, input:disabled { opacity: 0.5; }
   textarea { resize: vertical; }
 </style>

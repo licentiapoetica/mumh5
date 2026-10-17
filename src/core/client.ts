@@ -2,7 +2,7 @@ import { Emitter } from './emitter.ts';
 import { FrameReader, frame, type Codec, type MessageName } from './proto.ts';
 import type { Transport } from './transport.ts';
 
-export const CLIENT_RELEASE = 'mumh5 0.1.0';
+export const CLIENT_RELEASE = 'mumh5 0.2.0';
 const VERSION = { major: 1, minor: 5, patch: 0 };
 const PING_INTERVAL_MS = 15000;
 
@@ -14,6 +14,9 @@ const RATE_BURST = 5;
 const RATE_LEAK_MS = 1000;
 const RATE_MARGIN_MS = 250;
 const RATE_LIMITED = new Set<MessageName>(['TextMessage', 'ChannelState', 'ACL', 'Version']);
+// File pieces (bulk chat messages) use the bucket only up to here, so two of the user's own
+// messages always go out at once
+const BULK_CAP = RATE_BURST - 2;
 
 export interface Channel {
   id: number;
@@ -195,6 +198,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
   private lastLimited = 0;     // when the last rate-limited message was sent
   private queue: Uint8Array[] = [];
   private queueTimer: ReturnType<typeof setTimeout> | null = null;
+  private bulkLast = 0;        // when the last bulk message was sent
+  private pingWaiters: { at: number; resolve: () => void }[] = [];
 
   private codec: Codec;
 
@@ -293,6 +298,39 @@ export class MumbleClient extends Emitter<ClientEvents> {
       const wait = this.lastLimited + RATE_LEAK_MS + RATE_MARGIN_MS - Date.now() + 5;
       this.queueTimer = setTimeout(() => { this.queueTimer = null; this.drain(); }, Math.max(5, wait));
     }
+  }
+
+  // How long until a bulk message may go out without delaying the user's own (0: now). Never
+  // while their messages wait. Bulk goes in runs that start from an empty bucket: Murmur throws
+  // away the part of a second that has not leaked each time a message arrives, so a steady
+  // one-by-one pace would lose most of a second every time.
+  bulkWait(now = Date.now()): number {
+    if (this.queue.length) return RATE_LEAK_MS;
+    const level = this.levelAt(now);
+    const inRun = this.bulkLast === this.lastLimited && now - this.lastLimited < 250;
+    if (level === 0 || (inRun && level < BULK_CAP)) return 0;
+    return Math.max(5, this.lastLimited + level * RATE_LEAK_MS + RATE_MARGIN_MS - now + 5);
+  }
+
+  // A chat message that waits for room instead of queueing (see bulkWait). false: not now.
+  sendBulk(target: { users: number[] }, html: string): boolean {
+    if (!this.transport || this.closed || this.bulkWait() !== 0) return false;
+    const now = Date.now();
+    this.bucket = this.levelAt(now) + 1;
+    this.lastLimited = this.bulkLast = now;
+    this.transport.send(this.codec.encode('TextMessage', { session: target.users, channel_id: [], tree_id: [], message: html }));
+    return true;
+  }
+
+  // Resolves once the server has read everything sent before (a ping and its answer), so a
+  // large transfer on a slow connection waits instead of piling up in front of everything else
+  flushed(): Promise<void> {
+    if (!this.transport || this.closed) return Promise.resolve();
+    return new Promise(resolve => {
+      const at = Date.now();
+      this.pingWaiters.push({ at, resolve });
+      this.send('Ping', { timestamp: at });
+    });
   }
 
   // ─── Actions ───────────────────────────────────────────────────────────────
@@ -463,6 +501,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.pingTimer = null;
     this.queueTimer = null;
     this.queue = [];
+    for (const w of this.pingWaiters.splice(0)) w.resolve();
     this.emit('close', reason);
   }
 
@@ -488,8 +527,14 @@ export class MumbleClient extends Emitter<ClientEvents> {
         break;
       case 'Ping':
         if (msg.timestamp) {
-          this.rtt = Date.now() - Number(msg.timestamp);
+          const at = Number(msg.timestamp);
+          this.rtt = Date.now() - at;
           this.emit('ping', this.rtt);
+          if (this.pingWaiters.length) {
+            const done = this.pingWaiters.filter(w => w.at <= at);
+            this.pingWaiters = this.pingWaiters.filter(w => w.at > at);
+            for (const w of done) w.resolve();
+          }
         }
         break;
       case 'Reject':

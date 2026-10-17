@@ -16,6 +16,7 @@ import { MumbleClient } from '../../src/core/client.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
+import { FILE, FILE_DATA_ID, takeFiles, encodeFileSignal, isPiece, parsePiece, decode15, pieceCount, pieceSize } from '../../src/core/file-transfer.ts';
 
 const target = process.env.MUMBLE_TEST_HOST;
 if (!target) {
@@ -121,6 +122,26 @@ try {
   bob.sendText({ channels: [0] }, 'hello browser');
   await page.locator('.msg', { hasText: 'hello browser' }).waitFor();
   console.log('ok: text in both directions');
+
+  // A file from the page, in pieces through the proxy and the server
+  const data = Buffer.alloc(400_000);
+  for (let i = 0; i < data.length; i += 65536) crypto.getRandomValues(data.subarray(i, i + 65536));
+  const announced = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('<!--mumh5:file:')) res(m.html); }));
+  await page.locator('.chat .composer input[type=file]').first().setInputFiles({ name: 'page.bin', mimeType: 'application/octet-stream', buffer: data });
+  const [f] = takeFiles(await within(announced, 'file announcement')).files;
+  const count = pieceCount(f.meta);
+  const parts: Buffer[] = [];
+  const pieces = new Promise<void>(res => bob.on('text', m => {
+    if (!isPiece(m.html)) return;
+    const p = parsePiece(m.html)!;
+    parts[p.index] = Buffer.from(decode15(p.payload, pieceSize(f.meta, p.index))!);
+    if (parts.filter(Boolean).length === count) res();
+  }));
+  const pageSession = [...bob.users.values()].find(u => u.name === name)!.session;
+  for (const packet of await encodeFileSignal(FILE.want, { i: f.meta.i, r: [[0, count]] })) bob.sendPluginData([pageSession], FILE_DATA_ID, packet);
+  await within(pieces, 'file pieces', 20000);
+  assert.ok(Buffer.concat(parts).equals(data));
+  console.log(`ok: a file from the page arrives through the proxy (${count} pieces)`);
 
   // Voice goes through the TCP tunnel
   const session = () => [...bob.users.values()].find(u => u.name === name)!.session;
