@@ -4,7 +4,7 @@
   import Message from './Message.svelte';
   import { session } from '../lib/session.svelte.ts';
 
-  // Message list for one chat (channel or DM), with drag and drop upload into that chat
+  // Message list for one chat (channel or DM), with drag and drop of files into that chat
   let { key, empty }: { key: string; empty: Snippet } = $props();
 
   const entries = $derived(session.logs[key] ?? []);
@@ -27,7 +27,7 @@
     e.preventDefault();
     dragging = 0;
     const files = [...(e.dataTransfer?.files ?? [])];
-    if (files.length && session.status === 'connected') session.uploadFiles(files, key);
+    if (files.length && session.status === 'connected') session.sendFiles(files, key);
   }
 
   const grouped = (i: number) => {
@@ -49,7 +49,7 @@
     <div class="end"></div>
   </div>
   {#if dragging}
-    <div class="drop"><div><Icon name="download" size={40} /><p>Drop to upload to {key.startsWith('dm:') ? '@' : '#'}{title}</p></div></div>
+    <div class="drop"><div><Icon name="download" size={40} /><p>Drop to send to {key.startsWith('dm:') ? '@' : '#'}{title}</p></div></div>
   {/if}
 </div>
 

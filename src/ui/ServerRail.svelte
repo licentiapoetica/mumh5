@@ -4,7 +4,7 @@
   import { sessions } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { desktop } from '../lib/native.ts';
-  import { makeServerIcon } from '../lib/upload.ts';
+  import { makeServerIcon } from '../lib/images.ts';
 
   let { onadd, onedit, onsettings, onbrowse }:
     { onadd: () => void; onedit: (s: SavedServer) => void; onsettings: () => void; onbrowse: () => void } = $props();

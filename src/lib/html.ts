@@ -1,7 +1,9 @@
 import DOMPurify, { type Config } from 'dompurify';
+import { takeFiles, type FileMeta } from '../core/file-transfer.ts';
 
-export type EmbedKind = 'image' | 'video' | 'audio' | 'youtube' | 'link';
-export interface Embed { kind: EmbedKind; url: string; name: string; videoId?: string; start?: number }
+export type EmbedKind = 'image' | 'video' | 'audio' | 'youtube' | 'link' | 'file';
+// A file sent through the server: its details and the preview picture that came with it
+export interface Embed { kind: EmbedKind; url: string; name: string; videoId?: string; start?: number; file?: FileMeta; poster?: string }
 
 // YouTube links: watch, youtu.be, shorts, embed, live, music, mobile
 export function youtubeVideo(href: string): { id: string; start: number } | null {
@@ -94,10 +96,11 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
   }
 });
 
-// Sanitize an incoming Mumble HTML message and pull out media links from trusted hosts.
-export function renderIncoming(html: string, trustedHosts: string[]): { html: string; embeds: Embed[] } {
+// Sanitize an incoming Mumble HTML message and pull out announced files and media links from trusted hosts.
+export function renderIncoming(raw: string, trustedHosts: string[]): { html: string; embeds: Embed[] } {
+  const { html, files } = takeFiles(raw);
   const frag = DOMPurify.sanitize(html, purifyConfig);
-  const embeds: Embed[] = [];
+  const embeds: Embed[] = files.map(f => ({ kind: 'file', url: `file:${f.meta.i}`, name: f.meta.n, file: f.meta, poster: f.poster }));
   for (const a of frag.querySelectorAll('a[href]')) {
     const yt = youtubeVideo(a.getAttribute('href')!);
     if (yt) {
@@ -112,7 +115,7 @@ export function renderIncoming(html: string, trustedHosts: string[]): { html: st
     const name = decodeURIComponent(url.pathname.split('/').pop() ?? '');
     const kind = trusted ? mediaKind(name) : null;
     if (kind) embeds.push({ kind, url: url.href, name });
-    // Other web links get a preview card (not for the upload host's own files)
+    // Other web links get a preview card (not for media from trusted hosts)
     else if (!trusted && /^https?:$/.test(url.protocol) && embeds.filter(e => e.kind === 'link').length < 2 && !embeds.some(e => e.url === url.href)) {
       embeds.push({ kind: 'link', url: url.href, name: a.textContent ?? '' });
     }

@@ -59,7 +59,7 @@ System-wide push to talk, whisper and shout, positional audio, the in-game overl
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
-- Files by drag and drop, paste or the attach button, with upload progress (needs an [upload host](#file-sharing-with-f0ckm); pictures work without one)
+- Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
 - Inline pictures, video and audio for shared files
 - YouTube links as click-to-play players (off by default)
 - Link previews with title, description and picture
@@ -240,21 +240,18 @@ What is different from the desktop app:
 - **Not available:** the public server browser, link previews fetched by your own computer, the tray icon, importing the desktop Mumble certificate automatically.
 - Voice uses the browser's own audio codec where there is one, and a built-in one otherwise (Firefox on Android). Both are tested in Chromium only.
 
-## File sharing with f0ckm
+## File sharing
 
-Mumble can only carry small inline images. mumh5 can share any file by uploading it to a f0ckm instance (a self-hosted imageboard by the same author) and posting the link. Other mumh5 users get inline players; desktop Mumble users get a normal link plus a small preview.
+Files travel through the Mumble server, to other mumh5 users. There is no file host and nothing is stored on the server.
 
-f0ckm keeps these uploads separate from its imageboard, respects its own list of allowed file types, and deletes them after 30 days by default.
+- A file is announced in the chat with its name, size and a preview picture. Regular Mumble users see that and nothing more.
+- mumh5 users fetch it with one click, or by themselves when it is small (20 MB by default, Settings, Chat and files). Small pictures are sent inline as they are, so everyone sees them.
+- The pieces are chat messages addressed only to the people downloading. Murmur allows about one message a second per user, but a message may be as long as the server's image limit (128 KB of text by default), and mumh5 packs 15 bits into every character. On a server with default limits that is about 200 KB/s, or 12 MB a minute, from each person sending. One message reaches every downloader at once, so ten people fetching the same file cost the sender no more than one.
+- Anyone who has a file can send it, not only the person who posted it. A download asks everyone online who has it and splits the pieces between up to four of them (the server limits each sender separately), so it keeps working after the sender has left.
+- Each computer keeps the files it sent and received, up to 2 GB, oldest out first. Files are checked against the hash in the announcement.
+- Your own chat messages always go out first; files use what is left of the server's message limit.
 
-1. On your f0ckm server, create an upload-only key:
-   ```bash
-   node scripts/chat-upload-key.mjs create mumh5
-   ```
-2. In mumh5, open **Settings, Chat and files**, enter the f0ckm address and the key, and press **Test key**.
-
-The same host also fetches link previews for you, so the sites people link to never see your IP address.
-
-Without an upload host, mumh5 still sends images, scaled to fit the server's limit, the same way the desktop client does. Link previews can then be fetched directly by your computer if you enable it.
+Servers can raise the limits for faster transfers: `imagemessagelength` (larger pieces, 0 for no limit) and `messagelimit` / `messageburst` in the server's configuration. Needs Mumble 1.4 or newer on the server. Sending a large file uses your upload bandwidth; on a slow line, voice over the TCP tunnel (as in the browser version) can lag while it runs.
 
 ---
 
@@ -262,7 +259,7 @@ Without an upload host, mumh5 still sends images, scaled to fit the server's lim
 
 - **Your identity is a certificate** that stays on your computer, stored with owner-only permissions. mumh5 reminds you to back it up. (The browser version is different, see above.)
 - **Server certificates are pinned** the first time you connect. If one changes, mumh5 stops before sending your password and asks you.
-- **Chats don't phone home.** Media is only loaded from your upload host and hosts you add yourself. YouTube players are off by default and click-to-play in privacy mode when enabled.
+- **Chats don't phone home.** Files come through the Mumble server; media links are only loaded from hosts you add yourself. YouTube players are off by default and click-to-play in privacy mode when enabled.
 - **Strict content security policy** in the app, and all message HTML is sanitized.
 
 ---
@@ -303,7 +300,7 @@ On Linux the end-to-end test forces X11, so it can run on a virtual display: `Xv
 ```
 electron/   main process: window, TLS sockets, identities, tray
 src/core/   Mumble protocol: framing, codec, client state, voice packets
-src/lib/    app state, voice engine, sanitizing, uploads
+src/lib/    app state, voice engine, sanitizing, file transfers
 src/ui/     Svelte components
 proto/      Mumble.proto and MumbleUDP.proto from upstream
 test/       unit, server and end-to-end tests

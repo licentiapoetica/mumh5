@@ -70,7 +70,7 @@
   function imageClick(e: MouseEvent) {
     if (e.button !== 0 || !(e.target instanceof HTMLImageElement)) return;
     const img = e.target;
-    if (!img.closest('.html, .embed') || img.closest('[contenteditable], .rich, .card, .yt')) return;
+    if (!img.closest('.html, .embed') || img.closest('[contenteditable], .rich, .card, .yt, .poster')) return;
     e.preventDefault();
     e.stopPropagation();
     ui.image = img.currentSrc || img.src;

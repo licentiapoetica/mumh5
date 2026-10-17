@@ -7,7 +7,9 @@ import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
-import { uploadFile, makeThumbnail, makeInlineImage, fetchUploadInfo, checkFile, type UploadInfo } from './upload.ts';
+import { makeInlineImage, originalImage, videoPoster } from './images.ts';
+import { files, fileKind } from './files.svelte.ts';
+import { announce, isPiece } from '../core/file-transfer.ts';
 import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 
@@ -27,12 +29,12 @@ export interface ChatEntry {
   time: number;
 }
 
-export interface UploadJob {
+// A file being read before it is announced
+export interface FileJob {
   id: number;
   key: string;
   name: string;
   progress: number;
-  error: string;
 }
 
 export interface CertPrompt {
@@ -60,7 +62,7 @@ export class Session {
   panel = $state<Panel>({ kind: 'members' });
   logs = $state<Record<string, ChatEntry[]>>({});
   unread = $state<Record<string, number>>({});
-  uploads = $state<UploadJob[]>([]);
+  preparing = $state<FileJob[]>([]);
   certPrompt = $state<CertPrompt | null>(null);
   rtt = $state(0);
   // Who in our channel is sharing their screen, by session (mumh5 clients only)
@@ -72,17 +74,15 @@ export class Session {
   private lastChannel = new Map<number, number>();
   // TLS details of the current server, for the certificate viewer and the trusted badge
   serverCert = $state<ServerCertInfo | null>(null);
-  uploadInfo = $state<UploadInfo | null>(null);
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
 
   client: MumbleClient | null = null;
   // Incremented per connect so a slow, superseded attempt can tell it is stale
   private attempt = 0;
-  private uploadInfoFor = '';
   // Blob hashes already requested, so a preview does not ask the server repeatedly
   private requested = new Set<string>();
-  // Last message with an inline image, resent as a plain link if the server refuses it
+  // Last file announcement with a preview picture, resent without it if the server refuses it
   private lastImageSend: { key: string; fallback: string; at: number } | null = null;
   // Channel we asked to move to; the chat view switches when the server confirms it
   private pendingJoin: number | null = null;
@@ -301,6 +301,7 @@ export class Session {
     client?.disconnect();
     share.closed(this);
     textChannels.closed(this);
+    files.closed(this);
     this.sharing = {};
     sessions.onClosed(this);
     this.status = 'idle';
@@ -334,6 +335,7 @@ export class Session {
       if (!live()) return;
       share.receive(this, sender, dataId, data);
       textChannels.receive(this, sender, dataId, data);
+      files.receive(this, sender, dataId, data);
     });
     client.on('channel', ch => {
       if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
@@ -399,6 +401,7 @@ export class Session {
       const self = client.self;
       share.userMoved(this, user, true);
       textChannels.userLeft(this, user.session);
+      files.userLeft(this, user.session);
       if (self && user.session !== self.session && this.isVoice() && user.channelId === self.channelId) {
         const byOther = actor != null && actor !== user.session;
         sounds.play(ban ? 'userBanned' : byOther ? 'userKicked' : 'userDisconnected');
@@ -415,17 +418,22 @@ export class Session {
 
     client.on('text', msg => {
       if (!live()) return;
+      // Pieces of a file we asked for: never shown
+      if (isPiece(msg.html)) {
+        if (msg.actor != null) files.piece(this, msg.actor, msg.html);
+        return;
+      }
       this.receive(client, msg);
       if (msg.actor != null && msg.actor !== client.session) sounds.play(msg.channels.length || msg.trees.length ? 'message' : 'privateMessage');
     });
 
     client.on('permissionDenied', d => {
       if (!live()) return;
-      // An image preview can exceed what the server accepts; the link alone still gets through
+      // A preview picture can exceed what the server accepts; the file alone still gets through
       const img = this.lastImageSend;
       if (d.type === 4 && img && Date.now() - img.at < 5000) {
         this.lastImageSend = null;
-        this.system(img.key, 'The server refused the image preview, sent the link only');
+        this.system(img.key, 'The server refused the preview picture, sent the file without it');
         client.sendText(this.target(img.key), img.fallback);
         return;
       }
@@ -449,6 +457,7 @@ export class Session {
       sounds.play(kind === 'kicked' ? 'kicked' : kind === 'banned' ? 'banned' : kind === 'lost' ? 'connectionLost' : kind === 'rejected' ? 'error' : 'disconnected');
       this.client = null;
       textChannels.closed(this);
+      files.closed(this);
       sessions.onClosed(this);
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
@@ -551,6 +560,8 @@ export class Session {
     while (at > 0 && log[at - 1].time > time) at--;
     log.splice(at, 0, { ...entry, id: nextId++, time });
     if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
+    // Files announced just now; ones from earlier wait for a click
+    if (!opts.quiet && !entry.self) for (const e of entry.embeds) if (e.file) files.offered(this, e.file, entry.authorSession);
   }
 
   // A text channel message: live, kept from earlier, or handed over by another client
@@ -657,83 +668,57 @@ export class Session {
     return trimmed ? this.sendHtml(textToHtml(trimmed), key) : false;
   }
 
-  async uploadFiles(files: File[], key: string = this.view): Promise<void> {
-    const { uploadHost, uploadKey, uploadExpiry, sendThumbnails } = store.settings;
-    if (!uploadHost || !uploadKey) return this.sendInlineImages(files, key);
-    let info: UploadInfo;
-    try {
-      info = await this.loadUploadInfo();
-    } catch (e) {
-      this.system(key, `File sharing unavailable: ${escapeHtml((e as Error).message)}`);
-      return;
-    }
-    for (const f of files) {
-      const problem = checkFile(info, f);
-      if (problem) this.system(key, escapeHtml(problem));
-    }
+  // Pictures that fit as they are go inline, like a pasted picture in the desktop client, and
+  // everyone sees them. Everything else is announced in the chat and sent to mumh5 users who
+  // ask for it, through the server (see files.svelte.ts); other clients get a preview picture.
+  async sendFiles(list: File[], key: string = this.view): Promise<void> {
+    const client = this.client;
+    if (!client) return;
     const textKey = key.startsWith('ch:') && this.isText(Number(key.slice(3)));
-    for (const file of files.filter(f => !checkFile(info, f))) {
-      const job = { id: nextId++, key, name: file.name, progress: 0, error: '' };
-      this.uploads.push(job);
-      const live = () => this.uploads.find(j => j.id === job.id)!;
-      try {
-        const res = await uploadFile(uploadHost, uploadKey, file, uploadExpiry, p => { live().progress = p; });
-        // Well-formed XHTML (<br/>, <img/>): Murmur rejects long messages that do not parse as XML
-        const link = `<a href="${escapeHtml(res.url)}">${escapeHtml(res.name)}</a> (${formatBytes(res.size)})`;
-        let html = link;
-        const cfg = this.client?.config;
-        // Text channels only reach mumh5, which shows the file itself instead of a thumbnail
-        if (sendThumbnails && cfg?.allowHtml !== false && !textKey) {
-          const budget = Math.min(cfg?.imageMessageLength || 131072, 100000) - link.length - 64;
-          const thumb = await makeThumbnail(file, budget);
-          if (thumb) html += `<br/><img src="${thumb}"/>`;
-        }
-        if (html !== link) this.lastImageSend = { key, fallback: link, at: Date.now() };
-        this.sendHtml(html, key);
-        this.uploads = this.uploads.filter(j => j.id !== job.id);
-        sounds.play('uploadDone');
-      } catch (e) {
-        live().error = (e as Error).message;
-        sounds.play('uploadFailed');
-        setTimeout(() => { this.uploads = this.uploads.filter(j => j.id !== job.id); }, 6000);
-      }
-    }
-  }
-
-  // Without file hosting: images go inline like a pasted picture in the desktop client,
-  // scaled to the server's image limit. Other files need an upload host.
-  private async sendInlineImages(files: File[], key: string): Promise<void> {
-    const cfg = this.client?.config;
-    const textKey = key.startsWith('ch:') && this.isText(Number(key.slice(3)));
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) {
-        this.system(key, `${escapeHtml(file.name)}: sending files needs file hosting. Set up an upload host in Settings; without one only images can be sent.`);
-        continue;
-      }
-      if (cfg?.allowHtml === false && !textKey) {
-        this.system(key, 'This server does not allow images in messages.');
+    const cfg = client.config;
+    // 0 means no limit; stay reasonable anyway
+    const limit = textKey ? MAX_HTML : cfg.imageMessageLength || 1024 * 1024;
+    for (const file of list) {
+      if (!textKey && cfg.allowHtml === false) {
+        this.system(key, 'This server does not allow pictures or files in messages. Text channels can still carry files.');
         return;
       }
-      // 0 means no limit; stay reasonable anyway
-      const limit = textKey ? MAX_HTML : cfg?.imageMessageLength || 1024 * 1024;
-      const uri = await makeInlineImage(file, limit - 64);
-      if (!uri) {
-        this.system(key, `${escapeHtml(file.name)}: could not make this image small enough for the server (limit ${formatBytes(limit)})`);
+      if (file.type.startsWith('image/')) {
+        const uri = await originalImage(file, limit - 64);
+        if (uri) { this.sendHtml(`<img src="${uri}"/>`, key); continue; }
+      }
+      if (!files.supported(this)) {
+        // Old servers: no requests between clients, so pictures go scaled and other files not at all
+        const uri = file.type.startsWith('image/') ? await makeInlineImage(file, limit - 64) : null;
+        if (uri) this.sendHtml(`<img src="${uri}"/>`, key);
+        else this.system(key, `${escapeHtml(file.name)}: sending files needs a server running Mumble 1.4 or newer`);
         continue;
       }
-      this.sendHtml(`<img src="${uri}"/>`, key);
+      const job: FileJob = { id: nextId++, key, name: file.name, progress: 0 };
+      this.preparing.push(job);
+      const meta = await files.share(this, file, p => {
+        const live = this.preparing.find(j => j.id === job.id);
+        if (live) live.progress = p;
+      });
+      this.preparing = this.preparing.filter(j => j.id !== job.id);
+      if (typeof meta === 'string') {
+        this.system(key, escapeHtml(meta));
+        sounds.play('uploadFailed');
+        continue;
+      }
+      // What other clients show; mumh5 shows its own card instead
+      const visible = `<b>${escapeHtml(meta.n)}</b> (${formatBytes(meta.s)}, file shared with mumh5)`;
+      const plain = announce(meta, visible);
+      let preview: string | null = null;
+      if (store.settings.sendThumbnails) {
+        const budget = Math.min(limit, 100000) - plain.length - 64;
+        const kind = fileKind(meta);
+        preview = kind === 'image' ? await makeInlineImage(file, budget) : kind === 'video' ? await videoPoster(file, budget) : null;
+      }
+      const html = preview ? announce(meta, `${visible}<br/><img src="${preview}"/>`) : plain;
+      if (preview) this.lastImageSend = { key, fallback: plain, at: Date.now() };
+      this.sendHtml(html, key);
     }
-  }
-
-  // Cached per host+key; refreshed when settings change
-  async loadUploadInfo(): Promise<UploadInfo> {
-    const { uploadHost, uploadKey } = store.settings;
-    const id = `${uploadHost}|${uploadKey}`;
-    if (this.uploadInfo && this.uploadInfoFor === id) return this.uploadInfo;
-    const info = await fetchUploadInfo(uploadHost, uploadKey);
-    this.uploadInfo = info;
-    this.uploadInfoFor = id;
-    return info;
   }
 
   // ─── Voice state and moderation ─────────────────────────────────────────────

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import FormatToolbar from './FormatToolbar.svelte';
   import { toMumbleHtml, formatBytes } from '../lib/html.ts';
-  import { makeInlineImage } from '../lib/upload.ts';
+  import { makeInlineImage } from '../lib/images.ts';
   import { ui } from '../lib/ui.svelte.ts';
 
   // Rich text in the subset Mumble clients render (Qt rich text): bold, italic, underline,

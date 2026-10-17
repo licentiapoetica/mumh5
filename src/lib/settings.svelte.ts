@@ -13,15 +13,13 @@ export interface SavedServer {
 }
 
 export interface Settings {
-  uploadHost: string;      // f0ckm base URL, e.g. https://f0ck.dev
-  uploadKey: string;       // upload-only key from scripts/chat-upload-key.mjs
-  uploadExpiry: string;    // 1h / 24h / 7d / 30d
-  embedHosts: string[];    // extra hosts whose media links render inline
-  sendThumbnails: boolean; // include a small inline image for vanilla Mumble clients
+  embedHosts: string[];    // hosts whose media links render inline
+  sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
+  autoDownload: number;    // fetch announced files up to this many MB by themselves; 0: never
   compact: boolean;
   youtube: 'off' | 'click' | 'thumbnail'; // YouTube links: plain, click-to-play card, card with thumbnail
-  // Link previews: fetched by the upload host (private), by this computer (reveals IP), or none
-  linkPreviews: 'host' | 'direct' | 'off';
+  // Link previews: fetched by this computer (reveals IP to the linked site), or none
+  linkPreviews: 'direct' | 'off';
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
@@ -58,14 +56,12 @@ export const THEMES: { id: ThemeId; name: string; note: string; light: boolean }
 ];
 
 const defaults: Settings = {
-  uploadHost: '',
-  uploadKey: '',
-  uploadExpiry: '30d',
   embedHosts: [],
   sendThumbnails: true,
+  autoDownload: 20,
   compact: false,
   youtube: 'off',
-  linkPreviews: 'host',
+  linkPreviews: 'off',
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'side',
@@ -144,12 +140,10 @@ class SettingsStore {
     save('mumh5.pins', $state.snapshot(this.pins));
   }
 
-  // Hosts whose media links are embedded: the upload host plus user-added ones.
+  // Hosts whose media links are embedded, as the user listed them.
   // Other links stay plain links, so opening a chat never pings arbitrary servers.
   get trustedHosts(): string[] {
-    const hosts = [...this.settings.embedHosts];
-    try { if (this.settings.uploadHost) hosts.push(new URL(this.settings.uploadHost).host); } catch { /* invalid URL */ }
-    return hosts.map(h => h.trim().toLowerCase()).filter(Boolean);
+    return this.settings.embedHosts.map(h => h.trim().toLowerCase()).filter(Boolean);
   }
 }
 

@@ -9,6 +9,7 @@ import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity } from '../electron/identity.ts';
 import { encodeVoice, decodeVoice } from '../src/core/voice-packet.ts';
 import { udpChannel } from '../electron/udp-voice.ts';
+import { FILE, FILE_DATA_ID, FileAssembler, Sender, announce, takeFiles, encodeFileSignal, encode15, decode15, fromRanges, toRanges, parsePiece, pieceBytes, pieceCount, pieceForm, pieceMessage, pieceSize, pump, isPiece } from '../src/core/file-transfer.ts';
 
 const target = process.env.MUMBLE_TEST_HOST;
 const codec = createCodec();
@@ -283,3 +284,89 @@ test('voice over encrypted UDP (OCB2) between two clients', { skip: !target }, a
   }
 });
 
+
+test('file announcements with a preview pass the server as they are', { skip: !target }, async () => {
+  const alice = await connect('annA' + Date.now() % 1000);
+  const bob = await connect('annB' + Date.now() % 1000);
+  try {
+    const meta = { i: 'abc', n: 'clip--1.mp4', s: 5, m: 'video/mp4', c: 1500, h: 'ab'.repeat(32) };
+    const html = announce(meta, `<b>clip--1.mp4</b> (5 B)<br/><img src="data:image/jpeg;base64,${'A'.repeat(20000)}"/>`);
+    const got = until<string>(res => bob.on('text', m => res(m.html)));
+    alice.sendText({ channels: [0] }, html);
+    const arrived = await got;
+    assert.equal(arrived, html);
+    assert.equal(takeFiles(arrived).files[0].meta.n, 'clip--1.mp4');
+  } finally {
+    alice.disconnect();
+    bob.disconnect();
+  }
+});
+
+test('a file reaches two people through the server, chat stays quick meanwhile', { skip: !target }, async () => {
+  const alice = await connect('fileA' + Date.now() % 1000);
+  const bob = await connect('fileB' + Date.now() % 1000);
+  const carol = await connect('fileC' + Date.now() % 1000);
+  try {
+    const form = pieceForm(alice.config);
+    const c = pieceBytes(alice.config);
+    const data = new Uint8Array(c * 7 + 1234);
+    for (let i = 0; i < data.length; i += 65536) crypto.getRandomValues(data.subarray(i, i + 65536));
+    const meta = { s: data.length, c };
+    const count = pieceCount(meta);
+    const sender = new Sender();
+    const assembler = new FileAssembler();
+    const done: number[] = [];
+    let pumping: Promise<void> | null = null;
+    alice.on('pluginData', async (from, id, packet) => {
+      if (id !== FILE_DATA_ID) return;
+      const sig = await assembler.push(from, packet);
+      if (sig?.type !== FILE.want) return;
+      sender.want('f1', from, fromRanges(JSON.parse(sig.text!).r, count)!);
+      pumping ??= pump({
+        client: alice, sender, alive: () => true,
+        read: async (_f, k) => pieceMessage(form, 'f1', k, encode15(data.subarray(k * c, k * c + pieceSize(meta, k)))),
+        done: r => done.push(r), gone: () => {}
+      });
+    });
+    const receive = (who: MumbleClient) => {
+      const parts: Uint8Array[] = [];
+      let n = 0;
+      return until<Uint8Array>(res => who.on('text', m => {
+        if (!isPiece(m.html)) return;
+        const p = parsePiece(m.html)!;
+        assert.equal(m.actor, alice.session);
+        if (!parts[p.index]) n++;
+        parts[p.index] = decode15(p.payload, pieceSize(meta, p.index))!;
+        if (n === count) {
+          const all = new Uint8Array(data.length);
+          parts.forEach((x, k) => all.set(x, k * c));
+          res(all);
+        }
+      }), 60000);
+    };
+    const bobGot = receive(bob), carolGot = receive(carol);
+    const t0 = Date.now();
+    for (const who of [bob, carol]) {
+      for (const packet of await encodeFileSignal(FILE.want, { i: 'f1', r: toRanges(Array.from({ length: count }, (_, k) => k)) })) {
+        who.sendPluginData([alice.session!], FILE_DATA_ID, packet);
+      }
+    }
+    // A chat message in the middle of the transfer still goes out at once
+    await new Promise(r => setTimeout(r, 2500));
+    const chatAt = Date.now();
+    const chat = until<number>(res => bob.on('text', m => { if (m.html === 'during') res(Date.now() - chatAt); }));
+    alice.sendText({ channels: [0] }, 'during');
+    const latency = await chat;
+    assert.deepEqual(await bobGot, data);
+    assert.deepEqual(await carolGot, data);
+    const secs = (Date.now() - t0) / 1000;
+    await pumping;
+    assert.deepEqual(done.sort(), [bob.session, carol.session].sort());
+    console.log(`  ${(data.length / 1024).toFixed(0)} KB in ${count} pieces to 2 people: ${secs.toFixed(1)} s, ${(data.length / 1024 / secs).toFixed(0)} KB/s; chat during it took ${latency} ms`);
+    assert.ok(latency < 1500, `chat message waited ${latency} ms`);
+  } finally {
+    alice.disconnect();
+    bob.disconnect();
+    carol.disconnect();
+  }
+});
