@@ -55,7 +55,20 @@
           "Keywords": "mumble;voice;chat;voip;"
         }
       },
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "extraFiles": [
+        {
+          "from": "build/linux",
+          "to": ".",
+          "filter": [
+            "*.sh"
+          ]
+        },
+        {
+          "from": "build/icon.png",
+          "to": "mumh5.png"
+        }
+      ]
     },
     "win": {
       "target": [

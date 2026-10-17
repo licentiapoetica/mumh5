@@ -118,9 +118,20 @@ Download a build from the [releases page](https://git.lat/kibi/mumh5/releases):
 | Windows | `mumh5-<version>-win-x64.exe` (installer; not signed yet, so Windows SmartScreen warns once) |
 | Linux, any distribution | `mumh5-<version>-linux-x86_64.AppImage` (make it executable, then run it) |
 | Debian, Ubuntu | `mumh5-<version>-linux-amd64.deb` |
-| Linux, portable | `mumh5-<version>-linux-x64.tar.gz` |
+| Linux, portable | `mumh5-<version>-linux-x64.tar.gz` (runs from its folder, or installs with the script inside) |
 
 There is no macOS build yet; build it yourself on a Mac (below).
+
+The `.tar.gz` comes with an installer and an uninstaller. Unpack it and run the installer from that folder; it adds the app, a `mumh5` command and a menu entry, and running it again with a newer version updates it:
+
+```bash
+tar xzf mumh5-<version>-linux-x64.tar.gz
+cd mumh5-<version>-linux-x64
+./install.sh                 # for you only, in ~/.local
+sudo ./install.sh --system   # or for everyone, in /opt
+```
+
+To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/uninstall.sh`). Your settings and identities stay in `~/.config/mumh5`; `uninstall.sh --purge` deletes them too, after asking. Back up your identity first. The Windows installer has its own uninstaller in the system settings; the `.deb` is removed with `sudo apt remove mumh5`.
 
 ### Running from source
 
@@ -138,7 +149,7 @@ On first start, mumh5 asks you to set up your identity. If you already use Mumbl
 ### Building installers
 
 ```bash
-npm run dist:linux   # AppImage and .deb
+npm run dist:linux   # AppImage, .deb and .tar.gz (with install.sh and uninstall.sh from build/linux)
 npm run dist:win     # NSIS installer
 npm run dist:mac     # .dmg
 ```

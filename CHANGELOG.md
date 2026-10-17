@@ -6,6 +6,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ### Added
 
+- Linux: `install.sh` and `uninstall.sh` in the `.tar.gz`. They install for one user (`~/.local`) or for everyone (`/opt`, with sudo), with a `mumh5` command and a menu entry; running the installer again updates. Uninstalling keeps settings and identities unless `--purge` is given.
 - File sharing through the Mumble server itself, with no file host: any file up to 2 GB, announced in the chat with a preview picture (all that regular Mumble clients see) and sent in pieces to the mumh5 users who fetch it. Small files are fetched by themselves (up to 20 MB, Settings, Chat and files). About 12 MB a minute per sender on a server with default limits; anyone who has the file can send it, and a download shares the pieces out between up to four of them. Files sent and received are kept on the computer, up to 2 GB.
 - 95 more color schemes, 100 in all: six made by hand (Forest, Ember, Ocean, Plum, Paper, High contrast) and 89 generated from a hue and an accent (`npm run themes`), 64 dark and 25 light. The picker can be narrowed by name and by dark or light.
 - Voice setting "Give the microphone back while muted", on by default on phones and tablets: a Bluetooth headset then stays out of its telephone mode while you are muted, so what you hear keeps its full quality.
