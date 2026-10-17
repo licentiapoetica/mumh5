@@ -50,12 +50,12 @@ if [ -f "$app/.mumh5-install" ]; then
 elif [ -e "$app" ]; then
   echo "$app was not made by install.sh; leaving it alone." >&2
 fi
-# The command, if it still points into the removed folder
-if [ -L "$bin/mumh5" ] && [ "$(readlink "$bin/mumh5")" = "$app/mumh5" ]; then
+# The command and the menu entry, if they start the removed copy
+if [ -f "$bin/mumh5" ] && grep -qF "exec \"$app/mumh5\"" "$bin/mumh5"; then
   rm -f "$bin/mumh5"
   found=yes
 fi
-if [ -f "$menu/mumh5.desktop" ] && grep -q "^Exec=\"$app/mumh5\"" "$menu/mumh5.desktop"; then
+if [ -f "$menu/mumh5.desktop" ] && grep -qF "Icon=$app/mumh5.png" "$menu/mumh5.desktop"; then
   rm -f "$menu/mumh5.desktop"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$menu" 2>/dev/null || true
   found=yes
