@@ -26,6 +26,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 ### Fixed
 
 - The desktop app no longer downloads spellchecker dictionaries from Google (redirector.gvt1.com); the spellchecker is off.
+- Dependencies with security advisories updated: DOMPurify 3.4.17 (it cleans the HTML of messages and descriptions), and for development and building Vite 8.3.5, markdown-it 14.3.3 and http-cache-semantics 4.3.0. node-forge has an advisory without a fixed version; it is about RSA signature verification, which mumh5 does not use (it only creates and reads certificates and .p12 files).
 - The stacked layout keeps the message box and the picture of a stream visible however small the window or the chat is made, and the channel list can no longer be dragged over them.
 - Connecting while muted, or voice coming back to a server, no longer plays the mute or undeafen sound; unmuting plays the unmute sound instead of undeafen.
 - Settings tabs no longer run off the edge, and the identity setup no longer ends in an empty bar.
