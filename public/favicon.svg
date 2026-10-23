@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- mumh5 app icon: a lowercase m that is also a speech bubble. Every edge sits on a
+       64 unit grid so the 16 and 32 px renders stay sharp. -->
+  <rect width="1024" height="1024" fill="#141518"/>
+  <path d="M192 192H832V704H704V384H576V704H448V384H320V832L192 704Z" fill="#ffffff"/>
+</svg>
