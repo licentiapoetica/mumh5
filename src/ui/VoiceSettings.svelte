@@ -154,7 +154,7 @@
 </div>
 
 <style>
-  h3 { margin: 22px 0 0; font-size: 14px; }
+  h3 { margin: 24px 0 0; font-size: 15px; font-weight: 650; }
   h3:first-of-type { margin-top: 8px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
   @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
@@ -175,7 +175,6 @@
   input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
   .test { margin-top: 14px; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 10px; }
-  .check input { width: auto; }
   .help { margin: 6px 0 0; font-size: 13px; color: var(--text-dim); }
   .warn { color: var(--warn); }
   .error { color: var(--danger); margin: 8px 0 0; }

@@ -17,6 +17,6 @@
 
 <style>
   p { color: var(--text-dim); }
-  .k { margin: 12px 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+  .k { margin: 12px 0 4px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
   code { display: block; padding: 8px; background: var(--bg-0); font: 12px var(--mono); overflow-wrap: anywhere; }
 </style>

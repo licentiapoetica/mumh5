@@ -17,6 +17,8 @@
   import ServerInfoDialog from './ui/ServerInfoDialog.svelte';
   import ImageViewer from './ui/ImageViewer.svelte';
   import ShareDialog from './ui/ShareDialog.svelte';
+  import ProfileCard from './ui/ProfileCard.svelte';
+  import Home from './ui/Home.svelte';
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
   import Shell from './ui2/Shell.svelte';
@@ -37,9 +39,18 @@
   let treeHeight = $state(Math.max(120, Number((() => { try { return localStorage.getItem('mumh5.treeHeight'); } catch { return null; } })()) || 280));
 
   let navOpen = $state(false);
+  // Stacked layout: the channel list may grow until the chat below is at its minimum
+  let stackEl = $state<HTMLElement>();
+  const treeMax = () => {
+    const chat = stackEl?.querySelector<HTMLElement>(':scope > .chat');
+    const chatMin = chat ? parseFloat(getComputedStyle(chat).minHeight) || 0 : 220;
+    return Math.max(120, (stackEl?.clientHeight ?? window.innerHeight) - chatMin);
+  };
   let editing = $state<{ server: SavedServer | null } | null>(null);
 
   const showPanel = $derived(ui.panelOpen && session.status === 'connected');
+  // Not connected to the server shown: the start screen with the saved servers takes the window
+  const home = $derived(session.status === 'idle');
 
   // Color scheme on the root element; dark is the stylesheet default
   $effect(() => {
@@ -58,6 +69,8 @@
   });
   // On phones one drawer at a time
   $effect(() => { if (layout === 'narrow' && ui.panelOpen) navOpen = false; });
+  // Opening a chat from anywhere (a profile card, a menu) shows it
+  $effect(() => { void session.view; navOpen = false; });
 
   function togglePanel() {
     if (!ui.panelOpen) ui.panelOpen = true;
@@ -96,17 +109,20 @@
 {#if store.settings.interface === 'rooms'}
 <Shell onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
 {:else}
-<div class="app {layout} {arrangement}">
-  {#if arrangement === 'classic'}
+<div class="app {layout} {arrangement}" class:home>
+  {#if home}
+    {@render rail()}
+    <Home top={arrangement === 'stacked'} onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
+  {:else if arrangement === 'classic'}
     {@render rail()}
     {@render chat()}
     <Sidebar handleEdge="left" onnavigate={() => {}} />
   {:else if arrangement === 'stacked'}
     {@render rail()}
-    <div class="stack">
+    <div class="stack" bind:this={stackEl}>
       <div class="tree" style:height="{treeHeight}px">
         <Sidebar fill onnavigate={() => {}} />
-        <ResizeHandle bind:width={treeHeight} edge="bottom" min={120} max={() => window.innerHeight - 220} initial={280}
+        <ResizeHandle bind:width={treeHeight} edge="bottom" min={120} max={treeMax} initial={280}
           storageKey="mumh5.treeHeight" label="Resize channel list" />
       </div>
       {@render chat()}
@@ -151,6 +167,7 @@
 {/if}
 {#if share.dialog}<ShareDialog onclose={() => (share.dialog = null)} />{/if}
 {#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => { const p = ui.prompt; ui.prompt = null; p?.oncancel?.(); }} />{/if}
+<ProfileCard />
 <ImageViewer />
 <ContextMenu />
 
@@ -160,8 +177,10 @@
   .nav.drawer { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; max-width: calc(100% - 48px); box-shadow: 8px 0 32px rgb(0 0 0 / 0.4); }
   .nav.drawer :global(.sidebar) { width: min(260px, calc(100vw - 68px - 48px)); }
   .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .stack > :global(.chat) { flex: 1; min-height: 0; }
-  .tree { position: relative; z-index: 1; flex: none; display: flex; min-height: 0; border-bottom: 1px solid var(--line); }
+  /* Its minimum (the shortest chat and the message box) comes from Chat.svelte; the list above gives way to it */
+  .stack > :global(.chat) { flex: 1; }
+  /* Its chosen height while there is room; on short windows it gives way first, down to its toolbar */
+  .tree { position: relative; z-index: 1; flex: 0 1 auto; display: flex; min-height: var(--footer-h); border-bottom: 1px solid var(--line); }
   .scrim { position: absolute; inset: 0; z-index: 15; background: rgb(0 0 0 / 0.5); }
   .panel-drawer { position: absolute; z-index: 20; top: 0; right: 0; bottom: 0; max-width: calc(100% - 48px); display: flex; box-shadow: -8px 0 32px rgb(0 0 0 / 0.4); }
 </style>

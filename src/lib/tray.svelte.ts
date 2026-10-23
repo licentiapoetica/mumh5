@@ -8,7 +8,7 @@ type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened';
 
 const LOOK: Record<TrayLook, { bg: string; glyph: string }> = {
   offline: { bg: '#4a4c54', glyph: 'mic' },
-  idle: { bg: '#7c6cff', glyph: 'mic' },
+  idle: { bg: '#141518', glyph: 'mic' }, // the app icon's black
   talking: { bg: '#2fb863', glyph: 'mic' },
   muted: { bg: '#e0443e', glyph: 'mic-off' },
   deafened: { bg: '#e0443e', glyph: 'headphones-off' }

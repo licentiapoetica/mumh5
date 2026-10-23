@@ -42,6 +42,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify and
 others) are distributed under their own licenses, found in each package under `node_modules/`.
 
+## Inter
+
+The Inter typeface (`@fontsource-variable/inter`), bundled with the app as its interface font.
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter). Licensed under the
+SIL Open Font License, Version 1.1; the full license is in
+`node_modules/@fontsource-variable/inter/LICENSE` and at https://openfontlicense.org.
+
 ## @evan/opus and libopus
 
 The Opus codec compiled to WebAssembly (`opus.wasm`), used for voice in browsers that have no

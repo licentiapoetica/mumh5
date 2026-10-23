@@ -64,7 +64,7 @@ const defaults: Settings = {
   linkPreviews: 'off',
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
-  arrangement: 'side',
+  arrangement: 'stacked',
   interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,

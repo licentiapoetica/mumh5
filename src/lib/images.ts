@@ -90,3 +90,35 @@ export async function makeServerIcon(file: File, size = 128): Promise<string> {
   return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/png');
 }
 
+
+// A profile picture: square, cut from the middle, small enough for the server's image limit.
+// PNG keeps transparency when it fits; otherwise JPEG on a dark background. Both formats are
+// ones the desktop Mumble client can show.
+export async function makeAvatar(file: Blob, maxBytes: number): Promise<Uint8Array | null> {
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height);
+  const encode = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+    new Promise<Blob | null>(res => canvas.toBlob(res, type, quality));
+  try {
+    for (const size of [256, 192, 128, 96]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = Math.min(size, side);
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingQuality = 'high';
+      const draw = () => ctx.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+      draw();
+      const png = await encode(canvas, 'image/png');
+      if (png && png.size <= maxBytes && png.size <= 96 * 1024) return new Uint8Array(await png.arrayBuffer());
+      ctx.fillStyle = '#1a1b1f';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      draw();
+      for (const quality of [0.88, 0.75, 0.6]) {
+        const jpeg = await encode(canvas, 'image/jpeg', quality);
+        if (jpeg && jpeg.size <= maxBytes) return new Uint8Array(await jpeg.arrayBuffer());
+      }
+    }
+    return null;
+  } finally {
+    bmp.close();
+  }
+}

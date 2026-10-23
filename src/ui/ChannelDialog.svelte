@@ -413,7 +413,6 @@
   .row3 { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
   .row3 > div { width: 140px; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin: 10px 0 0; }
-  .check input { width: auto; }
   .check.top { margin-top: 12px; }
   .split { display: grid; grid-template-columns: 220px 1fr; gap: 14px; margin-top: 12px; }
   @media (max-width: 640px) { .split { grid-template-columns: 1fr; } }
@@ -439,8 +438,8 @@
   .perms th { text-align: left; color: var(--text-faint); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
   .perms td { padding: 3px 6px; border-bottom: 1px solid var(--line); }
   .perms th:not(:first-child), .perms td:not(:first-child) { text-align: center; width: 60px; }
-  .perms input { width: auto; }
-  h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+  .perms input { vertical-align: middle; }
+  h4 { margin: 16px 0 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); }
   .members { list-style: none; margin: 0 0 8px; padding: 0; }
   .members li { display: flex; justify-content: space-between; padding: 3px 0; font-size: 14px; }
   .struck { text-decoration: line-through; color: var(--text-faint); }

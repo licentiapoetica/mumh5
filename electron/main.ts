@@ -146,6 +146,12 @@ ipcMain.handle('share:audioApps', () => shareAudio.apps().catch(() => []));
 ipcMain.handle('share:audioStart', (_e, target: AudioTarget) =>
   shareAudio.start(target?.kind === 'app' ? { kind: 'app', name: String(target.name) } : { kind: 'all' }));
 ipcMain.handle('share:audioStop', () => shareAudio.stop());
+// Chromium fetches spellcheck dictionaries from Google (redirector.gvt1.com) as soon as a session
+// exists, even with spellcheck off; only an empty language list stops it
+app.on('session-created', s => {
+  s.setSpellCheckerEnabled(false);
+  s.setSpellCheckerLanguages([]);
+});
 // The virtual microphone outlives the process otherwise
 app.on('will-quit', () => { shareAudio.stop(); });
 
@@ -196,7 +202,9 @@ function createWindow() {
       // Voice must play without a click first
       autoplayPolicy: 'no-user-gesture-required',
       // Keep audio and timers running at full speed when the window is in the background
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      // Off until it can work without fetching dictionaries (see session-created)
+      spellcheck: false
     }
   });
 

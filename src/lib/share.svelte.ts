@@ -55,6 +55,8 @@ class ScreenShare {
   // People whose camera we chose not to see, by certificate (or name); until the app restarts
   hidden = $state<Record<string, boolean>>({});
   error = $state('');
+  // The large picture is in a window of its own; the main window keeps only a bar for it
+  poppedOut = $state(false);
   // The server the start dialog is open for
   dialog = $state.raw<Session | null>(null);
   private usesVirtualMic = false;

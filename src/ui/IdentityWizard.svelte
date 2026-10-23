@@ -173,13 +173,13 @@
 
 <style>
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
-  .check input { width: auto; }
   p { color: var(--text-dim); margin: 10px 0 0; }
   p strong { color: var(--text); }
   .choices { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
-  .choice { display: flex; align-items: center; gap: 14px; padding: 12px 14px; text-align: left; background: var(--bg-3); border: 1px solid var(--line); }
+  .choice { display: flex; align-items: center; gap: 14px; padding: 13px 16px; text-align: left; background: var(--bg-2); border: 1px solid var(--line-strong); transition: background 120ms var(--ease), border-color 120ms var(--ease); }
   .choice:hover:not(:disabled) { border-color: var(--accent); background: var(--bg-hover); }
-  .choice span { display: flex; flex-direction: column; }
+  .choice span { display: flex; flex-direction: column; gap: 1px; }
+  .choice :global(svg) { flex: none; color: var(--text-dim); }
   .choice small { color: var(--text-dim); font-size: 13px; }
   .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
   .mono { font: 12px var(--mono); overflow-wrap: anywhere; color: var(--text); }

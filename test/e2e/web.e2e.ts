@@ -87,6 +87,11 @@ try {
   assert.ok(existsSync(saved + '.done') && statSync(saved).size > 1000, 'backup file downloaded');
   await page.getByRole('button', { name: 'Done' }).click();
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor({ state: 'detached' });
+  // Written for the Modern layout; Stacked is the default
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.identities')!));
   assert.equal(stored.identities.length, 1);
   assert.equal(stored.setupDone, true);

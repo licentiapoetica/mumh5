@@ -4,8 +4,15 @@ import { ui } from './ui.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { voice, userKey } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
-import type { MenuItem } from './menu.svelte.ts';
+import { menu, type MenuItem } from './menu.svelte.ts';
 import { PERM, type Channel, type User } from '../core/client.ts';
+
+// A person's profile card, next to the element that was clicked (or at a point, from a menu)
+export function openProfile(user: number, at: Element | { x: number; y: number }): void {
+  const r = at instanceof Element ? at.getBoundingClientRect() : { left: at.x, right: at.x, top: at.y, bottom: at.y };
+  session.loadComment(user);
+  ui.profile = { session: user, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, el: at instanceof Element ? at : undefined };
+}
 
 // Right-click menu for a channel in the tree
 export function channelMenu(c: Channel): MenuItem[] {
@@ -47,7 +54,11 @@ export function channelMenu(c: Channel): MenuItem[] {
   return [
     { header: true, label: c.name || 'Root' },
     ...open,
-    { label: 'Show description', action: () => { session.showChannel(c.id, 'info'); ui.panelOpen = true; } },
+    // The tree shows it next to the channel; the Rooms interface has no tree and uses its panel
+    { label: 'Show description', action: () => {
+      if (store.settings.interface === 'rooms') { session.showChannel(c.id, 'info'); ui.panelOpen = true; }
+      else ui.channelPreview = { id: c.id, ...menu.last };
+    } },
     { separator: true, label: '' },
     { label: session.isExpanded(c.id) ? 'Collapse' : 'Expand', action: () => session.toggleExpanded(c.id), disabled: c.id === 0 },
     { label: 'Expand all', action: () => session.setAllExpanded(true) },
@@ -65,7 +76,7 @@ export function userMenu(u: User): MenuItem[] {
   const isSelf = u.session === self?.session;
   const items: MenuItem[] = [
     { header: true, label: store.displayName(u) },
-    { label: 'View profile', action: () => { session.showUser(u.session); ui.panelOpen = true; } }
+    { label: 'View profile', action: () => openProfile(u.session, menu.last) }
   ];
   if (isSelf) {
     items.push(

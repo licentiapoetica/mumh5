@@ -124,6 +124,15 @@ test('the proxy answers STUN over UDP and announces the port', async () => {
   }
 });
 
+test('pings only the listed servers', { skip: !target }, async () => {
+  const [host, port] = target!.split(':');
+  await withProxy({ servers: parseServers(target!) }, async base => {
+    const r = await (await post(base, 'ping', { host, port: Number(port) })).json();
+    assert.ok(r && r.users >= 0 && r.maxUsers > 0, `listed server answers: ${JSON.stringify(r)}`);
+    assert.equal((await post(base, 'ping', { host: 'example.org', port: 64738 })).status, 403);
+  });
+});
+
 test('requests from other origins are refused', async () => {
   await withProxy({ servers: parseServers('voice.example.org'), origins: [] }, async base => {
     const cross = await post(base, 'identity/create', { name: 'x' }, { Origin: 'https://evil.example' });

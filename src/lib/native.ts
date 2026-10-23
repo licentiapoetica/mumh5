@@ -5,6 +5,8 @@ import { webApi, openWebTransport } from './web.svelte.ts';
 export interface PlatformApi {
   platformInfo(): Promise<{ os: string; osVersion: string }>;
   describeCerts(ders: Uint8Array[]): Promise<CertDetails[]>;
+  // People on a server without connecting (UDP ping; in the browser the proxy sends it, for its own servers)
+  pingServer(host: string, port: number): Promise<PingResult | null>;
   identities: {
     list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean }>;
     create(name: string, email: string): Promise<IdentitySummary>;
@@ -26,7 +28,6 @@ interface NativeApi extends PlatformApi {
   onTrayAction(fn: (action: string) => void): void;
   linkPreview(url: string): Promise<LinkPreviewData | null>;
   publicServers(url: string): Promise<PublicServer[]>;
-  pingServer(host: string, port: number): Promise<PingResult | null>;
   onContextMenu(fn: (params: ContextParams) => void): void;
   editAction(action: string, arg?: unknown): void;
   // Screens and windows that can be shared; pick one before calling getDisplayMedia

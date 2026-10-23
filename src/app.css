@@ -1,14 +1,14 @@
 :root {
-  --bg-0: #0d0e10;
-  --bg-1: #151619;
-  --bg-2: #1b1c20;
-  --bg-3: #24262b;
-  --bg-hover: #2a2c32;
-  --bg-active: #33363d;
-  --line: #2c2e34;
-  --text: #e3e4e8;
-  --text-dim: #9a9ca5;
-  --text-faint: #686a73;
+  --bg-0: #0e0f11;
+  --bg-1: #141518;
+  --bg-2: #1a1b1f;
+  --bg-3: #222429;
+  --bg-hover: #27292e;
+  --bg-active: #2f3238;
+  --line: #2a2c32;
+  --text: #e6e7ea;
+  --text-dim: #a0a3ab;
+  --text-faint: #6c6f78;
   --accent: #7c6cff;
   --accent-hover: #8f81ff;
   --accent-text: #ffffff;
@@ -17,11 +17,23 @@
   --warn: #e8b23c;
   --link: #6fb3ff;
 
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
+  /* Inter ships with the app (no outside requests); the rest is the fallback while it loads */
+  --font: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  --fs: 15px;
-  /* Shared height of the bottom bars: your user panel and the message input line up */
+  --fs: 14px;
+  /* Message text reads a little larger than the controls around it */
+  --fs-chat: 15px;
+  /* Shared height of the bars along the top: sidebar title, chat title, panel title */
+  --header-h: 52px;
+  /* Height of the bottom bar of the sidebar when it is a single row (stacked layout) */
   --footer-h: 52px;
+  /* Buttons and single-line fields */
+  --control-h: 36px;
+  /* Borders of fields and buttons: a step stronger than the dividers between areas */
+  --line-strong: color-mix(in srgb, var(--line), var(--text) 10%);
+  --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.22), 0 12px 32px -6px rgb(0 0 0 / 0.45);
+  --shadow-modal: 0 4px 12px rgb(0 0 0 / 0.25), 0 28px 64px -12px rgb(0 0 0 / 0.6);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   color-scheme: dark;
 }
@@ -36,7 +48,14 @@ body {
   font: var(--fs)/1.45 var(--font);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Inter: open digits, a distinct l and capital I */
+  font-feature-settings: "cv05", "cv08";
 }
+
+h1, h2, h3 { letter-spacing: -0.01em; }
+
+::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
 
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -46,42 +65,77 @@ button:disabled { cursor: default; opacity: 0.5; }
 
 input, textarea, select {
   font: inherit;
+  line-height: 18px;
   color: var(--text);
   background: var(--bg-0);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   padding: 8px 10px;
   outline: none;
   width: 100%;
+  transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
 }
-input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+input:hover:not(:disabled):not(:focus), textarea:hover:not(:disabled):not(:focus), select:hover:not(:disabled):not(:focus) {
+  border-color: color-mix(in srgb, var(--line), var(--text) 22%);
+}
+input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+::placeholder { color: var(--text-faint); opacity: 1; }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--accent); }
+input[type=checkbox], input[type=radio] { width: 16px; height: 16px; margin: 0; flex: none; }
+input[type=range] { padding: 0; border: 0; background: transparent; box-shadow: none; }
 
-label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin: 14px 0 6px; }
+/* A flat select with its own arrow; Windows 95 keeps the native one */
+:root:not([data-theme="win95"]) select {
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%238b8e97' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+select option { background: var(--bg-1); color: var(--text); }
+
+label { display: block; font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 16px 0 6px; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 8px 16px; font-weight: 600; background: var(--bg-3); border: 1px solid var(--line);
+  padding: 8px 14px; line-height: 18px; font-weight: 600; white-space: nowrap;
+  background: var(--bg-3); border: 1px solid var(--line-strong); color: var(--text);
+  transition: background 120ms var(--ease), border-color 120ms var(--ease), color 120ms var(--ease);
 }
-.btn:hover:not(:disabled) { background: var(--bg-hover); }
+.btn:hover:not(:disabled) { background: var(--bg-hover); border-color: color-mix(in srgb, var(--line), var(--text) 22%); }
+.btn:active:not(:disabled) { background: var(--bg-active); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-.btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.primary:active:not(:disabled) { background: var(--accent); }
+.btn.danger { background: transparent; border-color: color-mix(in srgb, var(--danger) 60%, transparent); color: var(--danger); }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: var(--danger); }
 
 .icon-btn {
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 32px; height: 32px; color: var(--text-dim);
+  transition: background 120ms var(--ease), color 120ms var(--ease);
 }
 .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+.icon-btn:active { background: var(--bg-active); }
+.icon-btn:disabled { background: transparent; color: var(--text-dim); }
 .icon-btn.on { color: var(--danger); }
+
+/* Checkbox rows, help text and "(optional)" next to a label, shared by the dialogs */
+label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 400; color: var(--text); margin-top: 12px; }
+.opt { font-weight: 400; color: var(--text-faint); }
 
 /* Images in rendered text open large on click (App.svelte) */
 .html img, .embed img { cursor: zoom-in; }
 .card img { cursor: inherit; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--bg-3); border: 2px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background-color: var(--bg-active); }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-active); border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--text-faint); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}

@@ -8,6 +8,7 @@ import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
 import { makeInlineImage, originalImage, videoPoster } from './images.ts';
+import { ownAvatar } from './avatar.svelte.ts';
 import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
 import { voice } from './audio/voice.svelte.ts';
@@ -76,16 +77,28 @@ export class Session {
   serverCert = $state<ServerCertInfo | null>(null);
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
+  // Channel highlighted by a single click in the tree (a double click joins)
+  selectedChannel = $state<number | null>(null);
 
   client: MumbleClient | null = null;
   // Incremented per connect so a slow, superseded attempt can tell it is stale
   private attempt = 0;
   // Blob hashes already requested, so a preview does not ask the server repeatedly
   private requested = new Set<string>();
+  // Pictures of people here as object URLs, made the first time each one is shown
+  private pictures = new Map<number, { bytes: Uint8Array; url: string }>();
+  // Pictures to fetch, collected while a list renders and asked for in one request
+  private wantedPictures = new Set<number>();
   // Last file announcement with a preview picture, resent without it if the server refuses it
   private lastImageSend: { key: string; fallback: string; at: number } | null = null;
   // Channel we asked to move to; the chat view switches when the server confirms it
   private pendingJoin: number | null = null;
+  // Mute and deafen the app set by itself (your choice from before connecting, or restored when
+  // voice comes back here); the server's confirmation of exactly that plays no sound
+  private applied: { mute: boolean; deaf: boolean } | null = null;
+  // Your mute and deafen as last seen, so sounds follow real changes: the server repeats fields that
+  // did not change (unmuting also sends "not deafened")
+  private own: { mute: boolean; deaf: boolean } | null = null;
 
   // ─── Derived helpers ────────────────────────────────────────────────────────
   // The client mutates its objects in place. These return shallow copies and read `tick`,
@@ -228,8 +241,12 @@ export class Session {
     this.logs = {};
     this.unread = {};
     this.expanded = {};
+    this.selectedChannel = null;
     this.panel = { kind: 'members' };
     this.requested.clear();
+    this.dropPictures();
+    this.applied = null;
+    this.own = null;
     this.serverCert = null;
     this.disconnectInfo = null;
     this.removedBy = null;
@@ -302,6 +319,7 @@ export class Session {
     share.closed(this);
     textChannels.closed(this);
     files.closed(this);
+    this.dropPictures();
     this.sharing = {};
     sessions.onClosed(this);
     this.status = 'idle';
@@ -327,6 +345,8 @@ export class Session {
       // What we may do per channel, for menus (not rate limited by the server)
       for (const id of client.channels.keys()) client.requestPermissions(id);
       if (client.welcomeText) this.system(this.view, client.welcomeText, true);
+      // Your picture, kept on this device (servers drop it when you leave unless you are registered)
+      ownAvatar.loaded.then(() => { if (live() && ownAvatar.bytes) this.sendPicture(ownAvatar.bytes); });
       share.entered(this);
       textChannels.entered(this);
       bump();
@@ -370,7 +390,17 @@ export class Session {
         if (user.session === self.session) share.entered(this);
         else share.userMoved(this, user);
       }
-      if (client.synced && self && this.isVoice()) this.userSound(user.session === self.session, user, changed, actor, isNew, before, self.channelId);
+      let flips = { mute: false, deaf: false };
+      if (self && user.session === self.session) {
+        const was = this.own;
+        this.own = { mute: user.selfMute, deaf: user.selfDeaf };
+        if (was) flips = { mute: was.mute !== user.selfMute, deaf: was.deaf !== user.selfDeaf };
+        if (this.applied && (changed.includes('selfMute') || changed.includes('selfDeaf'))) {
+          if (user.selfMute === this.applied.mute && user.selfDeaf === this.applied.deaf) flips = { mute: false, deaf: false };
+          this.applied = null;
+        }
+      }
+      if (client.synced && self && this.isVoice()) this.userSound(user.session === self.session, user, changed, actor, isNew, before, self.channelId, flips);
       if (client.synced && self) {
         if (isNew) {
           if (user.channelId === self.channelId) this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} connected`);
@@ -413,6 +443,8 @@ export class Session {
         this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} ${what}${reason ? `: ${escapeHtml(reason)}` : ''}`);
       }
       if (this.panel.kind === 'user' && this.panel.session === user.session) this.panel = { kind: 'members' };
+      const pic = this.pictures.get(user.session);
+      if (pic) { URL.revokeObjectURL(pic.url); this.pictures.delete(user.session); }
       bump();
     });
 
@@ -470,12 +502,13 @@ export class Session {
     return sessions.voiceId === this.server?.id;
   }
 
-  private userSound(isSelf: boolean, user: User, changed: string[], actor: number | null, isNew: boolean, before: number | undefined, mine: number): void {
+  // flips: which of your own mute and deafen really changed (and not by the app itself)
+  private userSound(isSelf: boolean, user: User, changed: string[], actor: number | null, isNew: boolean, before: number | undefined, mine: number, flips: { mute: boolean; deaf: boolean }): void {
     if (isSelf) {
       const byOther = actor != null && actor !== user.session;
       if (changed.includes('channelId')) sounds.play(byOther ? 'moved' : 'switchedChannel');
-      if (!byOther && changed.includes('selfDeaf')) sounds.play(user.selfDeaf ? 'deafen' : 'undeafen');
-      else if (!byOther && changed.includes('selfMute')) sounds.play(user.selfMute ? 'mute' : 'unmute');
+      if (!byOther && flips.deaf) sounds.play(user.selfDeaf ? 'deafen' : 'undeafen');
+      else if (!byOther && flips.mute) sounds.play(user.selfMute ? 'mute' : 'unmute');
       return;
     }
     const self = actor == null || actor === user.session;
@@ -522,6 +555,59 @@ export class Session {
     if (this.requested.has(tag)) return;
     this.requested.add(tag);
     this.client!.requestBlob({ comments: [session] });
+  }
+
+  // Object URL of someone's picture, or null for the letter instead. Pictures are only announced
+  // by hash; the first call asks the server for them, and the view updates when they arrive.
+  avatar(session: number | null | undefined): string | null {
+    void this.tick;
+    const client = this.client;
+    if (!client || session == null) return null;
+    if (session === client.session && ownAvatar.url) return ownAvatar.url;
+    const u = client.users.get(session);
+    if (!u) return null;
+    if (!u.texture) {
+      if (u.textureHash) this.wantPicture(session, u.textureHash);
+      return null;
+    }
+    // Empty: the picture was removed
+    if (!u.texture.length) return null;
+    const have = this.pictures.get(session);
+    if (have?.bytes === u.texture) return have.url;
+    if (have) URL.revokeObjectURL(have.url);
+    const url = URL.createObjectURL(new Blob([u.texture as BlobPart]));
+    this.pictures.set(session, { bytes: u.texture, url });
+    return url;
+  }
+
+  private wantPicture(session: number, hash: Uint8Array): void {
+    const tag = `t:${session}:${[...hash].join(',')}`;
+    if (this.requested.has(tag)) return;
+    this.requested.add(tag);
+    this.wantedPictures.add(session);
+    if (this.wantedPictures.size > 1) return;
+    // Called while rendering: ask once the render is done, for everyone seen in it
+    queueMicrotask(() => {
+      const ids = [...this.wantedPictures];
+      this.wantedPictures.clear();
+      this.client?.requestBlob({ textures: ids });
+    });
+  }
+
+  private dropPictures(): void {
+    for (const p of this.pictures.values()) URL.revokeObjectURL(p.url);
+    this.pictures.clear();
+    this.wantedPictures.clear();
+  }
+
+  // Sends your picture if this server takes one that large (it drops larger ones without a word)
+  sendPicture(bytes: Uint8Array): boolean {
+    const client = this.client;
+    if (!client || this.status !== 'connected') return false;
+    const limit = client.config.imageMessageLength;
+    if (limit > 0 && bytes.length > limit) return false;
+    client.setTexture(bytes);
+    return true;
   }
 
   register(session: number): void {
@@ -741,6 +827,16 @@ export class Session {
     this.client?.setSelfDeaf(v);
   }
 
+  // Mute and deafen set by the app rather than by a click, confirmed without a sound
+  applyOwnState(mute: boolean, deaf: boolean): void {
+    if (!this.client) return;
+    const mark = { mute, deaf };
+    this.applied = mark;
+    this.client.send('UserState', { self_mute: mute, self_deaf: deaf });
+    // No confirmation comes when nothing changed; a later click must not be silenced by this
+    setTimeout(() => { if (this.applied === mark) this.applied = null; }, 3000);
+  }
+
   kick(session: number, reason: string, ban = false) { this.client?.kick(session, reason, ban); }
   setServerMute(session: number, v: boolean) { this.client?.setUserState(session, { mute: v }); }
   setServerDeaf(session: number, v: boolean) { this.client?.setUserState(session, { deaf: v }); }
@@ -771,6 +867,12 @@ class Sessions {
 
   byServer(id: string): Session | undefined {
     return this.list.find(s => s.server?.id === id);
+  }
+
+  // Your picture for every server: saved here and sent to the ones you are on (null removes it)
+  async setAvatar(bytes: Uint8Array | null): Promise<void> {
+    await ownAvatar.save(bytes);
+    for (const s of this.list) if (s.status === 'connected') s.sendPicture(bytes ?? new Uint8Array(0));
   }
 
   // Show a server, connecting if needed
@@ -807,7 +909,7 @@ class Sessions {
     const want = { mute: this.mute, deaf: this.deaf };
     if (!this.voiceId || !this.voiceSession?.client) {
       this.setVoice(s, true);
-      if (want.mute) s.client?.send('UserState', { self_mute: true, self_deaf: want.deaf });
+      if (want.mute) s.applyOwnState(true, want.deaf);
     } else {
       this.toBackground(s);
       // A fresh login is unmuted; restore the user's choice when voice comes here
@@ -849,7 +951,7 @@ class Sessions {
     const prev = this.saved.get(s);
     this.saved.delete(s);
     if (!prev || !s.client || prev.deaf) return;
-    s.client.send('UserState', { self_deaf: false, self_mute: prev.mute });
+    s.applyOwnState(prev.mute, false);
   }
 }
 

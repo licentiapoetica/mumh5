@@ -2,6 +2,34 @@
 
 All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
+## Unreleased
+
+### Added
+
+- Profile cards: a click on someone (in the channel list, the member list, the chat or a voice tile) opens their card next to them, like in Discord: picture, name, channel, description and Send message. On phones it is a sheet at the bottom. Your own card has Edit description, Change name and your picture.
+- Profile pictures, as Mumble textures, so they go through the server like everything else and the desktop Mumble client has them too. Your picture is cut square, made small enough for the server's image limit, kept on this computer and sent to every server you connect to, since servers keep pictures only for registered users.
+- A start screen while not connected: your saved servers with how many people are on them and their ping, a notice when you were kicked or the connection was lost, and your mute and deafen buttons. The counts come from a ping at start and once a minute; in the browser version the proxy pings the servers it allows.
+- The interface font is Inter, shipped with the app (nothing is fetched from outside).
+
+### Changed
+
+- New look throughout, still with square corners: one type scale, fields and buttons of one height with a visible focus ring, calmer spacing in the chat, the message box set in from the edges, softer shadows on menus and dialogs, sentence-case labels.
+- New app icon: a lowercase m that is also a speech bubble, white on near black; the tray icon uses the same black while idle.
+- Stacked is the default layout for new installations; saved settings keep their layout.
+- Settings lists its sections on the left and keeps one size between them.
+- Message times: just the time for today, "Yesterday" and the date before that; the full date stays on hover.
+- The buttons under your name fit one row at the default sidebar width.
+- A single click on a channel only selects it (a double click joins). The description opens from the marker next to the channel or from its menu, next to the channel instead of in the side panel.
+- A stream opened in a separate window leaves only its bar in the main window, and the chat gets the room.
+- Resized panels return to their size when a window that was made smaller grows again.
+
+### Fixed
+
+- The desktop app no longer downloads spellchecker dictionaries from Google (redirector.gvt1.com); the spellchecker is off.
+- The stacked layout keeps the message box and the picture of a stream visible however small the window or the chat is made, and the channel list can no longer be dragged over them.
+- Connecting while muted, or voice coming back to a server, no longer plays the mute or undeafen sound; unmuting plays the unmute sound instead of undeafen.
+- Settings tabs no longer run off the edge, and the identity setup no longer ends in an empty bar.
+
 ## 0.2.0 - 2026-10-17
 
 ### Added

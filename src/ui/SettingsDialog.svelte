@@ -50,13 +50,15 @@
   ];
 </script>
 
-<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={640}>
+<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880}>
+  <div class="layout">
   <div class="tabs" role="tablist">
     {#each tabs as t (t.id)}
       <button role="tab" aria-selected={tab === t.id} class:active={tab === t.id} onclick={() => (tab = t.id)}>{t.label}</button>
     {/each}
   </div>
 
+  <div class="pane" role="tabpanel">
   {#if tab === 'voice'}
     <VoiceSettings />
     <h3>Screen sharing</h3>
@@ -116,6 +118,8 @@
     <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.{isWeb ? ' Certificates are kept in this browser and passed to the proxy when you connect.' : ''}</p>
     <IdentityList />
   {/if}
+  </div>
+  </div>
 
   {#snippet footer()}
     <button class="btn primary" onclick={() => { saveFiles(); onclose(); }}>Done</button>
@@ -123,10 +127,22 @@
 </Modal>
 
 <style>
-  .tabs { display: flex; gap: 2px; margin: 8px 0 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-  .tabs button { padding: 8px 14px; color: var(--text-dim); font-weight: 600; white-space: nowrap; }
-  .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
-  h3 { margin: 22px 0 0; font-size: 14px; }
+  /* Sections listed on the left, the open one beside them; a row of tabs on narrow windows */
+  /* A steady size, so the dialog does not jump between sections */
+  .layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; min-height: min(600px, calc(100vh - 190px)); }
+  .tabs { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+  .tabs button { padding: 7px 10px; text-align: left; color: var(--text-dim); font-weight: 500; white-space: nowrap; transition: background 120ms var(--ease), color 120ms var(--ease); }
+  .tabs button:hover { background: var(--bg-hover); color: var(--text); }
+  .tabs button.active { background: var(--bg-active); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+  .pane { min-width: 0; }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .tabs { position: static; flex-direction: row; overflow-x: auto; margin: 8px 0 4px; padding-top: 0; border-bottom: 1px solid var(--line); }
+    .tabs button { padding: 8px 12px; }
+    .tabs button:hover { background: none; }
+    .tabs button.active { background: none; box-shadow: inset 0 -2px 0 var(--accent); }
+  }
+  h3 { margin: 24px 0 0; font-size: 15px; font-weight: 650; }
   .stun-custom { margin-top: 6px; }
   .opt { text-transform: none; font-weight: 400; letter-spacing: 0; color: var(--text-faint); }
   .help { margin: 10px 0 0; font-size: 13px; color: var(--text-dim); }
@@ -134,7 +150,6 @@
   .row.kept { align-items: center; margin-top: 10px; }
   .row.kept .help { flex: 1; margin: 0; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
-  .check input { width: auto; }
   select:disabled, input:disabled { opacity: 0.5; }
   textarea { resize: vertical; }
 </style>
