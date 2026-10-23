@@ -14,6 +14,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 ### Changed
 
 - New look throughout, still with square corners: one type scale, fields and buttons of one height with a visible focus ring, calmer spacing in the chat, the message box set in from the edges, softer shadows on menus and dialogs, sentence-case labels.
+- New app icon: a lowercase m that is also a speech bubble, white on near black; the tray icon uses the same black while idle.
 - Stacked is the default layout for new installations; saved settings keep their layout.
 - Settings lists its sections on the left and keeps one size between them.
 - Message times: just the time for today, "Yesterday" and the date before that; the full date stays on hover.
