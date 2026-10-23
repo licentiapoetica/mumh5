@@ -15,14 +15,17 @@ export interface MenuItem {
 class MenuStore {
   // keepFocus: leave focus (and the text selection) where it is, for text editing menus
   open = $state<{ x: number; y: number; items: MenuItem[]; keepFocus?: boolean } | null>(null);
+  // Where the last menu opened; items that open something next to it read this after the menu closed
+  last = { x: 0, y: 0 };
 
   show(e: MouseEvent, items: MenuItem[]): void {
     e.preventDefault();
     e.stopPropagation();
-    this.open = { x: e.clientX, y: e.clientY, items };
+    this.showAt(e.clientX, e.clientY, items);
   }
 
   showAt(x: number, y: number, items: MenuItem[], keepFocus = false): void {
+    this.last = { x, y };
     this.open = { x, y, items, keepFocus };
   }
 

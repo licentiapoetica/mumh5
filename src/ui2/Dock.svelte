@@ -25,7 +25,7 @@
 
 <div class="dock" class:talking={voice.transmitting}>
   <button class="where" onclick={onopen} disabled={!self} title="Open the voice screen">
-    {#if self}<Avatar name={self.name} size={36} speaking={voice.transmitting} />{/if}
+    {#if self}<Avatar name={self.name} size={36} speaking={voice.transmitting} src={session.avatar(self.session)} />{/if}
     <span class="text">
       <strong>{self ? room : 'mumh5'}</strong>
       <span>{line}</span>

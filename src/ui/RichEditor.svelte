@@ -124,7 +124,7 @@
   .area :global(p) { margin: 0 0 6px; }
   .area :global(img) { max-width: 100%; }
   .area.blank::before { content: attr(data-placeholder); color: var(--text-faint); position: absolute; left: 10px; top: 8px; pointer-events: none; }
-  .src { width: 100%; border: 0; resize: vertical; font: 12px var(--mono); background: transparent; }
+  .src { width: 100%; border: 0; resize: vertical; font: 12px var(--mono); background: transparent; box-shadow: none; }
   .foot { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text-faint); }
   .over .count { color: var(--danger); font-weight: 600; }
   .err { color: var(--danger); }

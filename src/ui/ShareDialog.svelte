@@ -270,7 +270,7 @@
   .row.head { justify-content: space-between; margin-top: 0; }
   .row.two { align-items: flex-end; gap: 12px; }
   .row.two > div { flex: 1; min-width: 0; }
-  .label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin: 14px 0 6px; }
+  .label { display: block; font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 16px 0 6px; }
   .link { color: var(--link); font-size: 13px; margin-top: 8px; }
   .sources { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 190px; overflow-y: auto; }
   .sources button { width: 100%; display: flex; flex-direction: column; gap: 4px; padding: 6px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); }
@@ -284,7 +284,6 @@
   .preview video.mirror { transform: scaleX(-1); }
   .preview p { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 12px; }
-  .check input { width: auto; }
   .dim { color: var(--text-dim); font-size: 13px; }
   .err { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
 </style>

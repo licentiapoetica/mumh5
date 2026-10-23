@@ -43,7 +43,7 @@
 </Modal>
 
 <style>
-  h3 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+  h3 { margin: 18px 0 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); }
   h3:first-child { margin-top: 8px; }
   dl { display: grid; grid-template-columns: 130px 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
   dt { color: var(--text-faint); }

@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
-  import { userMenu } from '../lib/actions.ts';
+  import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
 
@@ -21,10 +21,10 @@
         {#each users as u (u.session)}
           {@const isSelf = u.session === session.self?.session}
           <li>
-            <button onclick={() => session.showUser(u.session)} title={isSelf ? 'You' : `${u.name} (double-click to message)`}
+            <button onclick={e => openProfile(u.session, e.currentTarget)} title={isSelf ? 'You' : `${u.name} (double-click to message)`}
               ondblclick={() => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }}
               oncontextmenu={e => menu.show(e, userMenu(u))}>
-              <Avatar name={u.name} size={30} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} />
+              <Avatar name={u.name} size={32} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
               <span class="who">
                 <span class="name">{store.displayName(u)}</span>
                 <span class="sub">{u.userId != null ? 'Registered' : 'Guest'}{title !== 'In channel' ? ` in ${session.channel(u.channelId)?.name || 'Root'}` : ''}</span>
@@ -41,12 +41,12 @@
 </aside>
 
 <style>
-  .members { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 6px; }
-  h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 14px 8px 6px; }
+  .members { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 8px; }
+  h3 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); margin: 14px 8px 6px; }
   ul { list-style: none; margin: 0; padding: 0; }
-  button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 8px; text-align: left; color: var(--text-dim); }
+  button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 8px; text-align: left; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
   button:hover { background: var(--bg-hover); color: var(--text); }
   .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
-  .name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sub { font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

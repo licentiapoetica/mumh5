@@ -5,7 +5,6 @@
   import VoiceStage from './VoiceStage.svelte';
   import ResizeHandle from './ResizeHandle.svelte';
   import { share } from '../lib/share.svelte.ts';
-  import { ui } from '../lib/ui.svelte.ts';
   import { session } from '../lib/session.svelte.ts';
 
   // showStage: voice tiles above the chat when the window is too narrow for the member list
@@ -15,8 +14,28 @@
   // Stacked layout with a stream above the chat: the chat's height can be dragged larger than
   // its minimum; the picture gets the rest. Unset until dragged, then the picture decides.
   const LOG_MIN = 124;
+  // The picture above always keeps its bar and some of the picture (see the styles below)
+  const STREAM_MIN = 156;
+  let chatEl = $state<HTMLElement>();
+  // The message box's real height: it grows with the formatting bar and longer messages
+  let composerH = $state(64);
+  $effect(() => {
+    // The message box only exists while connected
+    void session.status;
+    const box = chatEl?.querySelector<HTMLElement>('.composer');
+    if (!box) return;
+    const ro = new ResizeObserver(() => (composerH = box.offsetHeight));
+    ro.observe(box);
+    return () => ro.disconnect();
+  });
+  // As tall as the chat can get without squeezing the picture under its minimum
+  const logMax = () => {
+    const composer = chatEl?.querySelector<HTMLElement>('.composer')?.offsetHeight ?? 0;
+    return Math.max(LOG_MIN, (chatEl?.clientHeight ?? window.innerHeight) - composer - STREAM_MIN);
+  };
   const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
-  const streamAbove = $derived(videoOnly && session.status === 'connected' && ((!!share.stream && here(share.host)) || share.watches.some(w => here(w.host))));
+  // Not while the picture is in a window of its own: then only a bar is left above the chat
+  const streamAbove = $derived(videoOnly && session.status === 'connected' && !share.poppedOut && ((!!share.stream && here(share.host)) || share.watches.some(w => here(w.host))));
   let logHeight = $state(Number((() => { try { return localStorage.getItem('mumh5.stackedChatHeight'); } catch { return null; } })()) || 0);
   const logFixed = $derived(streamAbove && logHeight >= LOG_MIN);
 
@@ -29,7 +48,7 @@
   });
 </script>
 
-<section class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat">
+<section class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat" bind:this={chatEl} style:--composer-h="{composerH}px">
   <!-- Stacked layout: no title bar; the channel list above already names the channel -->
   {#if !videoOnly}
   <header>
@@ -44,27 +63,10 @@
 
   {#if session.status === 'connected'}<VoiceStage always={showStage} {videoOnly} />{/if}
 
-  {#if session.status === 'idle' && session.disconnectInfo}
-    {@const d = session.disconnectInfo}
-    <div class="ended" class:bad={d.kind === 'kicked' || d.kind === 'banned'}>
-      <h2>
-        {#if d.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
-        {:else if d.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
-        {:else if d.kind === 'rejected'}The server refused the connection
-        {:else}Connection lost{/if}
-      </h2>
-      {#if d.reason}<p class="reason">{d.reason}</p>{/if}
-      <p class="where">{session.server?.label}</p>
-      <div class="row">
-        <button class="btn primary" onclick={() => session.reconnect()}>Reconnect</button>
-      </div>
-    </div>
-  {/if}
-
 
   <div class="logbox" style:height={logFixed ? `${logHeight}px` : undefined}>
   {#if streamAbove}
-    <ResizeHandle bind:width={logHeight} edge="top" min={LOG_MIN} max={() => Math.max(LOG_MIN, window.innerHeight - 320)} initial={220}
+    <ResizeHandle bind:width={logHeight} edge="top" min={LOG_MIN} max={logMax} initial={220}
       storageKey="mumh5.stackedChatHeight" label="Resize the chat" />
   {/if}
   <ChatLog key={session.view}>
@@ -73,15 +75,8 @@
         {#if session.status === 'connected'}
           <h2>{isDm ? `Direct messages with ${title}` : `Welcome to #${title}`}</h2>
           <p>{isDm ? 'Messages here are only visible to the two of you.' : isText ? 'A text channel: everyone on this server who uses mumh5 can read and write here, from any channel. Other Mumble clients do not see these messages.' : 'Messages go to everyone in this channel. Drop files here to share them.'}</p>
-        {:else if session.status === 'connecting'}
-          <h2>Connecting...</h2>
         {:else}
-          <h2>mumh5</h2>
-          <p>Choose a server to get started, or find one:</p>
-          <div class="welcome-actions">
-            <button class="btn" onclick={() => (ui.publicServers = true)}>Browse public servers</button>
-            <button class="btn" onclick={() => { ui.settingsTab = 'identities'; ui.settingsOpen = true; }}>Manage identities</button>
-          </div>
+          <h2>Connecting...</h2>
         {/if}
       </div>
     {/snippet}
@@ -96,27 +91,27 @@
 <style>
   /* Stacked layout: room for about five lines of chat whatever the stream above takes */
   .chat.video-only .logbox { min-height: 124px; flex-shrink: 0; }
+  /* Stacked layout: the shortest chat plus the message box (as tall as it is now) always fit, and
+     the picture's bar and minimum too when one is shown; the channel list gives way instead */
+  .chat.video-only { min-height: calc(124px + var(--composer-h, 64px)); }
+  .chat.video-only:has(:global(.stage.solo .spot:not(.popped))) { min-height: calc(36px + 120px + 124px + var(--composer-h, 64px)); }
   .logbox { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   /* Dragged to a height of its own: the stream above takes what is left */
-  .chat.log-fixed .logbox { flex: none; }
+  /* Its own height, but it gives way (down to its minimum) when the window gets shorter */
+  .chat.log-fixed .logbox { flex: 0 1 auto; }
   .chat.log-fixed :global(.stage.solo), .chat.log-fixed :global(.stage.solo .spot), .chat.log-fixed :global(.stage.solo .pic) { flex: 1 1 0; min-height: 0; }
+  /* The picture is never squeezed away: its bar and at least 120 px stay (STREAM_MIN) */
+  .chat.video-only :global(.stage.solo:has(.spot:not(.popped))), .chat.video-only :global(.stage.solo .spot:not(.popped)) { min-height: 156px; }
   .chat.log-fixed :global(.stage.solo .spot video) { flex: 1 1 0; max-height: none; }
   .chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
-  header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
-  h1 { flex: 0 1 auto; max-width: 60%; font-size: 16px; margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .topic { flex: 1 1 0; font-size: 13px; padding-left: 10px; margin-left: 4px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  header { height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-faint); }
+  h1 { flex: 0 1 auto; max-width: 60%; font-size: 15px; font-weight: 650; margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topic { flex: 1 1 0; font-size: 13px; color: var(--text-dim); padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .grow { flex: 1; }
   .topic + .grow { flex: 0; }
   /* On phones the channel name matters more than its description */
   @media (max-width: 600px) { .topic { display: none; } h1 { max-width: none; } .topic + .grow { flex: 1; } }
-  .empty { padding: 32px 16px 8px; }
-  .empty h2 { margin: 0 0 4px; font-size: 24px; }
+  .empty { padding: 40px 20px 8px; max-width: 640px; }
+  .empty h2 { margin: 0 0 6px; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
   .empty p { margin: 0; color: var(--text-dim); }
-  .welcome-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .ended { max-width: 460px; margin: 16px 16px 0; padding: 16px 18px; background: var(--bg-1); border: 1px solid var(--line); border-left: 4px solid var(--warn); }
-  .ended.bad { border-left-color: var(--danger); }
-  .ended h2 { margin: 0; font-size: 20px; }
-  .ended .reason { margin: 8px 0 0; color: var(--text); font-size: 15px; overflow-wrap: anywhere; }
-  .ended .where { margin-top: 4px; font-size: 13px; color: var(--text-faint); }
-  .ended .row { margin-top: 14px; }
 </style>

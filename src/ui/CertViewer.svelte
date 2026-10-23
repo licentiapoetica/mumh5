@@ -62,7 +62,7 @@
   .tabs { display: flex; gap: 2px; margin-top: 12px; overflow-x: auto; }
   .tabs button { padding: 6px 12px; background: var(--bg-3); color: var(--text-dim); white-space: nowrap; font-size: 13px; }
   .tabs button.active { background: var(--accent); color: var(--accent-text); }
-  h3 { margin: 18px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  h3 { margin: 18px 0 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
   .tag { text-transform: none; letter-spacing: 0; font-weight: 600; padding: 0 6px; border: 1px solid var(--warn); color: var(--warn); }
   .tag.bad { border-color: var(--danger); color: var(--danger); }
   dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }

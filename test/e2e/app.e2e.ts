@@ -94,12 +94,23 @@ try {
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor({ state: 'detached' });
   console.log('ok: identity wizard creates an identity');
 
-  // Welcome page: no message box while offline, identities one click away
-  assert.equal(await page.locator('.chat .composer').count(), 0);
+  // Stacked is the default layout; the steps below were written for Modern
+  await page.locator('.app.stacked').waitFor();
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.app.side').waitFor();
+  console.log('ok: stacked by default');
+
+  // Start screen: the saved servers instead of channels and chat, identities one click away
+  await page.getByRole('region', { name: 'Servers' }).getByRole('heading', { name: 'Servers' }).waitFor();
+  assert.equal(await page.locator('.chat').count(), 0, 'no chat while not connected');
+  assert.equal(await page.locator('.sidebar').count(), 0, 'no channel list while not connected');
   await page.getByRole('button', { name: 'Manage identities' }).click();
   await page.getByRole('tab', { name: 'Identities', selected: true }).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  console.log('ok: welcome page without composer, manage identities');
+  console.log('ok: start screen, manage identities');
 
   // Mute and deafen are there without a connection
   const me = page.locator('.me');
@@ -112,6 +123,9 @@ try {
   await me.getByRole('button', { name: 'Deafen', exact: true }).waitFor();
   await me.getByRole('button', { name: 'Mute', exact: true }).waitFor();
   console.log('ok: mute and deafen shown while disconnected');
+  // Muted before connecting: applied when connected, without the mute sound
+  await me.getByRole('button', { name: 'Mute', exact: true }).click();
+  await me.getByRole('button', { name: 'Unmute', exact: true }).waitFor();
 
   // Add and connect to the server
   await page.getByTitle('Add a server').click();
@@ -122,6 +136,13 @@ try {
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
   console.log('ok: connected');
+  await within(new Promise<void>(res => { const check = () => { const u = [...bob.users.values()].find(x => x.name === 'alice'); if (u?.selfMute) res(); else setTimeout(check, 100); }; check(); }), 'mute applied on connect');
+  await page.waitForTimeout(800);
+  const connectSounds = await page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
+  assert.ok(!connectSounds.some(x => ['mute', 'unmute', 'deafen', 'undeafen'].includes(x)), `no mute sounds on connect: ${connectSounds}`);
+  await page.locator('.me').getByRole('button', { name: 'Unmute', exact: true }).click();
+  await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('unmute'));
+  console.log('ok: mute chosen before connecting applies without a sound; unmuting still sounds');
 
   // Bob is listed in the channel tree
   await page.locator('.sidebar').getByText('bob').waitFor();
@@ -421,6 +442,14 @@ try {
   await page.mouse.move(hb.x + hb.width / 2, hb.y + 60, { steps: 4 });
   await page.mouse.up();
   assert.ok((await box('.sidebar')).height > treeBox.height + 40, 'stacked: split resizes');
+  // Dragged past the bottom, the split stops where the message box still fits
+  const hb2 = (await handle.boundingBox())!;
+  await page.mouse.move(hb2.x + hb2.width / 2, hb2.y + hb2.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb2.x + hb2.width / 2, page.viewportSize()!.height + 300, { steps: 6 });
+  await page.mouse.up();
+  const composerBottom = (await box('.chat .composer')).y + (await box('.chat .composer')).height;
+  assert.ok(composerBottom <= page.viewportSize()!.height + 1, `stacked: message box stays visible (${composerBottom})`);
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   await page.getByRole('radio', { name: 'Modern' }).click();
@@ -693,8 +722,43 @@ try {
   await page.locator('.sidebar .user', { hasText: 'bob' }).click({ button: 'right' });
   assert.equal(await page.getByRole('slider', { name: 'Volume' }).inputValue(), '1.5', 'volume remembered');
   await page.getByRole('menuitem', { name: 'View profile' }).click();
-  await page.locator('.panel h3', { hasText: 'bob' }).waitFor();
+  await page.getByRole('dialog', { name: 'Profile of bob' }).locator('h3', { hasText: 'bob' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Profile of bob' }).waitFor({ state: 'detached' });
   console.log('ok: user context menu and profile');
+
+  // Profile cards open beside what was clicked; pictures go both ways as Mumble textures
+  const bobInTree = page.locator('.sidebar .user', { hasText: 'bob' });
+  bob.setTexture(testPng(64, 64));
+  await bobInTree.locator('.avatar img').waitFor();
+  await bobInTree.click();
+  const bobCard = page.getByRole('dialog', { name: 'Profile of bob' });
+  await bobCard.locator('.avatar img').waitFor();
+  assert.ok((await bobCard.boundingBox())!.x >= (await bobInTree.boundingBox())!.x + (await bobInTree.boundingBox())!.width, 'card beside the row');
+  assert.equal(await page.locator('aside.panel h3', { hasText: 'bob' }).count(), 0, 'no side panel for a profile');
+  await bobCard.getByRole('button', { name: 'Send message' }).waitFor();
+  await page.keyboard.press('Escape');
+  await bobCard.waitFor({ state: 'detached' });
+  const pictureSet = new Promise<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
+  await page.locator('.me .profile').click();
+  const ownCard = page.getByRole('dialog', { name: /^Profile of / });
+  await ownCard.locator('input[type=file]').setInputFiles(pic);
+  await within(pictureSet, 'own picture announced');
+  const pictureBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
+  bob.requestBlob({ textures: [aliceId] });
+  const sentPicture = await within(pictureBytes, 'own picture fetched');
+  assert.ok((sentPicture[0] === 0x89 && sentPicture[1] === 0x50) || (sentPicture[0] === 0xff && sentPicture[1] === 0xd8), 'PNG or JPEG');
+  assert.ok(sentPicture.length <= 131072, 'within the image limit');
+  await page.locator('.me .profile .avatar img').waitFor();
+  const pictureGone = new Promise<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
+  await ownCard.getByRole('button', { name: 'Remove picture' }).click();
+  assert.equal(await within(pictureGone, 'picture removed'), 0);
+  await page.locator('.me .profile .avatar img').waitFor({ state: 'detached' });
+  await page.keyboard.press('Escape');
+  bob.setTexture(new Uint8Array(0));
+  await bobInTree.locator('.avatar img').waitFor({ state: 'detached' });
+  console.log('ok: profile cards, pictures sent, shown and removed');
+
 
   // Server information from the button next to mute
   await page.locator('.me').getByRole('button', { name: 'Server information' }).click();
@@ -767,16 +831,16 @@ try {
     assert.equal(await page.locator('.channel', { hasText: 'Minecraft' }).count(), 0, 'empty subchannels start collapsed');
     console.log('ok: channels collapsed by default');
 
-    // Single click previews the description (fetched on demand), without joining
+    // Single click only selects the channel: no panel, no joining
     await page.locator('.channel .name', { hasText: 'Lobby' }).click();
-    await page.locator('.panel .html', { hasText: 'Welcome to the lobby' }).waitFor();
+    await page.locator('.channel.selected', { hasText: 'Lobby' }).waitFor();
+    assert.equal(await page.locator('aside.panel h2', { hasText: 'Lobby' }).count(), 0, 'no channel panel on a single click');
     assert.equal(await page.locator('.me .who span').textContent(), 'Root');
-    console.log('ok: single click shows description without joining');
+    console.log('ok: single click selects without opening a panel or joining');
 
-    // Description marker: only on channels that have one. Resting on the row previews, clicking the marker opens the panel
+    // Description marker: only on channels that have one. Resting on the row previews, clicking the marker pins the preview
     const marker = page.locator('.channel', { hasText: 'Lobby' }).getByRole('button', { name: 'Show description of Lobby' });
     assert.equal(await page.locator('.channel', { hasText: 'Games' }).locator('.desc').count(), 0);
-    await page.locator('.panel').getByRole('button', { name: 'Close' }).click();
     await page.locator('.channel .name', { hasText: 'Games' }).hover();
     await page.waitForTimeout(2000);
     assert.equal(await page.locator('.desc-pop').count(), 0, 'no preview for a channel without description');
@@ -793,12 +857,26 @@ try {
       await page.locator('.desc-pop').waitFor({ state: 'detached' });
     }
     await marker.click();
-    await page.locator('.panel .html', { hasText: 'Welcome to the lobby' }).waitFor();
-    console.log('ok: description previews on hover, marker opens it on click');
+    await page.locator('.desc-pop .html', { hasText: 'Welcome to the lobby' }).waitFor();
+    // Opened on purpose, it stays when the pointer moves away; Escape closes it
+    await page.mouse.move(700, 400);
+    await page.waitForTimeout(800);
+    assert.equal(await page.locator('.desc-pop').count(), 1, 'pinned preview stays');
+    await page.keyboard.press('Escape');
+    await page.locator('.desc-pop').waitFor({ state: 'detached' });
+    // The same from the menu
+    await page.locator('.channel .name', { hasText: 'Lobby' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Show description' }).click();
+    await page.locator('.desc-pop .html', { hasText: 'Welcome to the lobby' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.locator('.desc-pop').waitFor({ state: 'detached' });
+    console.log('ok: description previews on hover, marker and menu pin it');
 
     // Side chat sends to that channel while staying in Root
     const lobby = [...bob.channels.values()].find(c => c.name === 'Lobby')!;
-    await page.locator('.panel [role=tab]', { hasText: 'Chat' }).click();
+    await page.locator('.channel .name', { hasText: 'Lobby' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Send message to channel' }).click();
+    await page.locator('.panel [role=tab][aria-selected=true]', { hasText: 'Chat' }).waitFor();
     // Channel messages only reach people in that channel, so listen from inside Lobby
     admin.joinChannel(lobby.id);
     await new Promise(r => setTimeout(r, 300));
@@ -1290,9 +1368,9 @@ try {
     await nav.getByRole('button', { name: 'People' }).click();
     const people = page.getByRole('region', { name: 'People' });
     await people.locator('.entry', { hasText: 'bob' }).locator('.main').click();
-    await page.locator('.sheet h3', { hasText: 'bob' }).waitFor();
+    await page.getByRole('dialog', { name: 'Profile of bob' }).locator('h3', { hasText: 'bob' }).waitFor();
     await page.keyboard.press('Escape');
-    await page.locator('.sheet').waitFor({ state: 'detached' });
+    await page.getByRole('dialog', { name: 'Profile of bob' }).waitFor({ state: 'detached' });
     await people.getByRole('button', { name: 'Message bob' }).click();
     await page.locator('.chat2 h1', { hasText: 'bob' }).waitFor();
     if (shots) await page.screenshot({ path: path.join(shots, 'rooms-phone.png') });
@@ -1328,6 +1406,8 @@ try {
     const card = page.locator('.ended');
     await card.getByText('You were kicked by SuperUser').waitFor();
     await card.getByText('testing kicks').waitFor();
+    // Back on the start screen, which shows who is on the saved servers
+    await page.locator('.home .server', { hasText: 'Test Server' }).getByText(/\d+( of \d+)? online/).waitFor({ timeout: 70000 });
     if (shots) await page.screenshot({ path: path.join(shots, 'kicked.png') });
     await card.getByRole('button', { name: 'Reconnect' }).click();
     await page.locator('.sidebar .status', { hasText: 'Connected' }).waitFor();
@@ -1359,6 +1439,7 @@ try {
     await page.locator('.sidebar .user', { hasText: 'bob' }).click();
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(shots, 'profile.png') });
+    await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 400, height: 780 });
     await page.waitForTimeout(200);
     // Small windows show the voice channel as tiles above the chat

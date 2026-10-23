@@ -5,7 +5,7 @@
   import { store } from '../lib/settings.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { userMenu } from '../lib/actions.ts';
+  import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
 
   // Everyone on the server, by room; yours first
@@ -45,8 +45,8 @@
           {#each g.users as u (u.session)}
             {@const me = u.session === self?.session}
             <li class="entry" role="presentation" oncontextmenu={e => menu.show(e, userMenu(u))}>
-              <button class="main" onclick={() => { session.showUser(u.session); ui.panelOpen = true; }}>
-                <Avatar name={u.name} size={40} speaking={talking(u.session)} />
+              <button class="main" onclick={e => openProfile(u.session, e.currentTarget)}>
+                <Avatar name={u.name} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} />
                 <span class="text">
                   <span class="name" class:talking={talking(u.session)}>{store.displayName(u)}</span>
                   <span class="sub">{me ? 'You' : u.userId != null ? 'Registered' : 'Guest'}{u.deaf || u.selfDeaf ? ', deafened' : u.mute || u.selfMute || u.suppress ? ', muted' : ''}{session.sharing[u.session] ? `, sharing ${session.sharing[u.session]}` : ''}{u.recording ? ', recording' : ''}</span>
@@ -71,12 +71,12 @@
   header { flex: none; padding: 14px 16px 8px; }
   h1 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -0.01em; }
   header span { font-size: 13px; color: var(--text-dim); }
-  .find { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 16px 8px; padding: 0 12px; height: 44px; background: var(--bg-0); border: 1px solid var(--line); color: var(--text-faint); text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .find { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 16px 8px; padding: 0 12px; height: 44px; background: var(--bg-0); border: 1px solid var(--line-strong); color: var(--text-faint); text-transform: none; letter-spacing: 0; font-weight: 400; }
   .find:focus-within { border-color: var(--accent); }
-  .find input { border: 0; background: none; padding: 0; height: 100%; font-size: 15px; }
+  .find input { border: 0; background: none; padding: 0; height: 100%; font-size: 15px; box-shadow: none; }
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 16px; }
   ul { list-style: none; margin: 0; padding: 0; }
-  h2 { margin: 18px 8px 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+  h2 { margin: 18px 8px 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
   h2 em { font-style: normal; color: var(--speaking); margin-left: 6px; }
   h2 span { margin-left: 6px; font-weight: 400; }
   .entry { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-right: 4px; }

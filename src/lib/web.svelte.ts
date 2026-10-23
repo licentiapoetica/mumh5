@@ -3,7 +3,7 @@
 // when connecting, because the proxy presents the certificate to the Mumble server.
 import type { CertDetails } from '../core/transport.ts';
 import { WebSocketTransport } from '../core/ws-transport.ts';
-import type { IdentitySummary, PlatformApi } from './native.ts';
+import type { IdentitySummary, PingResult, PlatformApi } from './native.ts';
 
 interface StoredIdentity {
   id: string;
@@ -92,6 +92,7 @@ function browserVersion(): string {
 export const webApi: PlatformApi = {
   platformInfo: async () => ({ os: 'Web', osVersion: browserVersion() }),
   describeCerts: ders => call<CertDetails[]>('certs/describe', { ders: ders.map(toBase64) }),
+  pingServer: (host, port) => call<PingResult | null>('ping', { host, port }).catch(() => null),
   identities: {
     list: async () => { const d = read(); return { identities: d.identities.map(i => summary(d, i)), setupDone: d.setupDone }; },
     create: async (name, email) => add(await call<Fresh>('identity/create', { name, email }), name),

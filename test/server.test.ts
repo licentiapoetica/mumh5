@@ -101,6 +101,44 @@ test('two clients sync, see each other, exchange text, and update state', { skip
   }
 });
 
+test('profile pictures: sent as a texture, fetched by hash, an empty one removes it', { skip: !target }, async () => {
+  const alice = await connect('pica' + Date.now() % 1000);
+  const bob = await connect('picb' + Date.now() % 1000);
+  let carol: MumbleClient | undefined;
+  try {
+    const picture = new Uint8Array(4000);
+    picture.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    for (let i = 8; i < picture.length; i++) picture[i] = (i * 13) & 255;
+    const aliceId = alice.session!;
+    // Unregistered users may set one; others are told the hash only and ask for the bytes
+    const announced = until<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
+    alice.setTexture(picture);
+    await announced;
+    assert.equal(bob.users.get(aliceId)!.texture, null, 'a new hash clears the old picture');
+    const fetched = until<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture) res(u.texture); }));
+    bob.requestBlob({ textures: [aliceId] });
+    assert.deepEqual([...await fetched], [...picture]);
+
+    // Someone joining later gets the hash too
+    carol = await connect('picc' + Date.now() % 1000);
+    assert.ok(carol.users.get(aliceId)!.textureHash, 'late joiner sees the hash');
+
+    // Over the image limit: dropped by the server without an answer, the old picture stays
+    alice.setTexture(new Uint8Array(alice.config.imageMessageLength + 1000));
+    await new Promise(r => setTimeout(r, 1200));
+    assert.deepEqual([...bob.users.get(aliceId)!.texture!], [...picture]);
+
+    // Removing sends an empty picture
+    const removed = until<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
+    alice.setTexture(new Uint8Array(0));
+    assert.equal(await removed, 0);
+  } finally {
+    alice.disconnect();
+    bob.disconnect();
+    carol?.disconnect();
+  }
+});
+
 test('image messages over the text limit must be well-formed XML', { skip: !target }, async () => {
   const alice = await connect('imgA' + Date.now() % 1000);
   const bob = await connect('imgB' + Date.now() % 1000);

@@ -114,7 +114,7 @@
     </header>
     <div class="body">
       <div class="who" role="presentation" oncontextmenu={e => menu.show(e, userMenu(user))}>
-        <Avatar name={user.name} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} />
+        <Avatar name={user.name} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} src={session.avatar(user.session)} />
         <div class="who-text">
           <h3>{store.displayName(user)}</h3>
           <p class="where" title="Current channel"><Icon name="channel" size={14} /><span>{session.channel(user.channelId)?.name || 'Root'}</span></p>
@@ -176,29 +176,30 @@
   .sharing span { flex: 1; min-width: 0; color: var(--text); }
   .sharing .btn { padding: 4px 10px; font-size: 12px; }
   .panel { position: relative; max-width: 100%; height: 100%; flex: none; display: flex; flex-direction: column; background: var(--bg-1); border-left: 1px solid var(--line); min-height: 0; }
-  header { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
-  h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header { height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
+  h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tabs { display: flex; flex: none; border-bottom: 1px solid var(--line); }
-  .tabs button { flex: 1; padding: 10px; color: var(--text-dim); font-weight: 600; font-size: 14px; display: inline-flex; justify-content: center; gap: 6px; }
+  .tabs button { flex: 1; padding: 10px; color: var(--text-dim); font-weight: 600; display: inline-flex; justify-content: center; align-items: center; gap: 6px; transition: color 120ms var(--ease); }
+  .tabs button:hover { color: var(--text); }
   .tabs button.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
-  .badge { background: var(--danger); color: #fff; font-size: 11px; padding: 0 5px; line-height: 16px; }
-  .body { flex: 1; overflow-y: auto; padding: 14px; }
-  .pad { padding: 14px; }
+  .badge { min-width: 18px; text-align: center; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 18px; }
+  .body { flex: 1; overflow-y: auto; padding: 16px; }
+  .pad { padding: 16px; }
   .dim { color: var(--text-dim); margin: 0; }
   .small { font-size: 13px; margin-top: 8px; }
   .html { overflow-wrap: anywhere; user-select: text; }
   .html :global(img) { max-width: 100%; }
   .html :global(p) { margin: 0 0 6px; }
-  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; align-items: center; }
   .here { color: var(--speaking); font-weight: 600; font-size: 14px; }
   .who { display: flex; gap: 14px; align-items: center; }
   .who-text { min-width: 0; }
   .where { display: flex; align-items: center; gap: 5px; margin: 3px 0 0; font-size: 13px; color: var(--text-dim); min-width: 0; }
   .where :global(svg) { flex: none; }
   .where span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  h3 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
-  h4 { margin: 22px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+  h3 { margin: 0; font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+  h4 { margin: 22px 0 8px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); }
   .flags { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
-  .flags span { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); color: var(--text-dim); }
-  .flags .bad { border-color: var(--danger); color: var(--danger); }
+  .flags span { font-size: 11px; font-weight: 500; padding: 0 6px; line-height: 18px; background: var(--bg-3); color: var(--text-dim); }
+  .flags .bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
 </style>

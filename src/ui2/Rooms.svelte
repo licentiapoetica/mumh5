@@ -5,10 +5,11 @@
   import { store, type SavedServer } from '../lib/settings.svelte.ts';
   import { menu, type MenuItem } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { channelMenu, userMenu } from '../lib/actions.ts';
+  import { channelMenu, userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
   import { makeServerIcon } from '../lib/images.ts';
+  import { peopleOn } from '../lib/server-status.svelte.ts';
   import { PERM, type Channel } from '../core/client.ts';
   import { stripMark } from '../core/text-signal.ts';
 
@@ -119,11 +120,12 @@
     {#each store.servers as s, i (s.id)}
       {@const state = stateOf(s.id)}
       {@const unread = unreadOf(s.id)}
+      {@const people = peopleOn(s.id)}
       <button class="srv" class:active={sessions.activeId === s.id} class:live={state === 'connected'} class:connecting={state === 'connecting'}
         class:voice={sessions.voiceId === s.id && state === 'connected'}
-        title="{s.label} ({s.host}){state === 'connected' ? (sessions.voiceId === s.id ? ', voice' : ', connected') : ''}"
+        title="{s.label} ({s.host}){state === 'connected' ? (sessions.voiceId === s.id ? ', voice' : ', connected') : ''}{people ? `, ${people.users}${people.maxUsers ? ` of ${people.maxUsers}` : ''} ${people.users === 1 ? 'person' : 'people'} online` : ''}"
         onclick={() => sessions.open(s)} oncontextmenu={e => serverMenu(e, s, i)}>
-        <span class="pic">{#if s.icon}<img src={s.icon} alt="" draggable="false" />{:else}{initials(s.label)}{/if}</span>
+        <span class="pic">{#if s.icon}<img src={s.icon} alt="" draggable="false" />{:else}{initials(s.label)}{/if}{#if people}<span class="online" class:empty={!people.users} aria-hidden="true">{people.users > 999 ? '999+' : people.users}</span>{/if}</span>
         <span class="cap">{s.label}</span>
         {#if unread}<span class="count">{unread > 99 ? '99+' : unread}</span>{/if}
       </button>
@@ -196,7 +198,7 @@
                 </span>
                 {#if users.length && !open}
                   <span class="faces" aria-label="{users.length} {users.length === 1 ? 'person' : 'people'}">
-                    {#each users.slice(0, 4) as u (u.session)}<Avatar name={u.name} size={26} speaking={talking(u.session)} />{/each}
+                    {#each users.slice(0, 4) as u (u.session)}<Avatar name={u.name} size={26} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
                     {#if users.length > 4}<span class="extra">+{users.length - 4}</span>{/if}
                   </span>
                 {/if}
@@ -217,8 +219,8 @@
                     {#each users as u (u.session)}
                       {@const me = u.session === self?.session}
                       <li>
-                        <button class="person" onclick={() => { session.showUser(u.session); ui.panelOpen = true; }} oncontextmenu={e => menu.show(e, userMenu(u))}>
-                          <Avatar name={u.name} size={32} speaking={talking(u.session)} />
+                        <button class="person" onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
+                          <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                           <span class="pname" class:talking={talking(u.session)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                           {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
                           {#if u.recording}<span class="rec">REC</span>{/if}
@@ -249,7 +251,7 @@
           {#each dms as dm (dm.key)}
             <li class="entry" class:viewing={session.view === dm.key}>
               <button class="main" onclick={() => openChat(dm.key)}>
-                <Avatar name={dm.user?.name ?? '?'} size={32} />
+                <Avatar name={dm.user?.name ?? '?'} size={32} src={session.avatar(dm.user?.session)} />
                 <span class="text">
                   <span class="name" class:gone={!dm.user}>{dm.user ? store.displayName(dm.user) : 'Offline user'}</span>
                   <span class="sub">{last(dm.key)}</span>
@@ -303,6 +305,8 @@
   .srv.live .pic::after, .srv.connecting .pic::after { content: ''; position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; background: var(--speaking); border: 2px solid var(--bg-1); }
   .srv.connecting .pic::after { background: var(--text-faint); }
   .srv.voice .pic::after { box-shadow: 0 0 0 2px var(--speaking); }
+  .online { position: absolute; left: -5px; bottom: -5px; min-width: 20px; padding: 0 4px; line-height: 16px; text-align: center; font-size: 10px; font-weight: 700; background: var(--bg-3); color: var(--text); border: 2px solid var(--bg-1); }
+  .online.empty { color: var(--text-faint); }
   .srv.add .pic { background: transparent; border: 1px dashed var(--line); color: var(--text-dim); }
   .srv.add:hover .pic { color: var(--text); border-color: var(--text-dim); }
   .count { position: absolute; top: 0; right: 4px; min-width: 18px; padding: 0 4px; line-height: 16px; font-size: 10px; font-weight: 700; background: var(--danger); color: #fff; }
@@ -314,12 +318,12 @@
   .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
   .dot { width: 8px; height: 8px; background: var(--speaking); }
 
-  .find { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 16px 8px; padding: 0 12px; height: 44px; background: var(--bg-0); border: 1px solid var(--line); color: var(--text-faint); text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .find { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 16px 8px; padding: 0 12px; height: 44px; background: var(--bg-0); border: 1px solid var(--line-strong); color: var(--text-faint); text-transform: none; letter-spacing: 0; font-weight: 400; }
   .find:focus-within { border-color: var(--accent); }
-  .find input { border: 0; background: none; padding: 0; height: 100%; font-size: 15px; }
+  .find input { border: 0; background: none; padding: 0; height: 100%; font-size: 15px; box-shadow: none; }
 
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 16px; }
-  h2 { margin: 18px 8px 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+  h2 { margin: 18px 8px 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
 
   .entry { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-right: 4px; }
   .entry:hover, .entry.viewing { background: var(--bg-hover); }
@@ -337,7 +341,7 @@
   .room.here .name { color: var(--text); font-weight: 700; }
   .faces { flex: none; display: flex; align-items: center; gap: 4px; }
   .extra { font-size: 12px; color: var(--text-dim); padding-left: 2px; }
-  .join { flex: none; height: 36px; padding: 0 14px; font-weight: 600; font-size: 14px; border: 1px solid var(--line); color: var(--text); }
+  .join { flex: none; height: 36px; padding: 0 14px; font-weight: 600; font-size: 14px; border: 1px solid var(--line-strong); color: var(--text); transition: background 120ms var(--ease), border-color 120ms var(--ease), color 120ms var(--ease); }
   .join:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
   .tag { flex: none; padding: 0 6px; font-size: 12px; font-weight: 600; color: var(--speaking); }
   .icon-btn { flex: none; width: 40px; height: 40px; }

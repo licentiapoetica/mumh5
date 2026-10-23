@@ -60,7 +60,7 @@
 
 <style>
   .catcher { position: fixed; inset: 0; z-index: 200; }
-  .pop { position: fixed; z-index: 201; width: 260px; padding: 10px 12px 8px; background: var(--bg-0); border: 1px solid var(--line); box-shadow: 0 8px 24px rgb(0 0 0 / 0.5); }
+  .pop { position: fixed; z-index: 201; width: 260px; padding: 12px 14px 10px; background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); }
   label { margin-top: 10px; }
   label:first-child { margin-top: 0; }
   select { font-size: 13px; padding: 6px 8px; }
@@ -72,6 +72,5 @@
   .modes button { flex: 1; padding: 5px 4px; font-size: 12px; background: var(--bg-3); color: var(--text-dim); }
   .modes button.active { background: var(--accent); color: var(--accent-text); }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 13px; color: var(--text); margin-top: 10px; }
-  .check input { width: auto; }
   .more { display: block; width: 100%; margin-top: 10px; padding: 6px 0 0; border-top: 1px solid var(--line); text-align: left; font-size: 13px; color: var(--link); }
 </style>

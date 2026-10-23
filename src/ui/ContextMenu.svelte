@@ -65,20 +65,22 @@
 <style>
   .catcher { position: fixed; inset: 0; z-index: 200; }
   .menu {
-    position: fixed; z-index: 201; min-width: 200px; max-width: 280px; padding: 6px;
-    background: var(--bg-0); border: 1px solid var(--line); box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+    position: fixed; z-index: 201; min-width: 210px; max-width: 280px; padding: 5px;
+    background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop);
+    animation: pop 110ms var(--ease);
   }
-  button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 7px 10px; font-size: 14px; text-align: left; color: var(--text); }
+  button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 6px 10px; line-height: 20px; text-align: left; color: var(--text); }
   button:hover:not(:disabled), button:focus-visible { background: var(--accent); color: var(--accent-text); outline: none; }
   button.danger { color: var(--danger); }
   button.danger:hover:not(:disabled), button.danger:focus-visible { background: var(--danger); color: #fff; }
   .label { flex: 1; }
   .box { width: 14px; height: 14px; border: 2px solid currentColor; }
   .box.on { background: currentColor; }
-  .sep { height: 1px; margin: 4px 6px; background: var(--line); }
-  .head { padding: 4px 10px 6px; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--text-dim); border-bottom: 1px solid var(--line);
+  .sep { height: 1px; margin: 5px 4px; background: var(--line); }
+  .head { padding: 5px 10px 7px; margin-bottom: 5px; font-size: 12px; font-weight: 650; color: var(--text-dim); border-bottom: 1px solid var(--line);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .slider { padding: 6px 10px 8px; }
   .slider-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-dim); }
   .slider input { width: 100%; padding: 0; border: 0; background: transparent; accent-color: var(--accent); margin-top: 4px; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-3px); } }
 </style>

@@ -364,6 +364,12 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.send('UserState', { session: this.session, comment });
   }
 
+  // The picture others see next to your name (an image file's bytes; empty removes it)
+  setTexture(texture: Uint8Array): void {
+    if (this.session == null) return;
+    this.send('UserState', { session: this.session, texture });
+  }
+
   kick(session: number, reason: string, ban = false): void {
     this.send('UserRemove', { session, reason, ban });
   }
@@ -694,6 +700,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
     ];
     // A new hash without text means the text changed and must be fetched (RequestBlob)
     if (msg.comment_hash != null && msg.comment == null) user.comment = '';
+    if (msg.texture_hash != null && msg.texture == null) user.texture = null;
     const changed: string[] = [];
     for (const [src, dst] of fields) {
       if (msg[src] != null) {

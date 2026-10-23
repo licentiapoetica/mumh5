@@ -129,7 +129,7 @@
   .m-members { width: 18%; background: var(--bg-1); display: flex; flex-direction: column; gap: 5px; padding: 8px 4px; border-left: 1px solid var(--line); }
   .m-members i { height: 4px; background: var(--text-faint); width: 80%; }
   .lay.classic .m-side { border-left: 1px solid var(--line); }
-  h3 { margin: 8px 0 0; font-size: 14px; }
+  h3 { margin: 8px 0 0; font-size: 15px; font-weight: 650; }
   .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
   .themes > button { display: flex; flex-direction: column; gap: 2px; padding: 8px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); }
   .themes > button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }

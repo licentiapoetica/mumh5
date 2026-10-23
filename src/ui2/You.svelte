@@ -4,7 +4,7 @@
   import { session, sessions } from '../lib/session.svelte.ts';
   import { store, type SavedServer } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { changeNamePrompt } from '../lib/actions.ts';
+  import { changeNamePrompt, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
 
@@ -35,7 +35,7 @@
   <div class="scroll">
     <div class="card">
       {#if self}
-        <Avatar name={self.name} size={64} speaking={voice.transmitting} />
+        <Avatar name={self.name} size={64} speaking={voice.transmitting} src={session.avatar(self.session)} />
         <div class="who">
           <h1>{self.name}</h1>
           <span>{self.userId != null ? 'Registered' : 'Guest'} on {session.server?.label}, in {session.channel(self.channelId)?.name || 'Root'}</span>
@@ -49,7 +49,7 @@
     </div>
     {#if self}
       <div class="acts">
-        <button class="btn" onclick={() => profile(false)}>Your profile</button>
+        <button class="btn" onclick={e => openProfile(self.session, e.currentTarget)}>Your profile</button>
         <button class="btn" onclick={() => profile(true)}>Change your description</button>
         <button class="btn" onclick={() => changeNamePrompt(self)}>Change name</button>
         {#if self.userId == null}<button class="btn" onclick={() => session.register(self.session)}>Register on this server</button>{/if}
@@ -105,7 +105,7 @@
   .who span { font-size: 13px; color: var(--text-dim); }
   .acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 8px; }
   ul { list-style: none; margin: 0; padding: 0; }
-  h2 { margin: 24px 8px 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
+  h2 { margin: 24px 8px 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
   .entry { display: flex; align-items: center; gap: 8px; min-height: 56px; padding-right: 8px; }
   .entry:hover { background: var(--bg-hover); }
   .main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 12px; padding: 8px; text-align: left; color: var(--text-dim); }

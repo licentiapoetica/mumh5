@@ -5,7 +5,7 @@
   import { store } from '../lib/settings.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { userMenu } from '../lib/actions.ts';
+  import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
@@ -155,10 +155,10 @@
   }
   const focusWatch = $derived(focus != null ? watchOf(focus) : undefined);
 
-  function tileClick(session_: number) {
+  function tileClick(session_: number, at?: Element) {
     if (streamOf(session_)) focus = focus === session_ ? null : session_;
     else if (session.sharing[session_] && session_ !== self?.session) share.watch(sessions.active, session_);
-    else { session.showUser(session_); ui.panelOpen = true; }
+    else openProfile(session_, at ?? { x: window.innerWidth / 2, y: window.innerHeight / 3 });
   }
 
   // Right-click on the picture
@@ -192,7 +192,7 @@
   let popup: Window | null = null;
   let popVideo: HTMLVideoElement | null = null;
   let spotVideo = $state<HTMLVideoElement>();
-  let popped = $state(false);
+  const popped = $derived(share.poppedOut);
   function popOut() {
     if (popup && !popup.closed) return popup.focus();
     const w = window.open('', 'mumh5-stream', 'popup,width=960,height=600');
@@ -207,7 +207,7 @@
       return;
     }
     popup = w;
-    popped = true;
+    share.poppedOut = true;
     w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
     const v = w.document.createElement('video');
     v.autoplay = true;
@@ -217,13 +217,13 @@
     v.ondblclick = () => { if (w.document.fullscreenElement) w.document.exitFullscreen(); else v.requestFullscreen().catch(() => {}); };
     w.document.body.replaceChildren(v);
     popVideo = v;
-    w.addEventListener('pagehide', () => { if (popup === w) { popup = null; popVideo = null; popped = false; } });
+    w.addEventListener('pagehide', () => { if (popup === w) { popup = null; popVideo = null; share.poppedOut = false; } });
   }
   function popIn() {
     popup?.close();
     popup = null;
     popVideo = null;
-    popped = false;
+    share.poppedOut = false;
   }
   // The window follows the picture on the stage and closes with it
   $effect(() => {
@@ -234,7 +234,7 @@
     if (popVideo && popVideo.srcObject !== stream) popVideo.srcObject = stream;
     if (popup) popup.document.title = `${title} - mumh5`;
   });
-  $effect(() => () => popup?.close());
+  $effect(() => () => { popup?.close(); share.poppedOut = false; });
 </script>
 
 {#if voice.error && session.status === 'connected'}<div class="bar bad" role="alert"><span>Voice is not working: {voice.error}</span></div>{/if}
@@ -250,10 +250,11 @@
 
 {#snippet spot()}
   {#if self && focus != null && focused}
-      <div class="spot" role="region" aria-label="Screen share" bind:this={frame}>
+      <div class="spot" class:popped role="region" aria-label="Screen share" bind:this={frame}>
       <div class="spot-head">
         <Icon name={focusKind} size={16} />
         <span class="spot-who">{focus === self.session ? `Your ${focusKind}` : focusUser ? store.displayName(focusUser) : 'Screen share'}</span>
+        {#if popped}<span class="away-note">In a separate window</span>{/if}
         {#if focus !== self.session && hasSound}
           <Icon name={store.settings.shareVolume === 0 ? 'headphones-off' : 'headphones'} size={16} />
           <input class="vol" type="range" min="0" max="1" step="0.01" bind:value={store.settings.shareVolume} onchange={() => store.saveSettings()}
@@ -274,9 +275,7 @@
         {#if !videoOnly || shown.length}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
       </div>
       <!-- svelte-ignore a11y_media_has_caption -->
-      {#if popped}
-        <p class="away">Shown in a separate window.</p>
-      {:else}
+      {#if !popped}
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
           <!-- Large, your own camera is shown as the others see it; only the small tile is a mirror -->
@@ -305,7 +304,7 @@
           {@const cam = focus === u.session ? null : camOf(u.session)}
           {@const w = watchOf(u.session)}
           <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
-            onclick={() => tileClick(u.session)}
+            onclick={e => tileClick(u.session, e.currentTarget)}
             oncontextmenu={e => menu.show(e, userMenu(u))}
             title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u)}
             aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
@@ -313,7 +312,7 @@
               <!-- svelte-ignore a11y_media_has_caption -->
               <video class:mirror={isSelf && share.mirror} use:media={cam} autoplay playsinline muted></video>
             {:else}
-              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} />
+              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} src={session.avatar(u.session)} />
             {/if}
             <span class="who">{store.displayName(u)}</span>
             {#if w && w.state !== 'live'}
@@ -353,8 +352,8 @@
   </section>
 {:else if visible && self}
   <section class="stage" class:meeting={!!focused} class:collapsed class:fill aria-label="Voice channel"
-    style:height={collapsed || fill ? undefined : `${focused ? meetingHeight : tilesHeight}px`}>
-    {#if !collapsed && !fill}
+    style:height={collapsed || fill || (focused && popped) ? undefined : `${focused ? meetingHeight : tilesHeight}px`}>
+    {#if !collapsed && !fill && !(focused && popped)}
       {#if focused}
         <ResizeHandle bind:width={meetingHeight} edge="bottom" min={240} max={maxHeight} initial={460} storageKey="mumh5.stageHeightMeeting" label="Resize the meeting view" />
       {:else}
@@ -368,7 +367,7 @@
         <span class="count">{people.length}</span>
         {#if collapsed}
           <span class="mini" aria-hidden="true">
-            {#each people.slice(0, 8) as u (u.session)}<Avatar name={u.name} size={18} speaking={talking(u.session)} />{/each}
+            {#each people.slice(0, 8) as u (u.session)}<Avatar name={u.name} size={18} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
           </span>
         {/if}
       </button>
@@ -450,14 +449,18 @@
 
   /* Meeting view: the chosen picture large, everyone in one row below */
   .spot { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #000; }
-  .spot-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 2px 6px 2px 12px; background: var(--bg-0); color: var(--text-dim); font-size: 13px; }
-  .spot-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
+  /* Wraps on narrow windows: the name keeps the first line, the buttons go below */
+  .spot-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 36px; padding: 2px 6px 2px 12px; background: var(--bg-0); color: var(--text-dim); font-size: 13px; }
+  .away-note { flex: none; font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+  /* The picture is in its own window: only the bar stays */
+  .spot.popped { flex: none !important; min-height: 0 !important; background: var(--bg-0); }
+  .stage.solo:has(.spot.popped) { flex: none; background: var(--bg-0); }
+  .spot-who { flex: 1 0 auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
   .pic { position: relative; flex: 1; min-height: 0; display: flex; -webkit-touch-callout: none; user-select: none; }
   .pending { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
     color: #ddd; font-size: 13px; background: rgb(0 0 0 / 0.6); }
   .pending.bad { color: #ffb3ad; }
   .spot video { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
-  .away { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 13px; }
   .vol { width: 110px; flex: none; padding: 0; }
   /* Video only: the picture as wide as the chat, as tall as its shape asks */
   /* It gives way when the window is short, so the chat below keeps its last lines in view */
@@ -465,7 +468,6 @@
   .stage.solo .spot { flex: 0 1 auto; }
   .stage.solo .pic { flex: 0 1 auto; flex-direction: column; }
   .stage.solo .spot video { flex: 0 1 auto; height: auto; max-height: 62vh; }
-  .stage.solo .away { flex: none; padding: 24px; }
   .wait { margin: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; color: var(--text-dim); background: var(--bg-1); }
   .wait span { flex: 1; min-width: 0; }
   .wait.bad { color: var(--danger); }

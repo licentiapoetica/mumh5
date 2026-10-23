@@ -124,20 +124,23 @@
 </div>
 
 <style>
-  /* Same height as the bar at the bottom of the sidebar, buttons centered like there; grows for longer messages */
-  .composer { flex: none; min-height: var(--footer-h); display: flex; flex-direction: column; justify-content: flex-end; padding: 0; background: var(--bg-0); border: 1px solid var(--line); }
-  .frame { flex: 1; display: flex; flex-direction: column; background: var(--bg-3); }
-  .frame :global(.toolbar) { background: var(--bg-2); }
-  .box { flex: 1; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
-  .input { position: relative; flex: 1; min-width: 0; padding: 8px 4px; max-height: 200px; overflow-y: auto; line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
-  .input.blank::before { content: attr(data-placeholder); position: absolute; left: 4px; top: 8px; color: var(--text-faint); pointer-events: none; }
+  /* A framed field set in from the edges; grows for longer messages */
+  .composer { flex: none; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 16px 16px; }
+  .frame { display: flex; flex-direction: column; background: var(--bg-3); border: 1px solid var(--line-strong); transition: border-color 120ms var(--ease); }
+  .frame:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong)); }
+  /* The formatting row is part of the same field: same background, its buttons over the paperclip and send */
+  .composer .frame :global(.toolbar) { background: transparent; padding: 4px 8px; border-bottom-color: var(--line); }
+  .composer .frame :global(.tool:hover:not(:disabled)), .composer .frame :global(.tool.on) { background: var(--bg-active); }
+  .box { min-height: 46px; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
+  .input { position: relative; flex: 1; min-width: 0; padding: 12px 6px; max-height: 200px; overflow-y: auto; font-size: var(--fs-chat); line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .input.blank::before { content: attr(data-placeholder); position: absolute; left: 6px; top: 12px; color: var(--text-faint); pointer-events: none; }
   .input :global(img) { max-height: 120px; }
   .input :global(ul), .input :global(ol) { margin: 0; padding-left: 20px; }
   .input[contenteditable='false'] { color: var(--text-faint); }
   .fmt { font-weight: 700; font-size: 13px; }
   .fmt.on { color: var(--accent-hover); }
   .send:not(:disabled) { color: var(--accent-hover); }
-  .preparing { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .preparing { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   .preparing li { display: flex; align-items: center; gap: 8px; background: var(--bg-1); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
   .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bar { flex: 1; height: 4px; background: var(--bg-3); }

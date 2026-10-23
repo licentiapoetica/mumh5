@@ -5,7 +5,7 @@
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { channelMenu, userMenu } from '../lib/actions.ts';
+  import { channelMenu, userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
@@ -25,7 +25,7 @@
   const here = $derived(session.self?.channelId === channel.id);
   // Read and written without joining: a click opens its chat
   const isText = $derived(session.isText(channel.id));
-  const selected = $derived((session.panel.kind === 'channel' && session.panel.id === channel.id) || (isText && session.view === `ch:${channel.id}`));
+  const selected = $derived(isText ? session.view === `ch:${channel.id}` : session.selectedChannel === channel.id || (session.panel.kind === 'channel' && session.panel.id === channel.id && ui.panelOpen));
   const unread = $derived(session.unread[`ch:${channel.id}`] ?? 0);
   const total = $derived(session.subtreeUserCount(channel.id));
 
@@ -34,6 +34,8 @@
   const descriptionHtml = $derived(channel.description ? renderIncoming(channel.description, store.trustedHosts).html : '');
   let preview = $state<{ x: number; y: number } | null>(null);
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+  // Opened on purpose (the marker or the menu): stays until a click elsewhere or Escape
+  let pinned = $state(false);
   // Where the pointer is while it rests on the row; the preview opens there
   let pointer = { x: 0, y: 0 };
   function trackPointer(e: MouseEvent) {
@@ -48,6 +50,7 @@
       if (drag.item || !rowEl?.matches(':hover')) return;
       // Long descriptions are only announced by hash; the text is fetched now
       session.loadDescription(channel.id);
+      pinned = false;
       // Just below and right of the pointer, kept inside the window
       preview = { x: Math.max(8, Math.min(pointer.x + 12, window.innerWidth - 348)), y: Math.max(8, Math.min(pointer.y + 12, window.innerHeight - 340)) };
     }, 1000);
@@ -55,6 +58,7 @@
   // Short grace period, so the pointer can move from the row into the preview
   function leaveRow() {
     clearTimeout(hoverTimer);
+    if (pinned) return;
     // An image opened from the preview covers it; the preview stays underneath
     hoverTimer = setTimeout(() => { if (!ui.image) preview = null; }, 250);
   }
@@ -62,7 +66,7 @@
   // so an open preview also watches where the pointer is
   let rowEl = $state<HTMLElement>();
   $effect(() => {
-    if (!preview) return;
+    if (!preview || pinned) return;
     let away: ReturnType<typeof setTimeout> | undefined;
     const inside = () => !!rowEl?.matches(':hover') || !!popEl?.matches(':hover') || !!ui.image;
     const check = () => {
@@ -77,25 +81,42 @@
   let hadImage = false;
   $effect(() => {
     const open = !!ui.image;
-    if (hadImage && !open && preview && !popEl?.matches(':hover')) {
+    if (hadImage && !open && preview && !pinned && !popEl?.matches(':hover')) {
       clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => { if (!popEl?.matches(':hover')) preview = null; }, 1500);
     }
     hadImage = open;
   });
-  function showDescription() {
+  // The description at once, where the marker was clicked (or the menu opened)
+  function showDescriptionAt(x: number, y: number) {
     clearTimeout(hoverTimer);
-    preview = null;
-    session.showChannel(channel.id, 'info');
-    ui.panelOpen = true;
+    session.loadDescription(channel.id);
+    preview = { x: Math.max(8, Math.min(x + 12, window.innerWidth - 348)), y: Math.max(8, Math.min(y + 12, window.innerHeight - 340)) };
+    pinned = true;
   }
+  $effect(() => {
+    if (!preview || !pinned) return;
+    const close = () => { preview = null; pinned = false; };
+    const down = (e: MouseEvent) => { if (!popEl?.contains(e.target as Node) && !ui.image) close(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !ui.image) close(); };
+    // The click that opened it is over by now, so it does not close it again
+    window.addEventListener('mousedown', down, true);
+    window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('mousedown', down, true); window.removeEventListener('keydown', key); };
+  });
+  $effect(() => {
+    const req = ui.channelPreview;
+    if (!req || req.id !== channel.id) return;
+    ui.channelPreview = null;
+    showDescriptionAt(req.x, req.y);
+  });
 
   // Single click previews, double click acts. The single action waits briefly so a
   // double click does not also flash the preview.
   let timer: ReturnType<typeof setTimeout> | undefined;
-  function clickOrDouble(single: () => void, double: () => void) {
+  function clickOrDouble(single: (el: HTMLElement) => void, double: () => void) {
     return {
-      onclick: () => { clearTimeout(timer); timer = setTimeout(single, 220); },
+      onclick: (e: MouseEvent) => { const el = e.currentTarget as HTMLElement; clearTimeout(timer); timer = setTimeout(() => single(el), 220); },
       ondblclick: () => { clearTimeout(timer); double(); }
     };
   }
@@ -180,7 +201,7 @@
 
   const openText = () => { session.selectView(`ch:${channel.id}`); onnavigate(); };
   const channelClicks = $derived(isText ? { onclick: openText } : clickOrDouble(
-    () => { session.showChannel(channel.id); ui.panelOpen = true; },
+    () => { session.selectedChannel = channel.id; },
     () => { session.joinChannel(channel.id); onnavigate(); }
   ));
 </script>
@@ -203,7 +224,7 @@
       <span class="caret"></span>
     {/if}
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
-    <button class="name" class:text={isText} title={isText ? 'Text channel: click to open' : 'Click for details, double-click to join'} {...channelClicks}
+    <button class="name" class:text={isText} title={isText ? 'Text channel: click to open' : 'Double-click to join'} {...channelClicks}
       draggable={channel.id !== 0}
       ondragstart={e => { clearTimeout(hoverTimer); preview = null; drag.item = { kind: 'channel', id: channel.id }; e.dataTransfer?.setData('text/plain', channel.name); }}
       ondragend={() => { drag.item = null; setZone(null); }}>
@@ -214,7 +235,7 @@
     </button>
     {#if hasDescription}
       <button class="desc" title="Show description" aria-label="Show description of {channel.name || 'Root'}"
-        onclick={showDescription}><span></span></button>
+        onclick={e => showDescriptionAt(e.clientX, e.clientY)}><span></span></button>
     {/if}
   </div>
   {#if preview}
@@ -232,7 +253,7 @@
       {#each users as u (u.session)}
         {@const isSelf = u.session === session.self?.session}
         {@const clicks = clickOrDouble(
-          () => { session.showUser(u.session); ui.panelOpen = true; },
+          el => openProfile(u.session, el),
           () => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }
         )}
         <li>
@@ -242,7 +263,7 @@
             ondragend={() => (drag.item = null)}
             title={isSelf ? 'You' : `${store.displayName(u)} (double-click to message)`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
-            <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} />
+            <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)}>{store.displayName(u)}</span>
             {#if u.userId != null}<span class="reg" title="Registered">R</span>{/if}
             {#if session.sharing[u.session]}
@@ -282,7 +303,7 @@
 <style>
   ul { list-style: none; margin: 0; padding: 0; }
   li { margin: 0; }
-  .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); }
+  .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
   .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); }
   .channel.selected { background: var(--bg-active); color: var(--text); }
   /* Drop targets: the whole row for "into", a line with a square end for "in front of" and "behind" */
@@ -300,23 +321,23 @@
   .channel.after::after, li.after-end::after { bottom: -6px; }
   .channel.before, .channel.after, .channel.target { background: var(--bg-hover); color: var(--text); }
   .channel.here .label { color: var(--text); font-weight: 600; }
-  .channel.here { box-shadow: inset 3px 0 0 var(--speaking); }
+  .channel.here { box-shadow: inset 2px 0 0 var(--speaking); }
   .caret { width: 14px; flex: none; display: inline-flex; justify-content: center; color: var(--text-faint); }
   .caret.collapsed svg { transform: rotate(-90deg); }
-  .name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 0; text-align: left; color: inherit; user-select: none; }
+  .name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 5px 0; text-align: left; color: inherit; font-weight: 500; user-select: none; }
   .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .desc { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
-  .desc span { width: 9px; height: 9px; background: var(--warn); }
+  .desc span { width: 7px; height: 7px; background: var(--warn); }
   .desc:hover span { outline: 2px solid var(--warn); outline-offset: 1px; }
-  .desc-pop { position: fixed; z-index: 40; width: 340px; max-width: calc(100vw - 16px); max-height: 320px; overflow: auto; padding: 10px 12px;
-    background: var(--bg-2); border: 1px solid var(--line); color: var(--text); font-size: 14px; box-shadow: 0 8px 32px rgb(0 0 0 / 0.4); }
+  .desc-pop { position: fixed; z-index: 40; width: 340px; max-width: calc(100vw - 16px); max-height: 320px; overflow: auto; padding: 12px 14px;
+    background: var(--bg-1); border: 1px solid var(--line-strong); color: var(--text); font-size: 14px; box-shadow: var(--shadow-pop); }
   .desc-pop strong { display: block; margin-bottom: 6px; }
   .desc-pop p { margin: 0; color: var(--text-dim); }
   .desc-pop .html { overflow-wrap: anywhere; user-select: text; }
   .desc-pop .html :global(img) { max-width: 100%; }
-  .count { font-size: 11px; color: var(--text-faint); border: 1px solid var(--line); padding: 0 5px; line-height: 16px; }
-  .badge { background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 16px; }
-  .user { gap: 8px; text-align: left; font-size: 14px; user-select: none; }
+  .count { flex: none; font-size: 11px; font-weight: 600; color: var(--text-dim); background: var(--bg-3); padding: 0 6px; line-height: 18px; }
+  .badge { flex: none; min-width: 18px; text-align: center; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 18px; }
+  .user { gap: 8px; min-height: 28px; text-align: left; user-select: none; }
   .user.self .label { color: var(--text); }
   .label.talking { color: var(--speaking); }
   .reg { font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); padding: 0 3px; line-height: 14px; }

@@ -39,6 +39,11 @@ async function join(page: Page, name: string) {
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await page.getByRole('button', { name: 'Done' }).click();
+  // Written for the Modern layout; Stacked is the default
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByTitle('Add a server').click();
   await page.getByLabel('Address').fill(host);
   await page.getByLabel('Port').fill(port);
@@ -210,7 +215,10 @@ try {
   await bob.page.getByRole('menuitem', { name: 'Open in a separate window' }).click();
   const streamWindow = await opened;
   await streamWindow.waitForFunction(() => (document.querySelector('video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
-  await view.getByText('Shown in a separate window.').waitFor();
+  // Only a bar with the controls stays in the main window
+  await view.getByText('In a separate window').waitFor();
+  assert.equal(await view.locator('video').count(), 0, 'no picture left in the main window');
+  await view.getByRole('button', { name: 'Bring back' }).waitFor();
   await streamWindow.close();
   await view.getByRole('button', { name: 'Open in a separate window' }).waitFor();
   await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0);

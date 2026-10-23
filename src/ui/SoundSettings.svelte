@@ -71,13 +71,12 @@
 {/each}
 
 <style>
-  h3 { margin: 8px 0 0; font-size: 14px; }
+  h3 { margin: 8px 0 0; font-size: 15px; font-weight: 650; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 10px; }
-  .check input { width: auto; }
   input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
   .packrow { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .packrow .btn { flex: none; }
-  h4 { margin: 16px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+  h4 { margin: 16px 0 0; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); }
   .help { font-size: 12px; color: var(--text-dim); }
   code { font: 12px var(--mono); }
   .report { margin-top: 8px; font-size: 13px; color: var(--text-dim); }

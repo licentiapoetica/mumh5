@@ -2,16 +2,16 @@
    [data-theme-preview] applies a theme to a single element (the pickers in Settings). */
 
 :root:not([data-theme]), [data-theme-preview="dark"] {
-  --bg-0: #0d0e10;
-  --bg-1: #151619;
-  --bg-2: #1b1c20;
-  --bg-3: #24262b;
-  --bg-hover: #2a2c32;
-  --bg-active: #33363d;
-  --line: #2c2e34;
-  --text: #e3e4e8;
-  --text-dim: #9a9ca5;
-  --text-faint: #686a73;
+  --bg-0: #0e0f11;
+  --bg-1: #141518;
+  --bg-2: #1a1b1f;
+  --bg-3: #222429;
+  --bg-hover: #27292e;
+  --bg-active: #2f3238;
+  --line: #2a2c32;
+  --text: #e6e7ea;
+  --text-dim: #a0a3ab;
+  --text-faint: #6c6f78;
   --accent: #7c6cff;
   --accent-hover: #8f81ff;
   --accent-text: #ffffff;
@@ -297,7 +297,7 @@
 }
 :root[data-theme="win95"] .composer .box textarea { box-shadow: none; }
 /* Raised frame in the window face color around the sunken input */
-:root[data-theme="win95"] .composer { border: 2px outset #c0c0c0; }
+:root[data-theme="win95"] .composer .frame { border: 2px outset #c0c0c0; background: #c0c0c0; }
 :root[data-theme="win95"] .rich .area, :root[data-theme="win95"] .rich textarea { box-shadow: none; }
 :root[data-theme="win95"] input[type=range] { accent-color: #000080; }
 

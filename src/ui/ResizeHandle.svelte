@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   // Drag handle on one edge of a panel. `edge` is the side the handle sits on: a panel on
   // the right of the window is resized from its left edge and vice versa; a panel at the
   // bottom from its top edge and one at the top from its bottom edge (then `width` is its
@@ -7,9 +8,13 @@
     { width: number; edge: 'left' | 'right' | 'top' | 'bottom'; min: number; max: () => number; initial: number; storageKey: string; label: string } = $props();
 
   let resizing = $state(false);
+  // The size the user chose. A smaller window shows less of it, and it comes back when the
+  // window grows again; only dragging, the keys and double-click change it.
+  let chosen = untrack(() => width);
 
+  const fit = (w: number) => Math.round(Math.max(min, Math.min(max(), w)));
   function setWidth(w: number) {
-    width = Math.round(Math.max(min, Math.min(max(), w)));
+    width = chosen = fit(w);
     try { localStorage.setItem(storageKey, String(width)); } catch { /* storage unavailable */ }
   }
 
@@ -43,7 +48,7 @@
   }
 </script>
 
-<svelte:window onresize={() => setWidth(width)} />
+<svelte:window onresize={() => (width = fit(chosen))} />
 
 <!-- Focusable separator is the ARIA window-splitter pattern -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->

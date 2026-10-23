@@ -40,6 +40,11 @@ class Ui {
   channelDialog = $state<{ mode: 'create'; parent: number } | { mode: 'edit'; id: number; tab?: 'general' | 'permissions' | 'groups' } | null>(null);
   // Session whose connection information is shown
   userInfo = $state<number | null>(null);
+  // Description preview of a channel in the tree, opened from its menu at that point
+  channelPreview = $state<{ id: number; x: number; y: number } | null>(null);
+  // Profile card of a person, opened next to the area that was clicked
+  // el: what was clicked, followed when the list scrolls; anchor: its box at the time (or a point)
+  profile = $state<{ session: number; anchor: { left: number; top: number; right: number; bottom: number }; el?: Element } | null>(null);
   // Set when a panel was opened on a layout where it is an overlay
   panelOpen = $state(false);
 }

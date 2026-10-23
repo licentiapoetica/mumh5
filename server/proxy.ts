@@ -11,6 +11,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity, identityFromP12, identityToP12, certCommonName } from '../electron/identity.ts';
 import { describeCert } from '../electron/certs.ts';
+import { pingServer } from '../electron/publist.ts';
 import { startTurn, turnCredential, stunResponse, isPrivateAddress, CREDENTIAL_TTL } from './turn.ts';
 
 export { stunResponse, isPrivateAddress };
@@ -141,7 +142,9 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
   const turnSecret = randomBytes(24).toString('hex');
   // Identity requests per address in the current minute; key generation is the costly part
   const identityUse = new Map<string, number>();
-  const sweep = setInterval(() => identityUse.clear(), 60000);
+  // Server pings per address in the current minute (the app asks about each saved server once a minute)
+  const pingUse = new Map<string, number>();
+  const sweep = setInterval(() => { identityUse.clear(); pingUse.clear(); }, 60000);
   sweep.unref();
 
   const addressOf = (req: http.IncomingMessage): string => {
@@ -202,6 +205,18 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       const used = (identityUse.get(addr) ?? 0) + 1;
       identityUse.set(addr, used);
       if (used > 20) throw new HttpError(429, 'Too many requests, try again in a minute');
+    }
+    // How many people are on a server, for the list of saved servers. Only the servers listed
+    // here: the answer comes from a UDP ping, which the proxy sends on the page's behalf.
+    if (route === 'ping') {
+      const host = String(body.host ?? '').trim().toLowerCase();
+      const port = Number(body.port) || 64738;
+      if (!listed(host, port)) throw new HttpError(403, 'Not a server of this proxy');
+      const addr = addressOf(req);
+      const used = (pingUse.get(addr) ?? 0) + 1;
+      pingUse.set(addr, used);
+      if (used > 60) throw new HttpError(429, 'Too many requests, try again in a minute');
+      return await pingServer(host, port);
     }
     switch (route) {
       // Nothing is stored here: the browser keeps its identities and sends one along when it connects

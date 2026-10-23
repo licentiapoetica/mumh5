@@ -104,7 +104,7 @@
   }
   .tile {
     position: relative; width: 44px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center;
-    background: var(--bg-3); font-weight: 700; font-size: 15px; transition: background 100ms, color 100ms;
+    background: var(--bg-3); font-weight: 650; font-size: 14px; letter-spacing: 0.02em; transition: background 120ms var(--ease), color 120ms var(--ease);
   }
   .tile:hover { background: var(--accent); color: var(--accent-text); }
   .tile.active { background: var(--accent); color: var(--accent-text); }
@@ -121,8 +121,8 @@
   .tile.connecting::after { background: var(--text-faint); }
   .tile.voice::after { box-shadow: 0 0 0 2px var(--speaking); }
   .unread {
-    position: absolute; right: -6px; top: -6px; min-width: 18px; padding: 0 4px; line-height: 16px;
-    font-size: 10px; background: var(--danger); color: #fff; border: 2px solid var(--bg-0);
+    position: absolute; right: -6px; top: -6px; min-width: 20px; padding: 0 4px; line-height: 16px; text-align: center;
+    font-size: 10px; font-weight: 700; letter-spacing: 0; background: var(--danger); color: #fff; border: 2px solid var(--bg-0);
   }
   .drop-line { width: 44px; height: 3px; flex: none; background: var(--accent); margin: -5px 0; }
   .add { color: var(--speaking); background: var(--bg-2); }
