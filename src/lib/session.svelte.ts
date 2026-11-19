@@ -77,6 +77,8 @@ export class Session {
   serverCert = $state<ServerCertInfo | null>(null);
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
+  selectedUsers = $state<number[]>([]);
+  private userAnchor: number | null = null;
   // Channel highlighted by a single click in the tree (a double click joins)
   selectedChannel = $state<number | null>(null);
 
@@ -143,6 +145,36 @@ export class Session {
   allUsers(): User[] {
     void this.tick;
     return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
+  }
+
+  selectUser(id: number, order: number[], modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): void {
+    const additive = modifiers.ctrlKey || modifiers.metaKey;
+    const anchor = this.userAnchor == null ? -1 : order.indexOf(this.userAnchor);
+    const end = order.indexOf(id);
+    if (modifiers.shiftKey && anchor >= 0 && end >= 0) {
+      const range = order.slice(Math.min(anchor, end), Math.max(anchor, end) + 1);
+      this.selectedUsers = [...new Set([...(additive ? this.selectedUsers : []), ...range])];
+    } else {
+      this.selectedUsers = additive
+        ? this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id]
+        : [id];
+      this.userAnchor = id;
+    }
+  }
+
+  clearUserSelection(): void {
+    this.selectedUsers = [];
+    this.userAnchor = null;
+  }
+
+  moveUsers(ids: number[], channelId: number): void {
+    if (!this.channel(channelId) || this.isText(channelId)) return;
+    for (const id of new Set(ids)) {
+      const user = this.user(id);
+      if (!user || user.channelId === channelId) continue;
+      if (id === this.self?.session) this.joinChannel(channelId);
+      else this.moveUser(id, channelId);
+    }
   }
 
   // Users in a channel and all of its subchannels
@@ -312,6 +344,7 @@ export class Session {
   }
 
   disconnect(): void {
+    this.clearUserSelection();
     this.attempt++;
     const client = this.client;
     this.client = null;
@@ -423,6 +456,8 @@ export class Session {
 
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
+      this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
+      if (this.userAnchor === user.session) this.userAnchor = null;
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
         const by = actor != null ? client.users.get(actor)?.name ?? '' : '';
@@ -483,6 +518,7 @@ export class Session {
 
     client.on('close', reason => {
       if (this.client !== client) return;
+      this.clearUserSelection();
       if (this.removedBy) this.disconnectInfo = this.removedBy;
       else if (!this.disconnectInfo && reason !== 'Disconnected') this.disconnectInfo = { kind: 'lost', by: '', reason };
       const kind = this.disconnectInfo?.kind;

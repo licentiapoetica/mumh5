@@ -9,6 +9,7 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
+  import { selectUser } from '../lib/user-selection.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
   import { share } from '../lib/share.svelte.ts';
@@ -116,7 +117,12 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
   function clickOrDouble(single: (el: HTMLElement) => void, double: () => void) {
     return {
-      onclick: (e: MouseEvent) => { const el = e.currentTarget as HTMLElement; clearTimeout(timer); timer = setTimeout(() => single(el), 220); },
+      onclick: (e: MouseEvent) => {
+        const el = e.currentTarget as HTMLElement;
+        const selection = session.selectedUsers;
+        clearTimeout(timer);
+        timer = setTimeout(() => { if (selection === session.selectedUsers) single(el); }, 220);
+      },
       ondblclick: () => { clearTimeout(timer); double(); }
     };
   }
@@ -131,7 +137,10 @@
   function intoAllowed(): boolean {
     const d = drag.item;
     if (!d) return false;
-    if (d.kind === 'user') return session.user(d.id)?.channelId !== channel.id;
+    if (d.kind === 'user') return d.serverId === session.server?.id && !isText && d.ids.some(id => {
+      const user = session.user(id);
+      return user && user.channelId !== channel.id;
+    });
     return d.id !== channel.id && channel.id !== session.channel(d.id)?.parent && !session.isInside(channel.id, d.id);
   }
 
@@ -179,8 +188,7 @@
     const client = session.client;
     if (!d || !z || !client) return;
     if (d.kind === 'user') {
-      if (d.id === session.self?.session) session.joinChannel(channel.id);
-      else session.moveUser(d.id, channel.id);
+      session.moveUsers(d.ids, channel.id);
       return;
     }
     if (z === 'into') {
@@ -259,8 +267,8 @@
         <li>
           <button class="row user" class:self={isSelf} style:padding-left="{30 + depth * 14}px"
             draggable="true"
-            ondragstart={e => { drag.item = { kind: 'user', id: u.session }; e.dataTransfer?.setData('text/plain', u.name); }}
-            ondragend={() => (drag.item = null)}
+            use:selectUser={{ id: u.session, onselect: () => clearTimeout(timer) }}
+            aria-pressed={session.selectedUsers.includes(u.session)}
             title={isSelf ? 'You' : `${store.displayName(u)} (double-click to message)`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />

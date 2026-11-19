@@ -1006,6 +1006,60 @@ try {
     bob.joinChannel(0);
     console.log('ok: drag and drop moves channels and people');
 
+    // Move a group of six by dragging, then by the channel picker.
+    const movers: MumbleClient[] = [];
+    try {
+      for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) movers.push(await headless(`move-${suffix}`));
+      const mover = (suffix: string) => page.locator('.sidebar .user', { hasText: `move-${suffix}` });
+      await mover('f').waitFor();
+      await mover('a').click({ modifiers: ['Control'] });
+      await mover('f').click({ modifiers: ['Shift'] });
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6);
+      await mover('c').click({ modifiers: ['Control'] });
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 5);
+      await mover('c').click({ modifiers: ['Meta'] });
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6);
+      assert.equal(await page.getByRole('dialog', { name: /Profile of move-/ }).count(), 0, 'selection gestures do not open profiles');
+
+      const allMoved = (id: number) => within(new Promise<void>(resolve => {
+        const check = () => {
+          if (movers.every(c => bob.users.get(c.session!)?.channelId === id)) resolve();
+          else setTimeout(check, 100);
+        };
+        check();
+      }), `all six clients in channel ${id}`, 20000);
+      await mover('a').dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
+      await allMoved(lobby.id);
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6, 'selection survives moves');
+      await page.locator('.sidebar').getByLabel('Move selected clients to').selectOption('0');
+      await allMoved(0);
+      await page.locator('.sidebar .user', { hasText: 'bob' }).dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
+      await within(new Promise<void>(resolve => {
+        const check = () => bob.self?.channelId === lobby.id ? resolve() : setTimeout(check, 100);
+        check();
+      }), 'only the unselected client moved');
+      assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === 0));
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 1, 'dragging an unselected client replaces the group');
+      await page.locator('.sidebar').getByLabel('Move selected clients to').selectOption('0');
+      await within(new Promise<void>(resolve => {
+        const check = () => bob.self?.channelId === 0 ? resolve() : setTimeout(check, 100);
+        check();
+      }), 'bob back in Root');
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0);
+      await mover('a').click({ modifiers: ['Shift'] });
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 1, 'Shift without an anchor selects one client');
+      await mover('b').click({ modifiers: ['Control'] });
+      await mover('c').click();
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 1, 'plain click replaces the selection');
+      movers[2].disconnect();
+      await mover('c').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'disconnected clients leave the selection');
+      console.log('ok: Shift ranges, Ctrl/Cmd toggles, group dragging, bulk move picker and clearing selection');
+    } finally {
+      for (const client of movers) client.disconnect();
+    }
+
     // Dropped on the lower or upper third of a row, a channel goes behind or in front of it.
     // A line shows where it will land.
     const topOrder = () => [...bob.channels.values()].filter(c => c.parent === 0).sort(byOrder).map(c => c.name);
@@ -1330,6 +1384,17 @@ try {
     // People show in their room without opening it; the dock names the room you are in
     await rooms.locator('.room.here .person', { hasText: 'bob' }).waitFor();
     await page.locator('.dock', { hasText: 'Root' }).waitFor();
+    await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
+    await rooms.locator('.person', { hasText: newName }).click({ modifiers: ['Shift'] });
+    assert.ok(await rooms.locator('.person[aria-pressed="true"]').count() >= 2);
+    if (admin) {
+      const games = [...bob.channels.values()].find(c => c.name === 'Games')!;
+      await rooms.getByLabel('Move selected clients to').selectOption(String(games.id));
+      await until2('selected clients in Games', () => bob.self?.channelId === games.id && userState(newName)?.channelId === games.id);
+      await rooms.getByLabel('Move selected clients to').selectOption('0');
+      await until2('selected clients back in Root', () => bob.self?.channelId === 0 && userState(newName)?.channelId === 0);
+    }
+    await rooms.getByRole('button', { name: 'Clear', exact: true }).click();
     if (admin) {
       await rooms.getByRole('button', { name: 'Join Games' }).click();
       await until2('alice in Games', () => bob.channels.get(userState(newName)!.channelId)?.name === 'Games');
@@ -1367,6 +1432,10 @@ try {
     // People: a profile opens over the screen, a message opens the chat
     await nav.getByRole('button', { name: 'People' }).click();
     const people = page.getByRole('region', { name: 'People' });
+    await people.locator('.entry', { hasText: 'bob' }).locator('.main').click({ modifiers: ['Control'] });
+    await people.locator('.entry', { hasText: newName }).locator('.main').click({ modifiers: ['Shift'] });
+    assert.ok(await people.locator('.main[aria-pressed="true"]').count() >= 2);
+    await people.getByRole('button', { name: 'Clear', exact: true }).click();
     await people.locator('.entry', { hasText: 'bob' }).locator('.main').click();
     await page.getByRole('dialog', { name: 'Profile of bob' }).locator('h3', { hasText: 'bob' }).waitFor();
     await page.keyboard.press('Escape');

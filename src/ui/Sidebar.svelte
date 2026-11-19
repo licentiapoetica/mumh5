@@ -8,6 +8,7 @@
   import { PERM } from '../core/client.ts';
   import ResizeHandle from './ResizeHandle.svelte';
   import UserBar from './UserBar.svelte';
+  import UserSelection from './UserSelection.svelte';
 
   // resizable: false in the phone drawer, which keeps a fixed width
   // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
@@ -71,7 +72,8 @@
     {/if}
   </header>
 
-  <div class="scroll" role="presentation" oncontextmenu={listMenu}>
+  {#if session.status === 'connected'}<UserSelection />{/if}
+  <div class="scroll" data-user-list role="presentation" oncontextmenu={listMenu}>
     {#if session.status === 'connected'}
       <ul class="tree">
         {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
