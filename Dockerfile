@@ -1,6 +1,6 @@
 # The browser version: web app and proxy in one image.
 #   docker compose up -d --build
-FROM node:22-slim AS build
+FROM node:26-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 # No install scripts: the Electron download they would trigger is only needed for the desktop app
@@ -8,7 +8,7 @@ RUN npm ci --ignore-scripts
 COPY . .
 RUN npm run build:web
 
-FROM node:22-slim
+FROM node:26-slim
 WORKDIR /app
 COPY --from=build /src/dist-web ./dist-web
 COPY --from=build /src/dist-proxy ./dist-proxy
