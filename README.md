@@ -48,7 +48,8 @@ sudo ./install.sh --system   # or for everyone, in /opt
 
 To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/uninstall.sh`). Your settings and identities stay in `~/.config/mumh5`; `uninstall.sh --purge` deletes them too, after asking. Back up your identity first. The Windows installer has its own uninstaller in the system settings; the `.deb` is removed with `sudo apt remove mumh5`.
 
-There is no macOS build yet; it can be built on a Mac from the source (see [For developers](#for-developers)).
+For macOS Apple Silicon, download the unsigned `.dmg` from a GitHub Actions build
+(see [Building installers](#building-installers)), or build it on a Mac from the source.
 
 ## A look around
 
@@ -305,6 +306,21 @@ npm run dist:mac     # .dmg
 ```
 
 Installers are written to `release/`. The Windows installer also builds on Linux with Wine installed; the macOS one needs a Mac. Pushing a version tag (`git tag v0.2.0 && git push origin v0.2.0`) makes the Gitea workflow in `.gitea/workflows/release.yml` build the Linux and Windows files and attach them to a release.
+
+On GitHub, `.github/workflows/build.yml` builds the latest commit on every push to
+`main`, on pull requests targeting `main`, or manually from **Actions → Build
+desktop app and Docker image → Run workflow** (choose the branch to build).
+It runs type checks and tests, then packages Linux x64 (AppImage, `.deb`, `.tar.gz`),
+Windows x64 (`.exe`), and macOS Apple Silicon (`.dmg`) apps. Download the unsigned
+installers from the run's **Artifacts** section; they are kept for 14 days and named
+with the commit SHA.
+
+Pushes and manual runs also publish the browser app and proxy image to
+`ghcr.io/licentiapoetica/mumh5:sha-<full-commit-sha>` using the built-in
+`GITHUB_TOKEN`. Builds from `main` additionally update
+`ghcr.io/licentiapoetica/mumh5:latest`; pull requests only build the image.
+The workflow needs no additional secrets. GitHub controls the package's visibility
+separately; make it public in the package settings if anonymous pulls are wanted.
 
 ### Development
 

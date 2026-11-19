@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild';
+import { pathToFileURL } from 'node:url';
 
 // Bundles the Electron main and preload scripts to CommonJS in dist-electron/.
 export const options = {
@@ -14,4 +15,4 @@ export const options = {
   logLevel: 'info'
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) await esbuild.build(options);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await esbuild.build(options);
