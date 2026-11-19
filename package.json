@@ -128,8 +128,8 @@
     "protobufjs": "^8.8.0"
   },
   "allowScripts": {
-    "electron@44.5.1": true,
-    "esbuild@0.28.2": true,
+    "electron": true,
+    "esbuild": true,
     "electron-winstaller": false
   },
   "author": {
