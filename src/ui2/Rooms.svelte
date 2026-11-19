@@ -12,7 +12,7 @@
   import { peopleOn } from '../lib/server-status.svelte.ts';
   import { PERM, type Channel } from '../core/client.ts';
   import { stripMark } from '../core/text-signal.ts';
-  import { selectUser } from '../lib/user-selection.ts';
+  import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
   import UserSelection from '../ui/UserSelection.svelte';
 
@@ -178,8 +178,7 @@
     </label>
   {/if}
 
-  {#if connected}<UserSelection />{/if}
-  <div class="scroll" data-user-list role="presentation" oncontextmenu={listMenu}>
+  <div class="scroll" data-user-list="rooms" role="presentation" oncontextmenu={listMenu}>
     {#if connected}
       {#if textRooms.length}
         <h2>Text channels</h2>
@@ -243,7 +242,7 @@
                     {#each users as u (u.session)}
                       {@const me = u.session === self?.session}
                       <li>
-                        <button class="person" use:selectUser={{ id: u.session }} draggable="true" aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
+                        <button class="person" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
                           <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                           <span class="pname" class:talking={talking(u.session)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                           {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
@@ -286,6 +285,7 @@
           {/each}
         </ul>
       {/if}
+      <UserSelection list="rooms" />
     {:else if session.status === 'idle' && session.disconnectInfo}
       {@const d = session.disconnectInfo}
       <div class="ended" class:bad={d.kind === 'kicked' || d.kind === 'banned'}>

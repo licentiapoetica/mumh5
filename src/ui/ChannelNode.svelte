@@ -9,7 +9,7 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
-  import { selectUser } from '../lib/user-selection.ts';
+  import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
   import { share } from '../lib/share.svelte.ts';
@@ -269,7 +269,7 @@
             draggable="true"
             use:selectUser={{ id: u.session, onselect: () => clearTimeout(timer) }}
             aria-pressed={session.selectedUsers.includes(u.session)}
-            title={isSelf ? 'You' : `${store.displayName(u)} (double-click to message)`} {...clicks}
+            title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)}>{store.displayName(u)}</span>

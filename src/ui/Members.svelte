@@ -6,7 +6,7 @@
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
-  import { selectUser } from '../lib/user-selection.ts';
+  import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
   import UserSelection from './UserSelection.svelte';
 
   let { onnavigate }: { onnavigate: () => void } = $props();
@@ -15,8 +15,7 @@
   const elsewhere = $derived(session.allUsers().filter(u => u.channelId !== session.self?.channelId));
 </script>
 
-<aside class="members" aria-label="Members" data-user-list>
-  <UserSelection />
+<aside class="members" aria-label="Members" data-user-list="members">
   {#snippet group(title: string, users: typeof here)}
     {#if users.length}
       <h3>{title} ({users.length})</h3>
@@ -25,7 +24,7 @@
           {@const isSelf = u.session === session.self?.session}
           <li>
             <button use:selectUser={{ id: u.session }} draggable="true" aria-pressed={session.selectedUsers.includes(u.session)}
-              onclick={e => openProfile(u.session, e.currentTarget)} title={isSelf ? 'You' : `${u.name} (double-click to message)`}
+              onclick={e => openProfile(u.session, e.currentTarget)} title={isSelf ? `You. ${SELECT_HINT}` : `${u.name}. Double-click to message, ${SELECT_HINT.toLowerCase()}`}
               ondblclick={() => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }}
               oncontextmenu={e => menu.show(e, userMenu(u))}>
               <Avatar name={u.name} size={32} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
@@ -42,6 +41,7 @@
   {/snippet}
   {@render group('In channel', here)}
   {@render group('Elsewhere', elsewhere)}
+  <UserSelection list="members" />
 </aside>
 
 <style>

@@ -1,5 +1,5 @@
 import { createCodec } from '../core/proto.ts';
-import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
+import { MumbleClient, PERM, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
 import { native, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
@@ -154,12 +154,19 @@ export class Session {
     if (modifiers.shiftKey && anchor >= 0 && end >= 0) {
       const range = order.slice(Math.min(anchor, end), Math.max(anchor, end) + 1);
       this.selectedUsers = [...new Set([...(additive ? this.selectedUsers : []), ...range])];
+    } else if (additive || modifiers.shiftKey) {
+      this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
+      this.userAnchor = id;
     } else {
-      this.selectedUsers = additive
-        ? this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id]
-        : [id];
+      // A plain click opens the profile; it only marks where a Shift range starts
+      if (this.selectedUsers.length) this.selectedUsers = [];
       this.userAnchor = id;
     }
+  }
+
+  selectOnlyUser(id: number): void {
+    this.selectedUsers = [id];
+    this.userAnchor = id;
   }
 
   clearUserSelection(): void {
@@ -173,7 +180,8 @@ export class Session {
       const user = this.user(id);
       if (!user || user.channelId === channelId) continue;
       if (id === this.self?.session) this.joinChannel(channelId);
-      else this.moveUser(id, channelId);
+      // Skip people we know we may not move rather than collect a denial for each
+      else if (this.can(user.channelId, PERM.Move) !== false) this.moveUser(id, channelId);
     }
   }
 
