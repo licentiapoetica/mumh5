@@ -166,8 +166,10 @@ try {
   };
 
   // Always on: a steady stream of 20 ms Opus packets
-  const stream = collect(25);
+  // Collect only after the switch: the fake microphone's beep often has voice activity sending
+  // already, and switching modes ends that transmission with a terminator packet
   await setMode('Always on');
+  const stream = collect(25);
   // Generous: on a freshly started server and fake microphone the first packets can take a while
   const packets = await within(stream, 'voice packets from the app', 20000);
   assert.ok(packets.every(p => p.opus.length > 0 && !p.last));
