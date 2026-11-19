@@ -1,0 +1,25 @@
+# Dependency update PRs on GitHub. Security updates are switched on in the repository settings
+# (Code security), not here, and are not held back by the cooldown.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Leaves new releases a week to be pulled if they turn out broken or malicious
+    cooldown:
+      default-days: 7
+    # Minor and patch bumps in one PR; majors (Electron, TypeScript, ...) each get their own,
+    # since those need the app and the E2E run by hand
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  # Base image of the web proxy (Dockerfile)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
