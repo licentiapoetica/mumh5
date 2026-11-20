@@ -4,23 +4,38 @@ import { session, sessions } from './session.svelte.ts';
 import { voice, type TransmitMode } from './audio/voice.svelte.ts';
 import { ui } from './ui.svelte.ts';
 
-type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened' | 'alert';
+type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened';
 
-const LOOK: Record<TrayLook, { bg: string; glyph: string; fg?: string }> = {
+const INK = '#141518'; // the app icon's black
+const AMBER = '#f0b232';
+
+const LOOK: Record<TrayLook, { bg: string; glyph: string }> = {
   offline: { bg: '#4a4c54', glyph: 'mic' },
-  idle: { bg: '#141518', glyph: 'mic' }, // the app icon's black
+  idle: { bg: INK, glyph: 'mic' },
   talking: { bg: '#2fb863', glyph: 'mic' },
   muted: { bg: '#e0443e', glyph: 'mic-off' },
-  deafened: { bg: '#e0443e', glyph: 'headphones-off' },
-  // Alternates with the normal look while a poke waits for you
-  alert: { bg: '#f0b232', glyph: 'user', fg: '#141518' }
+  deafened: { bg: '#e0443e', glyph: 'headphones-off' }
 };
 
-const cache = new Map<TrayLook, string>();
+const cache = new Map<string, string>();
+
+// A poke waits: a small "!" square in the top corner, clear of the mute and deafen marks
+function drawPokeBadge(ctx: CanvasRenderingContext2D): void {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = INK; // a dark edge keeps it apart from any look below
+  ctx.fillRect(32, 0, 32, 32);
+  ctx.fillStyle = AMBER;
+  ctx.fillRect(35, 0, 29, 29);
+  ctx.fillStyle = INK;
+  ctx.fillRect(46, 4, 7, 13);
+  ctx.fillRect(46, 20, 7, 5);
+}
 
 // Square tile with a white glyph, like the rail tiles; 64 px so the OS can scale it down sharply
-function drawIcon(look: TrayLook): string {
-  const hit = cache.get(look);
+// poke: with the badge; alternates with the plain icon while a poke waits for you
+function drawIcon(look: TrayLook, poke = false): string {
+  const key = `${look}/${poke}`;
+  const hit = cache.get(key);
   if (hit) return hit;
   const size = 64;
   const canvas = document.createElement('canvas');
@@ -30,13 +45,14 @@ function drawIcon(look: TrayLook): string {
   ctx.fillRect(0, 0, size, size);
   ctx.translate(8, 8);
   ctx.scale(2, 2); // 24 unit glyph into 48 px
-  ctx.strokeStyle = LOOK[look].fg ?? '#ffffff';
+  ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 2.6;
   ctx.lineCap = 'square';
   ctx.lineJoin = 'miter';
   ctx.stroke(new Path2D(ICON_PATHS[LOOK[look].glyph]));
+  if (poke) drawPokeBadge(ctx);
   const url = canvas.toDataURL('image/png');
-  cache.set(look, url);
+  cache.set(key, url);
   return url;
 }
 
@@ -59,7 +75,7 @@ export function startTray(): void {
       const state = { offline: 'not connected', idle: 'connected', talking: 'talking', muted: 'muted', deafened: 'deafened' }[look];
       api.updateTray({
         icon: drawIcon(look),
-        alertIcon: drawIcon('alert'),
+        alertIcon: drawIcon(look, true),
         tooltip: server ? `mumh5: ${state} on ${server}` : 'mumh5: not connected',
         connected: !!(voiceSession?.status === 'connected' || connected),
         server,
