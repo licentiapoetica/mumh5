@@ -15,6 +15,7 @@ import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
 import { byOrder } from '../../src/core/channel-order.ts';
+import { encodePoke, decodePoke } from '../../src/core/poke.ts';
 import { TEXT, TEXT_DATA_ID, TEXT_MARK, TextAssembler, encodeText, parseMsg, parseHistory } from '../../src/core/text-signal.ts';
 import {
   FILE, FILE_DATA_ID, FileAssembler, Sender, pump as pumpPieces, announce, takeFiles, encodeFileSignal, isPiece, parsePiece, decode15, encode15,
@@ -753,6 +754,27 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: 'Profile of bob' }).waitFor({ state: 'detached' });
   console.log('ok: user context menu and profile');
+
+  // Poke: a private message with a marker; mumh5 shows it as a popup with its own sound
+  const poked = new Promise<string>(res => bob.on('text', m => { if (decodePoke(m.html) != null) res(m.html); }));
+  await page.locator('.sidebar .user', { hasText: 'bob' }).click({ button: 'right' });
+  await menuItem('Poke...').click();
+  await page.getByRole('dialog', { name: 'Poke bob' }).getByLabel('Message (optional)').fill('Hey wake up!');
+  await page.getByRole('dialog', { name: 'Poke bob' }).getByRole('button', { name: 'Poke' }).click();
+  const pokeHtml = await within(poked, 'bob poked');
+  assert.equal(decodePoke(pokeHtml), 'Hey wake up!');
+  assert.ok(pokeHtml.includes('Poked you: Hey wake up!'), 'readable in other clients');
+  bob.sendText({ users: [aliceId] }, encodePoke('Wake up <b>now</b>'));
+  const pokeDialog = page.getByRole('dialog', { name: 'bob poked you' });
+  await pokeDialog.locator('.note', { hasText: 'Wake up <b>now</b>' }).waitFor();
+  // Logged once it really started playing, after the tone is rendered
+  await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('poke'), null, { timeout: 5000 });
+  await pokeDialog.getByRole('button', { name: 'Reply' }).click();
+  await pokeDialog.waitFor({ state: 'detached' });
+  await page.locator('.chat .system', { hasText: 'bob poked you: Wake up <b>now</b>' }).waitFor();
+  await page.locator('.chat .system', { hasText: 'You poked bob: Hey wake up!' }).waitFor();
+  console.log('ok: poke sent, received as a popup, reply opens the conversation');
+  await page.locator('.channel .name').first().dblclick();
 
   // Profile cards open beside what was clicked; pictures go both ways as Mumble textures
   const bobInTree = page.locator('.sidebar .user', { hasText: 'bob' });

@@ -12,6 +12,7 @@ const sessionPath = new URL('../src/lib/session.svelte.ts', import.meta.url).pat
 const stubs = `
   export const control = { opens: 0, failure: false, fingerprint: 'first', hold: null, attached: null };
   export const native = { platformInfo: async () => ({ os: 'test', osVersion: '' }) };
+  export const desktop = null, ui = { pokes: [] };
   export async function openTransport() {
     control.opens++;
     if (control.hold) await control.hold;

@@ -1,6 +1,6 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, PERM, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
-import { native, openTransport } from './native.ts';
+import { native, desktop, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
@@ -11,6 +11,8 @@ import { makeInlineImage, originalImage, videoPoster } from './images.ts';
 import { ownAvatar } from './avatar.svelte.ts';
 import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
+import { encodePoke, decodePoke } from '../core/poke.ts';
+import { ui } from './ui.svelte.ts';
 import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 
@@ -561,6 +563,12 @@ export class Session {
         if (msg.actor != null) files.piece(this, msg.actor, msg.html);
         return;
       }
+      const private_ = msg.actor != null && msg.actor !== client.session && !msg.channels.length && !msg.trees.length;
+      const poke = private_ ? decodePoke(msg.html) : null;
+      if (poke != null && msg.actor != null) {
+        this.poked(msg.actor, poke);
+        return;
+      }
       this.receive(client, msg);
       if (msg.actor != null && msg.actor !== client.session) sounds.play(msg.channels.length || msg.trees.length ? 'message' : 'privateMessage');
     });
@@ -796,6 +804,27 @@ export class Session {
     } else {
       this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ...rendered });
     }
+  }
+
+  // A poke: a popup for them in mumh5, a private message in other clients
+  poke(target: number, text: string): void {
+    const client = this.client;
+    const user = client?.users.get(target);
+    if (!client || !user || this.status !== 'connected') return;
+    client.sendText({ users: [target] }, encodePoke(text));
+    sounds.play('messageSent');
+    const note = text.trim();
+    this.system(`dm:${target}`, `You poked ${escapeHtml(store.displayName(user))}${note ? ': ' + escapeHtml(note) : ''}`);
+  }
+
+  private poked(from: number, note: string): void {
+    const user = this.client?.users.get(from);
+    const name = user ? store.displayName(user) : `#${from}`;
+    this.system(`dm:${from}`, `${escapeHtml(name)} poked you${note ? ': ' + escapeHtml(note) : ''}`);
+    // Newest last; a flood keeps only the most recent ones
+    ui.pokes = [...ui.pokes, { id: nextId++, server: this.server?.id ?? '', serverName: this.server?.label || this.server?.host || '', from, name, note, time: Date.now() }].slice(-20);
+    sounds.play('poke');
+    desktop?.attention();
   }
 
   // Opening a server marks what is on screen as read

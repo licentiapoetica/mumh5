@@ -176,6 +176,12 @@ ipcMain.handle('share:sources', async (_e, thumbnails: boolean) => {
 ipcMain.on('share:pick', (_e, id: string) => { pickedSource = String(id); });
 
 ipcMain.on('tray:update', (_e, state: tray.TrayState) => tray.update(state));
+ipcMain.on('window:attention', e => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isFocused()) return;
+  win.flashFrame(true);
+  win.once('focus', () => win.flashFrame(false));
+});
 
 ipcMain.handle('platform:info', () => ({ os: process.platform, osVersion: os.release() }));
 

@@ -1,8 +1,8 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
 
-  let { title, label, confirm, danger = false, input = 'text', initial = '', text = '', onsubmit, onclose }:
-    { title: string; label: string; confirm: string; danger?: boolean; input?: 'text' | 'password' | 'none'; initial?: string;
+  let { title, label, confirm, danger = false, input = 'text', initial = '', maxlength, text = '', onsubmit, onclose }:
+    { title: string; label: string; confirm: string; danger?: boolean; input?: 'text' | 'password' | 'none'; initial?: string; maxlength?: number;
       text?: string; onsubmit: (value: string) => void; onclose: () => void } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -15,7 +15,7 @@
     {#if input !== 'none'}
       <label for="p-val">{label}</label>
       <!-- svelte-ignore a11y_autofocus -->
-      <input id="p-val" type={input} bind:value autofocus autocomplete="off" />
+      <input id="p-val" type={input} bind:value {maxlength} autofocus autocomplete="off" />
     {/if}
   </form>
   {#snippet footer()}
