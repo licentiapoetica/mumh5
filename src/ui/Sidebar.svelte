@@ -64,10 +64,11 @@
         {#if session.status === 'connected'}
           <span class="dot"></span>Connected{#if session.rtt} , {session.rtt} ms{/if}
         {:else if session.status === 'connecting'}Connecting...
+        {:else if session.reconnectDelay != null}Waiting to reconnect
         {:else}Not connected{/if}
       </span>
     </button>
-    {#if session.status !== 'idle'}
+    {#if session.status !== 'idle' || session.reconnectDelay != null}
       <button class="icon-btn" title="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
     {/if}
   </header>

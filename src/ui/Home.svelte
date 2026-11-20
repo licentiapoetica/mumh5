@@ -18,6 +18,7 @@
   function line(s: SavedServer): string {
     const state = stateOf(s.id);
     if (state === 'connecting') return 'Connecting...';
+    if (sessions.byServer(s.id)?.reconnectDelay != null) return 'Waiting to reconnect...';
     const people = peopleOn(s.id);
     if (people) {
       const count = `${people.users}${people.maxUsers ? ` of ${people.maxUsers}` : ''} online`;
@@ -65,6 +66,11 @@
         <p class="reason">{session.error}</p>
         {#if session.server}<p class="where">{session.server.label}</p>{/if}
       </div>
+    {/if}
+
+    {#if session.reconnectDelay != null}
+      <p role="status">Retrying in {session.reconnectDelay} second{session.reconnectDelay === 1 ? '' : 's'}.</p>
+      <button class="btn" onclick={() => session.cancelReconnect()}>Cancel auto-reconnect</button>
     {/if}
 
     {#if store.servers.length}

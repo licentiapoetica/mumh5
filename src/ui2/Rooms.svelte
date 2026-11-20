@@ -105,7 +105,8 @@
 
   // ─── Servers ────────────────────────────────────────────────────────────────
   const initials = (label: string) => label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
-  const stateOf = (id: string) => sessions.byServer(id)?.status ?? 'idle';
+  // Waiting for an automatic reconnect counts as connecting, so it shows and can be stopped
+  const stateOf = (id: string) => { const s = sessions.byServer(id); return s?.reconnectDelay != null ? 'connecting' : s?.status ?? 'idle'; };
   const unreadOf = (id: string) => {
     const s = sessions.byServer(id);
     return s && sessions.activeId !== id ? Object.values(s.unread).reduce((a, b) => a + b, 0) : 0;
@@ -162,11 +163,12 @@
       <span class="status">
         {#if connected}<span class="dot"></span>Connected{#if session.rtt}, {session.rtt} ms{/if}{#if cert}<Icon name={cert.authorized ? 'lock' : 'shield'} size={12} />{/if}
         {:else if session.status === 'connecting'}Connecting...
+        {:else if session.reconnectDelay != null}Waiting to reconnect
         {:else}Not connected{/if}
       </span>
     </button>
     {#if connected}<button class="icon-btn" title="Server information" aria-label="Server information" onclick={() => (ui.serverInfo = true)}><Icon name="info" size={18} /></button>{/if}
-    {#if session.status !== 'idle'}
+    {#if session.status !== 'idle' || session.reconnectDelay != null}
       <button class="icon-btn" title="Disconnect" aria-label="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
     {/if}
   </header>
@@ -286,16 +288,21 @@
         </ul>
       {/if}
       <UserSelection list="rooms" />
-    {:else if session.status === 'idle' && session.disconnectInfo}
+    {:else if session.status === 'idle' && (session.disconnectInfo || session.reconnectDelay != null)}
       {@const d = session.disconnectInfo}
-      <div class="ended" class:bad={d.kind === 'kicked' || d.kind === 'banned'}>
+      <div class="ended" class:bad={d?.kind === 'kicked' || d?.kind === 'banned'}>
         <h2>
-          {#if d.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
-          {:else if d.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
-          {:else if d.kind === 'rejected'}The server refused the connection
-          {:else}Connection lost{/if}
+          {#if d?.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
+          {:else if d?.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
+          {:else if d?.kind === 'rejected'}The server refused the connection
+          {:else if d}Connection lost
+          {:else}Could not connect{/if}
         </h2>
-        {#if d.reason}<p class="reason">{d.reason}</p>{/if}
+        {#if d ? d.reason : session.error}<p class="reason">{d ? d.reason : session.error}</p>{/if}
+        {#if session.reconnectDelay != null}
+          <p role="status">Retrying in {session.reconnectDelay} second{session.reconnectDelay === 1 ? '' : 's'}.</p>
+          <button class="btn" onclick={() => session.cancelReconnect()}>Cancel auto-reconnect</button>
+        {/if}
         <button class="btn primary" onclick={() => session.reconnect()}>Reconnect</button>
       </div>
     {:else if session.status === 'connecting'}

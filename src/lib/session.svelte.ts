@@ -70,6 +70,16 @@ export class Session {
   sharing = $state<Record<number, ShareKind>>({});
   // Why the last connection ended, shown with a Reconnect button (null after a normal disconnect)
   disconnectInfo = $state<{ kind: 'kicked' | 'banned' | 'lost' | 'rejected'; by: string; reason: string } | null>(null);
+  // Seconds until the next automatic reconnect, counting down; null when none is waiting
+  reconnectDelay = $state<number | null>(null);
+  private reconnectTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectAttempts = 0;
+  // When the current connection logged in; only one that stayed up a while resets the backoff
+  private syncedAt = 0;
+  // This connection ended in a way retrying cannot fix: a ban, or a refused login
+  private noRetry = false;
+  // Our channel when the connection dropped, joined again after an automatic reconnect
+  private lostChannel: number | null = null;
   private removedBy: { kind: 'kicked' | 'banned'; by: string; reason: string } | null = null;
   // Last known channel per user, to tell joins from leaves of our channel for sounds
   private lastChannel = new Map<number, number>();
@@ -256,27 +266,41 @@ export class Session {
 
   // ─── Connection ─────────────────────────────────────────────────────────────
 
-  async connect(server: SavedServer): Promise<void> {
-    this.disconnect();
+  // automatic: a retry after the connection dropped. It keeps the chat, the channel tree and the
+  // notice of why the connection ended, and voice stays reserved for this server.
+  async connect(server: SavedServer, automatic = false): Promise<void> {
+    const retries = automatic ? this.reconnectAttempts : 0;
+    this.disconnect(automatic);
+    this.reconnectAttempts = retries;
     const attempt = ++this.attempt;
     this.server = server;
     this.error = '';
-    this.logs = {};
-    this.unread = {};
-    this.expanded = {};
+    if (automatic) {
+      // Sessions are numbered anew on every login: direct chats would reach someone else
+      for (const k of Object.keys(this.logs)) if (k.startsWith('dm:')) delete this.logs[k];
+      for (const k of Object.keys(this.unread)) if (k.startsWith('dm:')) delete this.unread[k];
+      if (this.panel.kind === 'user') this.panel = { kind: 'members' };
+    } else {
+      this.logs = {};
+      this.unread = {};
+      this.expanded = {};
+      this.panel = { kind: 'members' };
+      this.disconnectInfo = null;
+      this.lostChannel = null;
+    }
     this.selectedChannel = null;
-    this.panel = { kind: 'members' };
     this.requested.clear();
     this.dropPictures();
     this.applied = null;
     this.own = null;
     this.serverCert = null;
-    this.disconnectInfo = null;
     this.removedBy = null;
+    this.noRetry = false;
+    this.syncedAt = 0;
     this.status = 'connecting';
 
     if (!native) {
-      this.fail('Connecting needs the desktop app or the web build served by a mumh5 proxy.');
+      this.fail('Connecting needs the desktop app or the web build served by a mumh5 proxy.', false);
       return;
     }
 
@@ -288,6 +312,7 @@ export class Session {
       if (attempt !== this.attempt) return transport.close();
       info = await transport.secure;
     } catch (e) {
+      transport?.close();
       if (attempt === this.attempt) this.fail((e as Error).message);
       return;
     }
@@ -302,7 +327,7 @@ export class Session {
     } else if (pinned !== info.fingerprint && !info.authorized) {
       transport.close();
       this.certPrompt = { server, hostPort, fingerprint: info.fingerprint, previous: pinned };
-      this.fail('The server certificate changed.');
+      this.fail('The server certificate changed.', false);
       return;
     }
 
@@ -312,14 +337,19 @@ export class Session {
     this.wire(client);
     // TLS is up but the server may still never finish the login
     setTimeout(() => { if (this.client === client && !client.synced) client.disconnect('Login timed out'); }, 20000);
-    const platform = await native.platformInfo();
-    if (attempt !== this.attempt) return transport.close();
-    client.connect(transport, {
-      username: server.username,
-      password: server.password,
-      os: platform.os,
-      osVersion: platform.osVersion
-    });
+    try {
+      const platform = await native.platformInfo();
+      if (attempt !== this.attempt) return transport.close();
+      client.connect(transport, {
+        username: server.username,
+        password: server.password,
+        os: platform.os,
+        osVersion: platform.osVersion
+      });
+    } catch (e) {
+      transport.close();
+      if (attempt === this.attempt) client.disconnect((e as Error).message);
+    }
   }
 
   reconnect(): void {
@@ -334,8 +364,12 @@ export class Session {
     this.connect(p.server);
   }
 
-  disconnect(): void {
+  // keepVoice: an automatic reconnect follows, so voice is not handed to another server
+  disconnect(keepVoice = false): void {
     this.clearUserSelection();
+    this.clearRetry();
+    this.reconnectAttempts = 0;
+    this.certPrompt = null;
     this.attempt++;
     const client = this.client;
     this.client = null;
@@ -345,14 +379,47 @@ export class Session {
     files.closed(this);
     this.dropPictures();
     this.sharing = {};
-    sessions.onClosed(this);
+    sessions.onClosed(this, keepVoice);
     this.status = 'idle';
     this.tick++;
   }
 
-  private fail(msg: string): void {
+  // The user stops waiting for the next automatic reconnect
+  cancelReconnect(): void {
+    this.clearRetry();
+    this.reconnectAttempts = 0;
+    if (!this.client) sessions.onClosed(this);
+  }
+
+  private clearRetry(): void {
+    if (this.reconnectTimer !== null) clearInterval(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectDelay = null;
+  }
+
+  // Returns whether a retry is now waiting
+  private scheduleReconnect(): boolean {
+    if (!this.server?.autoReconnect) return false;
+    if (this.reconnectTimer !== null) return true;
+    // A login that held for a minute was a working connection: start the backoff over. One that is
+    // dropped right after login (a kick on join) keeps backing off, so Murmur's autoban never trips.
+    if (this.syncedAt && Date.now() - this.syncedAt > 60_000) this.reconnectAttempts = 0;
+    const server = $state.snapshot(this.server) as SavedServer;
+    this.reconnectDelay = Math.min(5 * 2 ** Math.min(this.reconnectAttempts++, 3), 30);
+    this.reconnectTimer = setInterval(() => {
+      this.reconnectDelay = (this.reconnectDelay ?? 1) - 1;
+      if (this.reconnectDelay > 0) return;
+      this.clearRetry();
+      void this.connect(server, true);
+    }, 1000);
+    return true;
+  }
+
+  private fail(msg: string, retry = true): void {
     this.status = 'idle';
     this.error = msg;
+    // Voice waited for this server through an automatic attempt; without another one it moves on
+    if (!retry || !this.scheduleReconnect()) sessions.onClosed(this);
   }
 
   private wire(client: MumbleClient): void {
@@ -362,13 +429,26 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
-      this.view = `ch:${client.self?.channelId ?? 0}`;
+      this.syncedAt = Date.now();
+      const rejoin = this.lostChannel;
+      const back = this.disconnectInfo != null || rejoin != null;
+      this.lostChannel = null;
+      this.disconnectInfo = null;
+      // After an automatic reconnect, stay on the channel chat that was open if it still exists
+      const open = this.view.startsWith('ch:') && back ? Number(this.view.slice(3)) : null;
+      this.view = `ch:${open != null && client.channels.has(open) ? open : client.self?.channelId ?? 0}`;
       sessions.onSynced(this);
       sounds.play('connected');
       for (const u of client.users.values()) this.lastChannel.set(u.session, u.channelId);
       // What we may do per channel, for menus (not rate limited by the server)
       for (const id of client.channels.keys()) client.requestPermissions(id);
-      if (client.welcomeText) this.system(this.view, client.welcomeText, true);
+      if (back) this.system(this.view, 'Reconnected');
+      else if (client.welcomeText) this.system(this.view, client.welcomeText, true);
+      // Back to the channel we were in; the server may still refuse it
+      if (rejoin != null && rejoin !== client.self?.channelId && client.channels.has(rejoin)) {
+        this.pendingJoin = rejoin;
+        client.joinChannel(rejoin);
+      }
       // Your picture, kept on this device (servers drop it when you leave unless you are registered)
       ownAvatar.loaded.then(() => { if (live() && ownAvatar.bytes) this.sendPicture(ownAvatar.bytes); });
       share.entered(this);
@@ -452,6 +532,7 @@ export class Session {
       if (user.session === client.session) {
         const by = actor != null ? client.users.get(actor)?.name ?? '' : '';
         this.removedBy = { kind: ban ? 'banned' : 'kicked', by, reason };
+        if (ban) this.noRetry = true;
       }
       const self = client.self;
       share.userMoved(this, user, true);
@@ -500,9 +581,11 @@ export class Session {
       this.system(this.view, escapeHtml(describeDenial(d, ch)));
     });
 
-    client.on('reject', (_type, reason) => {
+    client.on('reject', (type, reason) => {
       if (!live()) return;
       this.removedBy = null;
+      // Except UsernameInUse (5), while the server still holds our dropped session, and ServerFull (6)
+      this.noRetry = type !== 5 && type !== 6;
       this.disconnectInfo = { kind: 'rejected', by: '', reason };
     });
 
@@ -512,13 +595,20 @@ export class Session {
       if (this.removedBy) this.disconnectInfo = this.removedBy;
       else if (!this.disconnectInfo && reason !== 'Disconnected') this.disconnectInfo = { kind: 'lost', by: '', reason };
       const kind = this.disconnectInfo?.kind;
-      sounds.play(kind === 'kicked' ? 'kicked' : kind === 'banned' ? 'banned' : kind === 'lost' ? 'connectionLost' : kind === 'rejected' ? 'error' : 'disconnected');
+      // A failed automatic attempt stays quiet; the sound played when the connection first ended
+      if (client.synced || !this.reconnectAttempts) {
+        sounds.play(kind === 'kicked' ? 'kicked' : kind === 'banned' ? 'banned' : kind === 'lost' ? 'connectionLost' : kind === 'rejected' ? 'error' : 'disconnected');
+      }
+      if (client.synced) this.lostChannel = client.self?.channelId ?? null;
       this.client = null;
+      share.closed(this);
+      this.sharing = {};
       textChannels.closed(this);
       files.closed(this);
-      sessions.onClosed(this);
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
+      const retry = !this.noRetry && this.scheduleReconnect();
+      sessions.onClosed(this, retry);
       this.tick++;
     });
   }
@@ -933,7 +1023,8 @@ class Sessions {
 
   onSynced(s: Session): void {
     const want = { mute: this.mute, deaf: this.deaf };
-    if (!this.voiceId || !this.voiceSession?.client) {
+    // Voice may have waited here through an automatic reconnect
+    if (!this.voiceId || this.voiceId === s.server?.id || !this.voiceSession?.client) {
       this.setVoice(s, true);
       if (want.mute) s.applyOwnState(true, want.deaf);
     } else {
@@ -943,10 +1034,12 @@ class Sessions {
     }
   }
 
-  onClosed(s: Session): void {
+  // retrying: the server reconnects by itself, so voice waits for it (joining a channel elsewhere takes it)
+  onClosed(s: Session, retrying = false): void {
     this.saved.delete(s);
     if (this.voiceId !== s.server?.id) return;
     voice.detach();
+    if (retrying) return;
     // Hand voice to another connected server, if any
     const next = this.list.find(x => x !== s && x.client && x.status === 'connected');
     this.voiceId = null;
