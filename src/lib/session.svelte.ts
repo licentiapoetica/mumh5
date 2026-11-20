@@ -70,6 +70,9 @@ export class Session {
   sharing = $state<Record<number, ShareKind>>({});
   // Why the last connection ended, shown with a Reconnect button (null after a normal disconnect)
   disconnectInfo = $state<{ kind: 'kicked' | 'banned' | 'lost' | 'rejected'; by: string; reason: string } | null>(null);
+  reconnectDelay = $state<number | null>(null);
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
   private removedBy: { kind: 'kicked' | 'banned'; by: string; reason: string } | null = null;
   // Last known channel per user, to tell joins from leaves of our channel for sounds
   private lastChannel = new Map<number, number>();
@@ -256,8 +259,10 @@ export class Session {
 
   // ─── Connection ─────────────────────────────────────────────────────────────
 
-  async connect(server: SavedServer): Promise<void> {
+  async connect(server: SavedServer, automatic = false): Promise<void> {
+    const retries = automatic ? this.reconnectAttempts : 0;
     this.disconnect();
+    this.reconnectAttempts = retries;
     const attempt = ++this.attempt;
     this.server = server;
     this.error = '';
@@ -276,7 +281,7 @@ export class Session {
     this.status = 'connecting';
 
     if (!native) {
-      this.fail('Connecting needs the desktop app or the web build served by a mumh5 proxy.');
+      this.fail('Connecting needs the desktop app or the web build served by a mumh5 proxy.', false);
       return;
     }
 
@@ -288,6 +293,7 @@ export class Session {
       if (attempt !== this.attempt) return transport.close();
       info = await transport.secure;
     } catch (e) {
+      transport?.close();
       if (attempt === this.attempt) this.fail((e as Error).message);
       return;
     }
@@ -302,7 +308,7 @@ export class Session {
     } else if (pinned !== info.fingerprint && !info.authorized) {
       transport.close();
       this.certPrompt = { server, hostPort, fingerprint: info.fingerprint, previous: pinned };
-      this.fail('The server certificate changed.');
+      this.fail('The server certificate changed.', false);
       return;
     }
 
@@ -312,14 +318,19 @@ export class Session {
     this.wire(client);
     // TLS is up but the server may still never finish the login
     setTimeout(() => { if (this.client === client && !client.synced) client.disconnect('Login timed out'); }, 20000);
-    const platform = await native.platformInfo();
-    if (attempt !== this.attempt) return transport.close();
-    client.connect(transport, {
-      username: server.username,
-      password: server.password,
-      os: platform.os,
-      osVersion: platform.osVersion
-    });
+    try {
+      const platform = await native.platformInfo();
+      if (attempt !== this.attempt) return transport.close();
+      client.connect(transport, {
+        username: server.username,
+        password: server.password,
+        os: platform.os,
+        osVersion: platform.osVersion
+      });
+    } catch (e) {
+      transport.close();
+      if (attempt === this.attempt) client.disconnect((e as Error).message);
+    }
   }
 
   reconnect(): void {
@@ -336,6 +347,8 @@ export class Session {
 
   disconnect(): void {
     this.clearUserSelection();
+    this.cancelReconnect();
+    this.certPrompt = null;
     this.attempt++;
     const client = this.client;
     this.client = null;
@@ -350,9 +363,29 @@ export class Session {
     this.tick++;
   }
 
-  private fail(msg: string): void {
+  cancelReconnect(): void {
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectDelay = null;
+    this.reconnectAttempts = 0;
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.server?.autoReconnect || this.certPrompt || this.reconnectTimer !== null) return;
+    const server = $state.snapshot(this.server) as SavedServer;
+    const delay = Math.min(5 * 2 ** Math.min(this.reconnectAttempts++, 3), 30);
+    this.reconnectDelay = delay;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.reconnectDelay = null;
+      void this.connect(server, true);
+    }, delay * 1000);
+  }
+
+  private fail(msg: string, retry = true): void {
     this.status = 'idle';
     this.error = msg;
+    if (retry) this.scheduleReconnect();
   }
 
   private wire(client: MumbleClient): void {
@@ -362,6 +395,7 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      this.cancelReconnect();
       this.view = `ch:${client.self?.channelId ?? 0}`;
       sessions.onSynced(this);
       sounds.play('connected');
@@ -514,12 +548,15 @@ export class Session {
       const kind = this.disconnectInfo?.kind;
       sounds.play(kind === 'kicked' ? 'kicked' : kind === 'banned' ? 'banned' : kind === 'lost' ? 'connectionLost' : kind === 'rejected' ? 'error' : 'disconnected');
       this.client = null;
+      share.closed(this);
+      this.sharing = {};
       textChannels.closed(this);
       files.closed(this);
       sessions.onClosed(this);
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
       this.tick++;
+      if (kind !== 'banned' && kind !== 'rejected') this.scheduleReconnect();
     });
   }
 

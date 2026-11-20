@@ -286,16 +286,21 @@
         </ul>
       {/if}
       <UserSelection list="rooms" />
-    {:else if session.status === 'idle' && session.disconnectInfo}
+    {:else if session.status === 'idle' && (session.disconnectInfo || session.reconnectDelay != null)}
       {@const d = session.disconnectInfo}
-      <div class="ended" class:bad={d.kind === 'kicked' || d.kind === 'banned'}>
+      <div class="ended" class:bad={d?.kind === 'kicked' || d?.kind === 'banned'}>
         <h2>
-          {#if d.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
-          {:else if d.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
-          {:else if d.kind === 'rejected'}The server refused the connection
-          {:else}Connection lost{/if}
+          {#if d?.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
+          {:else if d?.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
+          {:else if d?.kind === 'rejected'}The server refused the connection
+          {:else if d}Connection lost
+          {:else}Could not connect{/if}
         </h2>
-        {#if d.reason}<p class="reason">{d.reason}</p>{/if}
+        {#if d?.reason || session.error}<p class="reason">{d?.reason || session.error}</p>{/if}
+        {#if session.reconnectDelay != null}
+          <p role="status">Retrying in {session.reconnectDelay} seconds.</p>
+          <button class="btn" onclick={() => session.cancelReconnect()}>Cancel auto-reconnect</button>
+        {/if}
         <button class="btn primary" onclick={() => session.reconnect()}>Reconnect</button>
       </div>
     {:else if session.status === 'connecting'}
