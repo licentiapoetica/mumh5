@@ -412,6 +412,14 @@ try {
   await page.getByLabel('Find a color scheme').fill('');
   await page.getByRole('radio', { name: 'Dark', exact: true }).click();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined);
+  // Settings keep one size, and each section opens at its top
+  const settingsDialog = page.getByRole('dialog', { name: 'Settings' });
+  const settingsBox = await settingsDialog.boundingBox();
+  await settingsDialog.locator('.body').evaluate(el => { el.scrollTop = 800; });
+  await page.getByRole('tab', { name: 'Voice' }).click();
+  assert.equal(await settingsDialog.locator('.body').evaluate(el => el.scrollTop), 0, 'a section opens at its top');
+  await page.getByRole('tab', { name: 'Accessibility' }).click();
+  assert.deepEqual(await settingsDialog.boundingBox(), settingsBox, 'the dialog does not change size between sections');
   // Hints are off by default: the title under the pointer is set aside while hovered, and back afterwards
   const hintTarget = page.locator('.rail').getByRole('button', { name: 'Add a server' });
   const titleOf = () => page.locator('.rail .tile.add').first().getAttribute('title');
