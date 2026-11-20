@@ -84,7 +84,7 @@ try {
   // The sharer sees what is being sent, large by default; the tiles themselves never carry the picture
   const ownView = alice.page.getByRole('region', { name: 'Screen share' });
   await ownView.getByText('Your screen').waitFor();
-  await alice.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  await alice.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
   assert.equal(await alice.page.locator('.stage .tile video').count(), 0);
   await ownView.getByRole('button', { name: 'Back to tiles' }).click();
   await ownView.waitFor({ state: 'detached' });
@@ -103,18 +103,18 @@ try {
   await alice.page.locator('.app.stacked .stage.solo').waitFor();
   assert.equal(await alice.page.locator('.stage .tiles').count(), 0, 'no participant tiles in the stacked layout');
   const fits = () => alice.page.evaluate(() => {
-    const v = document.querySelector('.stage.solo video') as HTMLVideoElement, c = document.querySelector('.chat')!;
+    const v = document.querySelector('.stage.solo .pic > video') as HTMLVideoElement, c = document.querySelector('.chat')!;
     return v.videoWidth > 0 && Math.abs(v.getBoundingClientRect().width - c.getBoundingClientRect().width) < 2;
   });
-  await alice.page.waitForFunction(() => (document.querySelector('.stage.solo video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  await alice.page.waitForFunction(() => (document.querySelector('.stage.solo .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0);
   assert.ok(await fits(), 'picture as wide as the chat');
   await alice.page.setViewportSize({ width: 600, height: 800 });
-  await alice.page.locator('.app.stacked .stage.solo video').waitFor();
+  await alice.page.locator('.app.stacked .stage.solo .pic > video').waitFor();
   assert.ok(await fits(), 'still as wide as the chat on a narrow window');
   // On a short window the picture gives way and the chat keeps about five lines
   await alice.page.setViewportSize({ width: 600, height: 700 });
-  const heights = () => alice.page.evaluate(() => [document.querySelector('.chat [role=log]')!.getBoundingClientRect().height, document.querySelector('.stage.solo video')!.getBoundingClientRect().height]);
-  await alice.page.waitForFunction(() => document.querySelector('.stage.solo video')!.getBoundingClientRect().height < 250);
+  const heights = () => alice.page.evaluate(() => [document.querySelector('.chat [role=log]')!.getBoundingClientRect().height, document.querySelector('.stage.solo .pic > video')!.getBoundingClientRect().height]);
+  await alice.page.waitForFunction(() => document.querySelector('.stage.solo .pic > video')!.getBoundingClientRect().height < 250);
   const [logH, videoH] = await heights();
   assert.ok(logH >= 120, `chat keeps its lines: ${logH}`);
   assert.ok(videoH > 40, `the picture is still shown: ${videoH}`);
@@ -175,15 +175,15 @@ try {
   await bob.page.getByRole('button', { name: 'Continue' }).click();
   const view = bob.page.getByRole('region', { name: 'Screen share' });
   await view.getByText(aliceName).waitFor();
-  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
-  const size = await bob.page.evaluate(() => { const v = document.querySelector('.spot video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
+  await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  const size = await bob.page.evaluate(() => { const v = document.querySelector('.spot .pic > video') as HTMLVideoElement; return [v.videoWidth, v.videoHeight]; });
   await alice.page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   console.log(`ok: bob receives the picture (${size[0]}x${size[1]}), alice sees one viewer`);
 
   if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(500); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/meeting.png` }); }
   // Right-click on the picture: statistics for both sides
   const nerd = async (page: Page, expect: RegExp[]) => {
-    await page.locator('.spot video').click({ button: 'right' });
+    await page.locator('.spot .pic > video').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Stats for nerds' }).click();
     const box = page.getByRole('status', { name: 'Stream statistics' });
     for (const e of expect) await box.getByText(e).first().waitFor({ timeout: 8000 });
@@ -208,40 +208,57 @@ try {
   await bob.page.keyboard.press('Escape');
   console.log('ok: long press on the picture opens the menu');
 
-  // The wheel zooms toward the pointer, dragging pans, the percentage resets it
-  const spotBox = (await bob.page.locator('.spot video').boundingBox())!;
-  const transform = () => bob.page.evaluate(() => getComputedStyle(document.querySelector('.spot video')!).transform);
+  // The wheel zooms toward the pointer, dragging pans; the panel in the corner shows the whole
+  // picture with the part in view framed, and has a slider and buttons
+  const spotBox = (await bob.page.locator('.spot .pic > video').boundingBox())!;
+  const transform = () => bob.page.evaluate(() => getComputedStyle(document.querySelector('.spot .pic > video')!).transform);
   // The picture point under the pointer, in stream pixels, from the video's on-screen box
   const under = (x: number, y: number) => bob.page.evaluate(([x, y]) => {
-    const v = document.querySelector('.spot video') as HTMLVideoElement;
+    const v = document.querySelector('.spot .pic > video') as HTMLVideoElement;
     const r = v.getBoundingClientRect();
     const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
     return [(x - r.left - (r.width - v.videoWidth * s) / 2) / s, (y - r.top - (r.height - v.videoHeight * s) / 2) / s];
   }, [x, y]);
-  const at = { x: spotBox.x + spotBox.width * 0.7, y: spotBox.y + spotBox.height * 0.6 };
+  const slider = view.getByRole('slider', { name: 'Zoom' });
+  const frameShare = () => bob.page.evaluate(() => {
+    const map = document.querySelector('.spot .map')!.getBoundingClientRect(), seen = document.querySelector('.spot .seen')!.getBoundingClientRect();
+    return { w: seen.width / map.width, h: seen.height / map.height, x: (seen.left - map.left) / map.width };
+  });
+  const at = { x: spotBox.x + spotBox.width * 0.3, y: spotBox.y + spotBox.height * 0.4 };
   const before = await under(at.x, at.y);
   await bob.page.mouse.move(at.x, at.y);
+  await view.getByRole('group', { name: 'Zoom' }).waitFor();
   await bob.page.mouse.wheel(0, -400);
-  const reset = view.getByRole('button', { name: 'Reset zoom' });
-  await reset.waitFor({ timeout: 3000 });
-  const level = Number((await reset.innerText()).replace('%', ''));
-  assert.ok(level > 100, `zoomed in (${level}%)`);
+  await bob.page.waitForFunction(() => Number((document.querySelector('.spot .zoom input') as HTMLInputElement).value) > 1, null, { timeout: 3000 });
+  const level = Math.round(Number(await slider.inputValue()) * 100);
   const after = await under(at.x, at.y);
   assert.ok(Math.abs(after[0] - before[0]) < 4 && Math.abs(after[1] - before[1]) < 4, `the point under the pointer stays (${before} -> ${after})`);
+  const framed = await frameShare();
+  assert.ok(Math.abs(Math.min(framed.w, framed.h) - 100 / level) < 0.05, `the frame shows the part in view (${JSON.stringify(framed)} at ${level}%)`);
   const zoomed = await transform();
   await bob.page.mouse.down();
-  await bob.page.mouse.move(at.x - 60, at.y - 40, { steps: 4 });
+  await bob.page.mouse.move(at.x + 60, at.y + 40, { steps: 4 });
   await bob.page.mouse.up();
   assert.notEqual(await transform(), zoomed, 'dragging pans the picture');
-  await reset.click();
-  await reset.waitFor({ state: 'detached' });
-  assert.equal(await transform(), 'none');
-  console.log(`ok: wheel zooms the picture (${level}%), drag pans, reset`);
+  // A click on the right edge of the map moves the view there
+  const map = (await view.locator('.map').boundingBox())!;
+  await bob.page.mouse.click(map.x + map.width - 2, map.y + map.height / 2);
+  const moved = await frameShare();
+  assert.ok(moved.x + moved.w > 0.98, `the map moves the view (${JSON.stringify(moved)})`);
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/zoom.png` });
+  await view.getByRole('button', { name: 'Zoom in' }).click();
+  assert.ok(Number(await slider.inputValue()) * 100 > level, 'zoom in button');
+  await bob.page.locator('.spot .pic > video').click({ button: 'right' });
+  await bob.page.getByRole('menuitem', { name: 'Reset zoom' }).click();
+  await bob.page.waitForFunction(() => getComputedStyle(document.querySelector('.spot .pic > video')!).transform === 'none');
+  assert.equal(await slider.inputValue(), '1');
+  assert.ok(await view.getByRole('button', { name: 'Zoom out' }).isDisabled());
+  console.log(`ok: wheel zooms the picture (${level}%), drag and the map pan, buttons and reset`);
 
   // The large picture can move to a window of its own
   const opened = bob.app.waitForEvent('window');
   // From the right-click menu on the picture
-  await bob.page.locator('.spot video').click({ button: 'right' });
+  await bob.page.locator('.spot .pic > video').click({ button: 'right' });
   await bob.page.getByRole('menuitem', { name: 'Open in a separate window' }).click();
   const streamWindow = await opened;
   await streamWindow.waitForFunction(() => (document.querySelector('video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
@@ -251,7 +268,7 @@ try {
   await view.getByRole('button', { name: 'Bring back' }).waitFor();
   await streamWindow.close();
   await view.getByRole('button', { name: 'Open in a separate window' }).waitFor();
-  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0);
+  await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0);
   console.log('ok: stream in a separate window, back when it is closed');
 
   // Back to tiles hides the picture; the sharer's tile brings it back
@@ -272,7 +289,7 @@ try {
   await profile.getByText('Sharing their screen').waitFor();
   await profile.getByRole('button', { name: 'Watch' }).click();
   await profile.getByRole('button', { name: 'Stop watching' }).waitFor();
-  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
   console.log('ok: stop watching, watch again from the profile');
 
   // Alice stops: the view and the indicator go away
@@ -338,12 +355,16 @@ try {
   const shape = () => bob.page.evaluate(() => [...document.querySelectorAll('.stage .tile video')].map(v => {
     const el = v as HTMLVideoElement, r = el.getBoundingClientRect();
     const scale = Math.min(r.width / el.videoWidth, r.height / el.videoHeight);
-    return { fit: getComputedStyle(el).objectFit, inside: el.videoWidth * scale <= r.width + 1 && el.videoHeight * scale <= r.height + 1, box: r.width > 50 && r.height > 50 };
+    return { fit: getComputedStyle(el).objectFit, inside: el.videoWidth * scale <= r.width + 1 && el.videoHeight * scale <= r.height + 1, box: r.width > 50 && r.height > 50, w: Math.round(r.width), h: Math.round(r.height) };
   }));
   for (const size of [{ width: 1280, height: 800 }, { width: 760, height: 620 }]) {
     await bob.page.setViewportSize(size);
     await camsShown(bob.page, 2);
-    assert.ok((await shape()).every(s => s.fit === 'contain' && s.inside && s.box), `cameras whole at ${size.width} wide`);
+    let shapes = await shape();
+    for (let i = 0; i < 25 && !shapes.every(s => s.box); i++) { await bob.page.waitForTimeout(200); shapes = await shape(); }
+    if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/cams-${size.width}.png` });
+    const stage = await bob.page.evaluate(() => { const r = document.querySelector('.stage')!.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+    assert.ok(shapes.every(s => s.fit === 'contain' && s.inside && s.box), `cameras whole at ${size.width} wide: ${JSON.stringify(shapes)} stage ${stage}`);
   }
   await bob.page.setViewportSize({ width: 1280, height: 800 });
   assert.equal(await bob.page.locator('.stage .tile:not(.self) video.mirror').count(), 0);
@@ -382,7 +403,7 @@ try {
 
   // A click enlarges one camera; the statistics show it came through the relay
   await bob.page.locator('.stage .tile', { hasText: aliceName }).click();
-  await bob.page.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
+  await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 20000 });
   assert.equal(await bob.page.locator('.stage .tile', { hasText: aliceName }).locator('video').count(), 0, 'the enlarged camera is not also in its tile');
   assert.equal(await bob.page.locator('.stage .tile.self video').count(), 1, 'the other tiles keep theirs');
   const camStats = await nerd(bob.page, [/^relayed \(TURN\), reached over TCP/, /^0 direct, 0 through STUN, [1-9]\d* relayed/]);

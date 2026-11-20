@@ -250,18 +250,18 @@ try {
   await page2.evaluate(() => localStorage.setItem('mumh5.iceDebug', 'relay-tcp'));
   await page2.locator('.stage .tile', { hasText: name }).click();
   await page2.getByRole('button', { name: 'Continue' }).click();
-  await page2.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
+  await page2.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
   await page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   // Phone-sized window: the picture still has room and frames
   await page2.setViewportSize({ width: 390, height: 780 });
   await page2.waitForFunction(() => {
-    const v = document.querySelector('.spot video') as HTMLVideoElement | null;
+    const v = document.querySelector('.spot .pic > video') as HTMLVideoElement | null;
     return !!v && v.videoWidth > 0 && !v.paused && v.getBoundingClientRect().height > 100 && v.getBoundingClientRect().width > 300;
   }, null, { timeout: 15000 });
   if (process.env.SHOTS_DIR) await page2.screenshot({ path: `${process.env.SHOTS_DIR}/phone.png` });
   // The statistics confirm which way the stream came
   await page2.setViewportSize({ width: 1280, height: 800 });
-  await page2.locator('.spot video').click({ button: 'right' });
+  await page2.locator('.spot .pic > video').click({ button: 'right' });
   await page2.getByRole('menuitem', { name: 'Stats for nerds' }).click();
   const stats = page2.getByRole('status', { name: 'Stream statistics' });
   await stats.getByText(/^(direct|relayed)/).first().waitFor({ timeout: 8000 });
