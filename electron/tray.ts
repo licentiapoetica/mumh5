@@ -5,6 +5,7 @@ import path from 'node:path';
 // State the renderer reports; the tray mirrors it
 export interface TrayState {
   icon: string;             // PNG data URL drawn by the renderer
+  alertIcon: string;        // shown in turns with icon while something waits for you
   tooltip: string;
   connected: boolean;
   server: string;
@@ -17,6 +18,8 @@ let tray: Tray | null = null;
 let state: TrayState | null = null;
 let closeToTray = true;
 let quitting = false;
+let blinkTimer: ReturnType<typeof setInterval> | null = null;
+let lit = false;
 const prefsFile = () => path.join(app.getPath('userData'), 'tray.json');
 
 export async function setupTray(getWindow: () => BrowserWindow | null, send: (action: string) => void): Promise<void> {
@@ -64,6 +67,7 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
       state: { ...s, icon: s.icon.slice(0, 22) },
       tooltip: s.tooltip,
       items: menu.items.map(i => ({ label: i.label, checked: i.checked, enabled: i.enabled })),
+      get blinking() { return blinkTimer != null; },
       click: (label: string) => { const item = menu.items.find(i => i.label === label); item?.click(undefined, getWindow() ?? undefined, getWindow()?.webContents); }
     };
   };
@@ -81,6 +85,7 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
       tray.setImage(image);
     }
     tray.setToolTip(next.tooltip);
+    if (lit) showIcon();
     rebuild();
   };
 
@@ -89,6 +94,24 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
 }
 
 export let update: (s: TrayState) => void = () => {};
+
+function showIcon(): void {
+  if (tray && state) tray.setImage(nativeImage.createFromDataURL(lit ? state.alertIcon : state.icon));
+}
+
+// The tray icon alternates with the alert look until stopped (when the window gets focus)
+export function blink(on: boolean): void {
+  if (!on) {
+    if (blinkTimer) clearInterval(blinkTimer);
+    blinkTimer = null;
+    if (lit) { lit = false; showIcon(); }
+    return;
+  }
+  if (blinkTimer || !tray) return;
+  lit = true;
+  showIcon();
+  blinkTimer = setInterval(() => { lit = !lit; showIcon(); }, 600);
+}
 export let onWindowVisibility: () => void = () => {};
 
 // Closing the window hides it while the tray is there, unless the user quits

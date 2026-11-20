@@ -4,14 +4,16 @@ import { session, sessions } from './session.svelte.ts';
 import { voice, type TransmitMode } from './audio/voice.svelte.ts';
 import { ui } from './ui.svelte.ts';
 
-type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened';
+type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened' | 'alert';
 
-const LOOK: Record<TrayLook, { bg: string; glyph: string }> = {
+const LOOK: Record<TrayLook, { bg: string; glyph: string; fg?: string }> = {
   offline: { bg: '#4a4c54', glyph: 'mic' },
   idle: { bg: '#141518', glyph: 'mic' }, // the app icon's black
   talking: { bg: '#2fb863', glyph: 'mic' },
   muted: { bg: '#e0443e', glyph: 'mic-off' },
-  deafened: { bg: '#e0443e', glyph: 'headphones-off' }
+  deafened: { bg: '#e0443e', glyph: 'headphones-off' },
+  // Alternates with the normal look while a poke waits for you
+  alert: { bg: '#f0b232', glyph: 'user', fg: '#141518' }
 };
 
 const cache = new Map<TrayLook, string>();
@@ -28,7 +30,7 @@ function drawIcon(look: TrayLook): string {
   ctx.fillRect(0, 0, size, size);
   ctx.translate(8, 8);
   ctx.scale(2, 2); // 24 unit glyph into 48 px
-  ctx.strokeStyle = '#ffffff';
+  ctx.strokeStyle = LOOK[look].fg ?? '#ffffff';
   ctx.lineWidth = 2.6;
   ctx.lineCap = 'square';
   ctx.lineJoin = 'miter';
@@ -57,6 +59,7 @@ export function startTray(): void {
       const state = { offline: 'not connected', idle: 'connected', talking: 'talking', muted: 'muted', deafened: 'deafened' }[look];
       api.updateTray({
         icon: drawIcon(look),
+        alertIcon: drawIcon('alert'),
         tooltip: server ? `mumh5: ${state} on ${server}` : 'mumh5: not connected',
         connected: !!(voiceSession?.status === 'connected' || connected),
         server,

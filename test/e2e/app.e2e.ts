@@ -764,11 +764,31 @@ try {
   const pokeHtml = await within(poked, 'bob poked');
   assert.equal(decodePoke(pokeHtml), 'Hey wake up!');
   assert.ok(pokeHtml.includes('Poked you: Hey wake up!'), 'readable in other clients');
+  // System notification: the desktop app may show them; the page records them here, as if in the background
+  assert.equal(await page.evaluate(() => Notification.permission), 'granted', 'notifications allowed');
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__notes = [];
+    w.__RealNotification = w.Notification;
+    w.Notification = class { static permission = 'granted'; onclick = null; constructor(title: string, o: NotificationOptions) { w.__notes.push({ title, body: o.body, silent: o.silent }); } close() {} };
+    document.hasFocus = () => false;
+  });
+  // The window loses focus in main too, so the taskbar flashes and the tray icon blinks
+  const unfocused = await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.blur(); return !w.isFocused(); });
   bob.sendText({ users: [aliceId] }, encodePoke('Wake up <b>now</b>'));
   const pokeDialog = page.getByRole('dialog', { name: 'bob poked you' });
   await pokeDialog.locator('.note', { hasText: 'Wake up <b>now</b>' }).waitFor();
   // Logged once it really started playing, after the tone is rendered
   await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('poke'), null, { timeout: 5000 });
+  const blinking = () => app.evaluate(() => (globalThis as any).__mumh5Tray.blinking as boolean);
+  if (unfocused) {
+    await within((async () => { while (!(await blinking())) await new Promise(r => setTimeout(r, 100)); })(), 'tray icon blinks');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus());
+    await within((async () => { while (await blinking()) await new Promise(r => setTimeout(r, 100)); })(), 'blinking stops on focus');
+    console.log('ok: tray icon blinks until the window is focused');
+  } else console.log('skip: window cannot lose focus on this display, tray blinking not checked');
+  const notes = await page.evaluate(() => { const w = window as any; w.Notification = w.__RealNotification; delete (document as any).hasFocus; return w.__notes; });
+  assert.deepEqual(notes, [{ title: 'bob poked you', body: 'Wake up <b>now</b>', silent: true }], 'one system notification');
   await pokeDialog.getByRole('button', { name: 'Reply' }).click();
   await pokeDialog.waitFor({ state: 'detached' });
   await page.locator('.chat .system', { hasText: 'bob poked you: Wake up <b>now</b>' }).waitFor();

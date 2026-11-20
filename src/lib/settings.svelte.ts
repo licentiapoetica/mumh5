@@ -34,6 +34,7 @@ export interface Settings {
   shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
   updateCheck: boolean;   // ask GitHub now and then whether a newer build is out (desktop)
+  pokeNotify: boolean;    // a system notification for a poke while the window is not focused
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -75,7 +76,8 @@ const defaults: Settings = {
   stunServer: '',
   shareNoticeSeen: false,
   hints: false,
-  updateCheck: true
+  updateCheck: true,
+  pokeNotify: true
 };
 
 class SettingsStore {

@@ -1,6 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { sounds, SOUND_EVENTS, type SoundEvent } from '../lib/audio/sounds.svelte.ts';
+  import { store } from '../lib/settings.svelte.ts';
+  import { notifyPermission, askNotifyPermission } from '../lib/notify.ts';
 
   const s = sounds.settings;
   let picker: HTMLInputElement;
@@ -10,6 +12,13 @@
   let target: SoundEvent | null = null;
   let report = $state<{ assigned: string[]; unmatched: string[] } | null>(null);
   let error = $state('');
+  let permission = $state(notifyPermission());
+
+  async function pokeNotify(on: boolean) {
+    store.settings.pokeNotify = on;
+    store.saveSettings();
+    if (on) permission = await askNotifyPermission();
+  }
 
   function choose(ev: SoundEvent) {
     target = ev;
@@ -31,7 +40,12 @@
   }
 </script>
 
-<h3>Notification sounds</h3>
+<h3>System notifications</h3>
+<label class="check" title="Only while the window is in the background; in front of you the popup shows it"><input type="checkbox" checked={store.settings.pokeNotify} onchange={e => pokeNotify(e.currentTarget.checked)} /> When someone pokes you</label>
+{#if store.settings.pokeNotify && permission === 'denied'}<p class="help">Blocked in the browser's site settings.</p>
+{:else if store.settings.pokeNotify && permission === 'unsupported'}<p class="help">Not available here.</p>{/if}
+
+<h3 class="gap">Notification sounds</h3>
 <label class="check"><input type="checkbox" checked={s.enabled} onchange={e => sounds.update({ enabled: e.currentTarget.checked })} /> Play sounds for events</label>
 <label for="snd-vol">Volume: {Math.round(s.volume * 100)}%</label>
 <input id="snd-vol" type="range" min="0" max="1" step="0.05" value={s.volume} oninput={e => sounds.update({ volume: Number(e.currentTarget.value) })} />
@@ -72,6 +86,7 @@
 
 <style>
   h3 { margin: 8px 0 0; font-size: 15px; font-weight: 650; }
+  h3.gap { margin-top: 22px; }
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 10px; }
   input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
   .packrow { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }

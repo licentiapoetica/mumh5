@@ -13,6 +13,7 @@ import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
 import { encodePoke, decodePoke } from '../core/poke.ts';
 import { ui } from './ui.svelte.ts';
+import { notifyPoke } from './notify.ts';
 import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 
@@ -825,6 +826,7 @@ export class Session {
     ui.pokes = [...ui.pokes, { id: nextId++, server: this.server?.id ?? '', serverName: this.server?.label || this.server?.host || '', from, name, note, time: Date.now() }].slice(-20);
     sounds.play('poke');
     desktop?.attention();
+    notifyPoke(`${name} poked you`, note);
   }
 
   // Opening a server marks what is on screen as read

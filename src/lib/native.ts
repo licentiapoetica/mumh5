@@ -24,10 +24,12 @@ export interface PlatformApi {
 
 // The desktop app's preload API
 interface NativeApi extends PlatformApi {
-  updateTray(state: { icon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
+  updateTray(state: { icon: string; alertIcon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
   onTrayAction(fn: (action: string) => void): void;
-  // Flash the taskbar entry while the window is not focused
+  // Flash the taskbar entry and blink the tray icon until the window is focused
   attention(): void;
+  // Restore and focus the window (a click on a system notification)
+  showWindow(): void;
   linkPreview(url: string): Promise<LinkPreviewData | null>;
   publicServers(url: string): Promise<PublicServer[]>;
   onContextMenu(fn: (params: ContextParams) => void): void;

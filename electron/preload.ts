@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   platformInfo: () => ipcRenderer.invoke('platform:info'),
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
   attention: () => ipcRenderer.send('window:attention'),
+  showWindow: () => ipcRenderer.send('window:show'),
   linkPreview: (url: string) => ipcRenderer.invoke('preview:fetch', url),
   publicServers: (url: string) => ipcRenderer.invoke('publist:fetch', url),
   pingServer: (host: string, port: number) => ipcRenderer.invoke('publist:ping', host, port),

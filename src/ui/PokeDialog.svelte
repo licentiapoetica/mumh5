@@ -2,8 +2,15 @@
   import Modal from './Modal.svelte';
   import { ui, type Poke } from '../lib/ui.svelte.ts';
   import { session, sessions } from '../lib/session.svelte.ts';
+  import { store } from '../lib/settings.svelte.ts';
+  import { isWeb } from '../lib/native.ts';
+  import { askNotifyPermission } from '../lib/notify.ts';
 
-  const close = () => (ui.pokes = []);
+  // A browser asks for notification permission only from a click; right after a poke is when it makes sense
+  const close = () => {
+    ui.pokes = [];
+    if (isWeb && store.settings.pokeNotify) void askNotifyPermission();
+  };
   // Several servers open: say which one each poke came from
   const many = $derived(new Set(sessions.list.map(s => s.server?.id)).size > 1);
   const title = $derived(ui.pokes.length === 1 ? `${ui.pokes[0].name} poked you` : `${ui.pokes.length} pokes`);
