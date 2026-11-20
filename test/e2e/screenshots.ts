@@ -284,7 +284,7 @@ async function watchStream(p: typeof page) {
   for (let attempt = 0; attempt < 3; attempt++) {
     await p.locator('.sidebar').getByRole('button', { name: 'Watch the screen of v0id', exact: true }).click({ timeout: 20000 });
     await answer(p, 'Continue');
-    const ok = await p.waitForFunction(() => (document.querySelector('.spot video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 }).then(() => true, () => false);
+    const ok = await p.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 }).then(() => true, () => false);
     if (ok) return;
   }
   await p.screenshot({ path: path.join(work, 'viewer.png') });

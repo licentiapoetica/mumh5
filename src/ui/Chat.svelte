@@ -102,7 +102,7 @@
   .chat.log-fixed :global(.stage.solo), .chat.log-fixed :global(.stage.solo .spot), .chat.log-fixed :global(.stage.solo .pic) { flex: 1 1 0; min-height: 0; }
   /* The picture is never squeezed away: its bar and at least 120 px stay (STREAM_MIN) */
   .chat.video-only :global(.stage.solo:has(.spot:not(.popped))), .chat.video-only :global(.stage.solo .spot:not(.popped)) { min-height: 156px; }
-  .chat.log-fixed :global(.stage.solo .spot video) { flex: 1 1 0; max-height: none; }
+  .chat.log-fixed :global(.stage.solo .spot .pic > video) { flex: 1 1 0; max-height: none; }
   .chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
   header { height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-faint); }
   h1 { flex: 0 1 auto; max-width: 60%; font-size: 15px; font-weight: 650; margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
