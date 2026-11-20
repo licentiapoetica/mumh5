@@ -1,5 +1,5 @@
 import { createCodec } from '../core/proto.ts';
-import { MumbleClient, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
+import { MumbleClient, PERM, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
 import { native, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
@@ -77,6 +77,7 @@ export class Session {
   serverCert = $state<ServerCertInfo | null>(null);
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
+  selectedUsers = $state<number[]>([]);
   // Channel highlighted by a single click in the tree (a double click joins)
   selectedChannel = $state<number | null>(null);
 
@@ -143,6 +144,28 @@ export class Session {
   allUsers(): User[] {
     void this.tick;
     return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
+  }
+
+  // Shift or Ctrl/Cmd adds or removes one person; a plain click opens the profile instead
+  toggleUser(id: number): void {
+    this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
+  }
+
+  clearUserSelection(): void {
+    if (this.selectedUsers.length) this.selectedUsers = [];
+  }
+
+  moveUsers(ids: number[], channelId: number): void {
+    if (!this.channel(channelId) || this.isText(channelId)) return;
+    for (const id of new Set(ids)) {
+      const user = this.user(id);
+      if (!user || user.channelId === channelId) continue;
+      if (id === this.self?.session) this.joinChannel(channelId);
+      // Skip people we know we may not move rather than collect a denial for each
+      else if (this.can(user.channelId, PERM.Move) !== false) this.moveUser(id, channelId);
+    }
+    // A moved selection is done with; a single person dragged from outside it leaves it alone
+    if (ids.some(id => this.selectedUsers.includes(id))) this.clearUserSelection();
   }
 
   // Users in a channel and all of its subchannels
@@ -312,6 +335,7 @@ export class Session {
   }
 
   disconnect(): void {
+    this.clearUserSelection();
     this.attempt++;
     const client = this.client;
     this.client = null;
@@ -423,6 +447,7 @@ export class Session {
 
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
+      this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
         const by = actor != null ? client.users.get(actor)?.name ?? '' : '';
@@ -483,6 +508,7 @@ export class Session {
 
     client.on('close', reason => {
       if (this.client !== client) return;
+      this.clearUserSelection();
       if (this.removedBy) this.disconnectInfo = this.removedBy;
       else if (!this.disconnectInfo && reason !== 'Disconnected') this.disconnectInfo = { kind: 'lost', by: '', reason };
       const kind = this.disconnectInfo?.kind;

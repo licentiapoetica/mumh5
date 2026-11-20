@@ -12,6 +12,9 @@
   import { peopleOn } from '../lib/server-status.svelte.ts';
   import { PERM, type Channel } from '../core/client.ts';
   import { stripMark } from '../core/text-signal.ts';
+  import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
+  import { drag } from '../lib/drag.svelte.ts';
+  import UserSelection from '../ui/UserSelection.svelte';
 
   // The home screen: servers across the top, then every room of the server with the people
   // in it, text channels and direct messages. Rooms are a list, not a tree; where a room
@@ -61,6 +64,23 @@
   }
   const about = (c: Channel) => stripMark(c.description).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   const talking = (s: number) => !!voice.talking[s] || (s === self?.session && voice.transmitting);
+
+  let dropRoom = $state<number | null>(null);
+  function canDrop(id: number) {
+    const d = drag.item;
+    return d?.kind === 'user' && d.serverId === session.server?.id && d.ids.some(userId => {
+      const user = session.user(userId);
+      return user && user.channelId !== id;
+    });
+  }
+  function dropUsers(e: DragEvent, id: number) {
+    e.preventDefault();
+    const d = drag.item;
+    const allowed = canDrop(id);
+    dropRoom = null;
+    drag.item = null;
+    if (allowed && d?.kind === 'user') session.moveUsers(d.ids, id);
+  }
 
   function openChat(key: `ch:${number}` | `dm:${number}`) {
     session.selectView(key);
@@ -158,7 +178,7 @@
     </label>
   {/if}
 
-  <div class="scroll" role="presentation" oncontextmenu={listMenu}>
+  <div class="scroll" data-user-list="rooms" role="presentation" oncontextmenu={listMenu}>
     {#if connected}
       {#if textRooms.length}
         <h2>Text channels</h2>
@@ -190,7 +210,10 @@
           {@const open = isOpen(c.id)}
           {@const key = `ch:${c.id}` as const}
           <li class="room" class:here class:open class:empty={!users.length}>
-            <div class="entry" role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}>
+            <div class="entry" class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
+              ondragover={e => { if (canDrop(c.id)) { e.preventDefault(); dropRoom = c.id; } }}
+              ondragleave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropRoom = null; }}
+              ondrop={e => dropUsers(e, c.id)}>
               <button class="main" aria-expanded={open} onclick={() => (opened[c.id] = !open)}>
                 <span class="text">
                   <span class="name">{#if !c.canEnter}<Icon name="lock" size={14} />{/if}{c.name || 'Root'}</span>
@@ -219,7 +242,7 @@
                     {#each users as u (u.session)}
                       {@const me = u.session === self?.session}
                       <li>
-                        <button class="person" onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
+                        <button class="person" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
                           <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                           <span class="pname" class:talking={talking(u.session)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                           {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
@@ -262,6 +285,7 @@
           {/each}
         </ul>
       {/if}
+      <UserSelection list="rooms" />
     {:else if session.status === 'idle' && session.disconnectInfo}
       {@const d = session.disconnectInfo}
       <div class="ended" class:bad={d.kind === 'kicked' || d.kind === 'banned'}>
@@ -327,6 +351,7 @@
 
   .entry { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-right: 4px; }
   .entry:hover, .entry.viewing { background: var(--bg-hover); }
+  .entry.drop-target { background: var(--bg-active); outline: 2px solid var(--accent); outline-offset: -2px; }
   .main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 12px; padding: 8px; text-align: left; }
   .glyph { flex: none; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-dim); }
   .text { flex: 1; min-width: 0; display: flex; flex-direction: column; }

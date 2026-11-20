@@ -7,6 +7,8 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
+  import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
+  import UserSelection from '../ui/UserSelection.svelte';
 
   // Everyone on the server, by room; yours first
   let { onchat }: { onchat: () => void } = $props();
@@ -38,14 +40,14 @@
       <Icon name="search" size={16} />
       <input type="search" placeholder="Find a person" aria-label="Find a person" bind:value={query} />
     </label>
-    <div class="scroll">
+    <div class="scroll" data-user-list="people">
       {#each groups as g (g.id)}
         <h2>{g.name}{#if g.id === self?.channelId} <em>your room</em>{/if} <span>{g.users.length}</span></h2>
         <ul>
           {#each g.users as u (u.session)}
             {@const me = u.session === self?.session}
             <li class="entry" role="presentation" oncontextmenu={e => menu.show(e, userMenu(u))}>
-              <button class="main" onclick={e => openProfile(u.session, e.currentTarget)}>
+              <button class="main" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)}>
                 <Avatar name={u.name} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} />
                 <span class="text">
                   <span class="name" class:talking={talking(u.session)}>{store.displayName(u)}</span>
@@ -62,6 +64,7 @@
       {:else}
         <p class="none">Nobody matches "{query}".</p>
       {/each}
+      <UserSelection list="people" />
     </div>
   {/if}
 </section>
