@@ -3,38 +3,101 @@ import { ICON_PATHS } from './icons.ts';
 import { session, sessions } from './session.svelte.ts';
 import { voice, type TransmitMode } from './audio/voice.svelte.ts';
 import { ui } from './ui.svelte.ts';
+import { store } from './settings.svelte.ts';
 
 type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened';
 
-const LOOK: Record<TrayLook, { bg: string; glyph: string }> = {
-  offline: { bg: '#4a4c54', glyph: 'mic' },
-  idle: { bg: '#141518', glyph: 'mic' }, // the app icon's black
-  talking: { bg: '#2fb863', glyph: 'mic' },
+const INK = '#141518'; // the app icon's black
+const GREY = '#7a7d87';
+const AMBER = '#f0b232';
+const DEFAULT_ACCENT = '#7c6cff';
+
+// Muted and deafened keep the square tile with a white glyph, like the rail tiles
+const TILES: Partial<Record<TrayLook, { bg: string; glyph: string }>> = {
   muted: { bg: '#e0443e', glyph: 'mic-off' },
   deafened: { bg: '#e0443e', glyph: 'headphones-off' }
 };
 
-const cache = new Map<TrayLook, string>();
+const cache = new Map<string, string>();
 
-// Square tile with a white glyph, like the rail tiles; 64 px so the OS can scale it down sharply
-function drawIcon(look: TrayLook): string {
-  const hit = cache.get(look);
-  if (hit) return hit;
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = LOOK[look].bg;
-  ctx.fillRect(0, 0, size, size);
+const rgb = (h: string) => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const mix = (a: string, b: string, t: number) => {
+  const x = rgb(a), y = rgb(b);
+  return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('');
+};
+
+// The theme's accent, read from a probe so it does not depend on when the root's data-theme changes
+let probe: HTMLElement | null = null;
+function accentOf(theme: string): string {
+  if (!probe) {
+    probe = document.createElement('div');
+    probe.hidden = true;
+    document.body.append(probe);
+  }
+  probe.dataset.themePreview = theme || 'dark';
+  const v = getComputedStyle(probe).getPropertyValue('--accent').trim();
+  return /^#[0-9a-f]{6}$/i.test(v) ? v : DEFAULT_ACCENT;
+}
+
+// A sphere like a lamp: dark glass with a rim in the color when off, lighter when on
+function drawLamp(ctx: CanvasRenderingContext2D, color: string, lit: boolean): void {
+  // Same soft gradient both ways, only lighter when on
+  const g = ctx.createRadialGradient(24, 20, 1, 32, 32, 30);
+  g.addColorStop(0, lit ? mix(color, '#ffffff', 0.3) : mix(color, INK, 0.45));
+  g.addColorStop(1, lit ? mix(color, '#000000', 0.15) : mix(color, INK, 0.85));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(32, 32, 29, 0, Math.PI * 2);
+  ctx.fill();
+  if (!lit) {
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = color + 'd9';
+    ctx.beginPath();
+    ctx.arc(32, 32, 27.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawTile(ctx: CanvasRenderingContext2D, bg: string, glyph: string): void {
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 64, 64);
   ctx.translate(8, 8);
   ctx.scale(2, 2); // 24 unit glyph into 48 px
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 2.6;
   ctx.lineCap = 'square';
   ctx.lineJoin = 'miter';
-  ctx.stroke(new Path2D(ICON_PATHS[LOOK[look].glyph]));
+  ctx.stroke(new Path2D(ICON_PATHS[glyph]));
+}
+
+// A poke waits: a small "!" square in the top corner, clear of the mute and deafen marks
+function drawPokeBadge(ctx: CanvasRenderingContext2D): void {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = INK; // a dark edge keeps it apart from any look below
+  ctx.fillRect(32, 0, 32, 32);
+  ctx.fillStyle = AMBER;
+  ctx.fillRect(35, 0, 29, 29);
+  ctx.fillStyle = INK;
+  ctx.fillRect(46, 4, 7, 13);
+  ctx.fillRect(46, 20, 7, 5);
+}
+
+// 64 px so the OS can scale it down sharply. poke: with the badge; alternates with the plain
+// icon while a poke waits for you
+function drawIcon(look: TrayLook, accent: string, poke = false): string {
+  const key = `${look}/${accent}/${poke}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const tile = TILES[look];
+  if (tile) drawTile(ctx, tile.bg, tile.glyph);
+  else if (look === 'offline') drawLamp(ctx, GREY, false);
+  else drawLamp(ctx, accent, look === 'talking');
+  if (poke) drawPokeBadge(ctx);
   const url = canvas.toDataURL('image/png');
-  cache.set(look, url);
+  cache.set(key, url);
   return url;
 }
 
@@ -54,9 +117,11 @@ export function startTray(): void {
       const look: TrayLook = !connected && !voiceSession ? 'offline'
         : deafened ? 'deafened' : muted ? 'muted' : voice.transmitting ? 'talking' : 'idle';
       const server = voiceSession?.server?.label ?? session.server?.label ?? '';
+      const accent = accentOf(store.settings.theme);
       const state = { offline: 'not connected', idle: 'connected', talking: 'talking', muted: 'muted', deafened: 'deafened' }[look];
       api.updateTray({
-        icon: drawIcon(look),
+        icon: drawIcon(look, accent),
+        alertIcon: drawIcon(look, accent, true),
         tooltip: server ? `mumh5: ${state} on ${server}` : 'mumh5: not connected',
         connected: !!(voiceSession?.status === 'connected' || connected),
         server,

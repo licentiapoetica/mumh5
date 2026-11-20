@@ -137,7 +137,7 @@ const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
 const app = await electron.launch({
   executablePath: electronPath as unknown as string,
   args: [root, `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
   env: env as Record<string, string>
 });
 const page = await app.firstWindow();
@@ -243,7 +243,7 @@ async function client(name: string, colors?: [number[], number[]], stageHeight?:
   const instance = await electron.launch({
     executablePath: electronPath as unknown as string,
     args: [root, `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
-      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
     env: env as Record<string, string>
   });
   const p = await instance.firstWindow();

@@ -58,7 +58,7 @@ const downloads = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-dl-'));
 const browser = () => electron.launch({
   executablePath: electronPath as unknown as string,
   args: [path.join(root, 'test/e2e/web-shell.cjs'), `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
   env: { ...env, MUMH5_WEB_URL: `http://127.0.0.1:${proxyPort}/`, MUMH5_DOWNLOADS: downloads } as Record<string, string>
 });
 const app = await browser();

@@ -148,6 +148,9 @@ ipcMain.handle('share:audioStart', (_e, target: AudioTarget) =>
 ipcMain.handle('share:audioStop', () => shareAudio.stop());
 // Chromium fetches spellcheck dictionaries from Google (redirector.gvt1.com) as soon as a session
 // exists, even with spellcheck off; only an empty language list stops it
+// Windows shows notifications only for an app with this id; the installer's shortcut carries the same
+if (process.platform === 'win32') app.setAppUserModelId('dev.f0ck.mumh5');
+
 app.on('session-created', s => {
   s.setSpellCheckerEnabled(false);
   s.setSpellCheckerLanguages([]);
@@ -176,11 +179,24 @@ ipcMain.handle('share:sources', async (_e, thumbnails: boolean) => {
 ipcMain.on('share:pick', (_e, id: string) => { pickedSource = String(id); });
 
 ipcMain.on('tray:update', (_e, state: tray.TrayState) => tray.update(state));
+// A poke while the window is in the background: flash its taskbar entry and blink the tray icon until it is focused
+let wantsAttention = false;
 ipcMain.on('window:attention', e => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win.isFocused()) return;
   win.flashFrame(true);
-  win.once('focus', () => win.flashFrame(false));
+  tray.blink(true);
+  if (wantsAttention) return;
+  wantsAttention = true;
+  win.once('focus', () => { wantsAttention = false; win.flashFrame(false); tray.blink(false); });
+});
+
+ipcMain.on('window:show', e => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
 });
 
 ipcMain.handle('platform:info', () => ({ os: process.platform, osVersion: os.release() }));

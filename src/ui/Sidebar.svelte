@@ -82,13 +82,16 @@
         <h3>Direct messages</h3>
         <ul class="tree">
           {#each dms as dm (dm.key)}
-            <li>
-              <button class="dm" class:viewing={session.view === dm.key}
+            <li class="dm-row" class:viewing={session.view === dm.key}
+              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
+              <button class="dm"
                 onclick={() => { session.selectView(dm.key); onnavigate(); }}>
                 <Avatar name={dm.user?.name ?? '?'} size={22} src={session.avatar(dm.user?.session)} />
                 <span class="label" class:offline={!dm.user}>{dm.user?.name ?? 'Offline user'}</span>
                 {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
               </button>
+              <button class="close" title="Close conversation" aria-label="Close conversation with {dm.user?.name ?? 'offline user'}"
+                onclick={() => session.closeDm(dm.key)}><Icon name="x" size={14} /></button>
             </li>
           {/each}
         </ul>
@@ -122,9 +125,16 @@
   .scroll { flex: 1; overflow-y: auto; padding: 8px; }
   ul { list-style: none; margin: 0; padding: 0; }
   h3 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); margin: 18px 8px 6px; }
-  .dm { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; color: var(--text-dim); text-align: left; transition: background 100ms var(--ease), color 100ms var(--ease); }
-  .dm:hover { background: var(--bg-hover); color: var(--text); }
-  .dm.viewing { background: var(--bg-active); color: var(--text); }
+  .dm-row { display: flex; align-items: stretch; transition: background 100ms var(--ease); }
+  .dm-row:hover { background: var(--bg-hover); }
+  .dm-row.viewing { background: var(--bg-active); }
+  .dm { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 8px; color: var(--text-dim); text-align: left; transition: color 100ms var(--ease); }
+  .dm-row:hover .dm, .dm-row.viewing .dm { color: var(--text); }
+  /* Shown on hover or focus; always on touch screens, which have no hover */
+  .close { flex: none; width: 28px; display: grid; place-items: center; color: var(--text-faint); opacity: 0; }
+  .dm-row:hover .close, .close:focus-visible { opacity: 1; }
+  .close:hover { color: var(--text); }
+  @media (hover: none) { .close { opacity: 1; } }
   .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .offline { color: var(--text-faint); font-style: italic; }
   .badge { flex: none; min-width: 18px; text-align: center; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 18px; }

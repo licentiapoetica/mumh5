@@ -274,7 +274,8 @@
         <h2>Direct messages</h2>
         <ul>
           {#each dms as dm (dm.key)}
-            <li class="entry" class:viewing={session.view === dm.key}>
+            <li class="entry" class:viewing={session.view === dm.key}
+              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
               <button class="main" onclick={() => openChat(dm.key)}>
                 <Avatar name={dm.user?.name ?? '?'} size={32} src={session.avatar(dm.user?.session)} />
                 <span class="text">
@@ -283,6 +284,8 @@
                 </span>
                 {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
               </button>
+              <button class="icon-btn dm-close" title="Close conversation" aria-label="Close conversation with {dm.user ? store.displayName(dm.user) : 'offline user'}"
+                onclick={() => session.closeDm(dm.key)}><Icon name="x" size={16} /></button>
             </li>
           {/each}
         </ul>

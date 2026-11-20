@@ -70,8 +70,8 @@ const userData = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'));
 const app = await electron.launch({
   executablePath: electronPath as unknown as string,
   // Stay on $DISPLAY (e.g. Xvfb); Electron would otherwise pick the Wayland session automatically
-  // Fake microphone (a beeping tone) and auto-granted permission for the voice tests
-  args: [root, `--user-data-dir=${userData}`, '--ozone-platform=x11', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+  // Fake microphone (a beeping tone) and auto-granted permission for the voice tests; nothing reaches the speakers
+  args: [root, `--user-data-dir=${userData}`, '--ozone-platform=x11', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
   env: env as Record<string, string>
 });
 // The update check asks GitHub; answer for it, as if the release had three newer commits
@@ -336,6 +336,12 @@ try {
   const played = await soundLog();
   for (const ev of ['connected', 'message', 'privateMessage']) assert.ok(played.includes(ev), `sound for ${ev}: ${played}`);
   console.log('ok: sounds for connect, channel and direct messages');
+  const dmRow = page.locator('.dm-row', { hasText: 'bob' });
+  await dmRow.hover();
+  await dmRow.getByRole('button', { name: 'Close conversation with bob' }).click();
+  await page.locator('.sidebar').getByText('Direct messages').waitFor({ state: 'detached' });
+  await page.locator('.msg', { hasText: 'psst' }).waitFor({ state: 'detached' });
+  console.log('ok: direct message closed');
   await page.locator('.channel .name').first().dblclick();
 
   // Mute toggles propagate
@@ -536,6 +542,16 @@ try {
   await app.evaluate(() => (globalThis as any).__mumh5Tray.click('Mute'));
   await within(new Promise<void>(res => bob.on('user', (u, ch) => { if (u.name === 'alice' && ch.includes('selfMute') && !u.selfMute) res(); })), 'unmuted from the tray');
   await trayUntil('connected', t => /connected on Test Server/.test(t.tooltip) && !t.items.find((i: any) => i.label === 'Mute').checked);
+  // The sphere takes the color scheme's accent
+  const trayIcon = () => app.evaluate(() => (globalThis as any).__mumh5Tray.fullIcon as string);
+  const darkIcon = await trayIcon();
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Forest' }).click();
+  await within((async () => { while ((await trayIcon()) === darkIcon) await new Promise(r => setTimeout(r, 100)); })(), 'tray icon follows the accent');
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await within((async () => { while ((await trayIcon()) !== darkIcon) await new Promise(r => setTimeout(r, 100)); })(), 'tray icon back to the dark accent');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await app.evaluate(() => (globalThis as any).__mumh5Tray.click('Mute'));
   await trayUntil('muted again', t => /muted/.test(t.tooltip));
   console.log('ok: tray icon follows voice state and its menu mutes');
@@ -764,11 +780,31 @@ try {
   const pokeHtml = await within(poked, 'bob poked');
   assert.equal(decodePoke(pokeHtml), 'Hey wake up!');
   assert.ok(pokeHtml.includes('Poked you: Hey wake up!'), 'readable in other clients');
+  // System notification: the desktop app may show them; the page records them here, as if in the background
+  assert.equal(await page.evaluate(() => Notification.permission), 'granted', 'notifications allowed');
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__notes = [];
+    w.__RealNotification = w.Notification;
+    w.Notification = class { static permission = 'granted'; onclick = null; constructor(title: string, o: NotificationOptions) { w.__notes.push({ title, body: o.body, silent: o.silent }); } close() {} };
+    document.hasFocus = () => false;
+  });
+  // The window loses focus in main too, so the taskbar flashes and the tray icon blinks
+  const unfocused = await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.blur(); return !w.isFocused(); });
   bob.sendText({ users: [aliceId] }, encodePoke('Wake up <b>now</b>'));
   const pokeDialog = page.getByRole('dialog', { name: 'bob poked you' });
   await pokeDialog.locator('.note', { hasText: 'Wake up <b>now</b>' }).waitFor();
   // Logged once it really started playing, after the tone is rendered
   await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('poke'), null, { timeout: 5000 });
+  const blinking = () => app.evaluate(() => (globalThis as any).__mumh5Tray.blinking as boolean);
+  if (unfocused) {
+    await within((async () => { while (!(await blinking())) await new Promise(r => setTimeout(r, 100)); })(), 'tray icon blinks');
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus());
+    await within((async () => { while (await blinking()) await new Promise(r => setTimeout(r, 100)); })(), 'blinking stops on focus');
+    console.log('ok: tray icon blinks until the window is focused');
+  } else console.log('skip: window cannot lose focus on this display, tray blinking not checked');
+  const notes = await page.evaluate(() => { const w = window as any; w.Notification = w.__RealNotification; delete (document as any).hasFocus; return w.__notes; });
+  assert.deepEqual(notes, [{ title: 'bob poked you', body: 'Wake up <b>now</b>', silent: true }], 'one system notification');
   await pokeDialog.getByRole('button', { name: 'Reply' }).click();
   await pokeDialog.waitFor({ state: 'detached' });
   await page.locator('.chat .system', { hasText: 'bob poked you: Wake up <b>now</b>' }).waitFor();
