@@ -66,6 +66,7 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
     (globalThis as any).__mumh5Tray = {
       state: { ...s, icon: s.icon.slice(0, 22) },
       tooltip: s.tooltip,
+      fullIcon: s.icon,
       items: menu.items.map(i => ({ label: i.label, checked: i.checked, enabled: i.enabled })),
       get blinking() { return blinkTimer != null; },
       click: (label: string) => { const item = menu.items.find(i => i.label === label); item?.click(undefined, getWindow() ?? undefined, getWindow()?.webContents); }
