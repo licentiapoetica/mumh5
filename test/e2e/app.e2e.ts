@@ -1036,16 +1036,20 @@ try {
       }), `all six clients in channel ${id}`, 20000);
       await mover('a').dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
       await allMoved(lobby.id);
-      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6, 'selection survives moves');
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'a move clears the selection');
+      assert.equal(await page.locator('.selection').count(), 0, 'and the bar goes');
+      for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) await mover(suffix).click({ modifiers: ['Control'] });
       await page.locator('.sidebar').getByLabel('Move selected clients to').selectOption('0');
       await allMoved(0);
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'Move to clears the selection');
+      for (const suffix of ['a', 'b']) await mover(suffix).click({ modifiers: ['Shift'] });
       await page.locator('.sidebar .user', { hasText: 'bob' }).dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
       await within(new Promise<void>(resolve => {
         const check = () => bob.self?.channelId === lobby.id ? resolve() : setTimeout(check, 100);
         check();
       }), 'only the unselected client moved');
       assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === 0));
-      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6, 'dragging an unselected client keeps the selection');
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'dragging an unselected client keeps the selection');
       bob.joinChannel(0);
       await within(new Promise<void>(resolve => {
         const check = () => bob.self?.channelId === 0 ? resolve() : setTimeout(check, 100);
@@ -1409,10 +1413,13 @@ try {
       const games = [...bob.channels.values()].find(c => c.name === 'Games')!;
       await rooms.getByLabel('Move selected clients to').selectOption(String(games.id));
       await until2('selected clients in Games', () => bob.self?.channelId === games.id && userState(newName)?.channelId === games.id);
+      assert.equal(await rooms.locator('.person[aria-pressed="true"]').count(), 0, 'a move clears the selection');
+      await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
+      await rooms.locator('.person', { hasText: newName }).click({ modifiers: ['Shift'] });
       await rooms.getByLabel('Move selected clients to').selectOption('0');
       await until2('selected clients back in Root', () => bob.self?.channelId === 0 && userState(newName)?.channelId === 0);
-    }
-    await rooms.getByRole('button', { name: 'Clear', exact: true }).click();
+    } else await rooms.getByRole('button', { name: 'Clear', exact: true }).click();
+    assert.equal(await rooms.locator('.person[aria-pressed="true"]').count(), 0);
     if (admin) {
       await rooms.getByRole('button', { name: 'Join Games' }).click();
       await until2('alice in Games', () => bob.channels.get(userState(newName)!.channelId)?.name === 'Games');

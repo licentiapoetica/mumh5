@@ -164,6 +164,8 @@ export class Session {
       // Skip people we know we may not move rather than collect a denial for each
       else if (this.can(user.channelId, PERM.Move) !== false) this.moveUser(id, channelId);
     }
+    // A moved selection is done with; a single person dragged from outside it leaves it alone
+    if (ids.some(id => this.selectedUsers.includes(id))) this.clearUserSelection();
   }
 
   // Users in a channel and all of its subchannels
