@@ -26,21 +26,22 @@ The picture goes straight from you to the people watching, not through a company
 
 ## Get started
 
-1. **Download mumh5** from the [releases page](https://git.lat/kibi/mumh5/releases) and install it (the files are listed below).
+1. **Download mumh5** from the [Latest snapshot release](https://github.com/licentiapoetica/mumh5/releases/tag/snapshot) and install it (the files are listed below). These downloads track successful builds from `main`.
 2. **Create your identity.** mumh5 asks for it on the first start: give it a name and it is made, or, if you used Mumble on this computer before, keep that one with all your registrations.
 3. **Add a server** with the plus button, using the address your friends gave you, or find one in the public server list (desktop app).
 
 | System | File |
 |---|---|
-| Windows | `mumh5-<version>-win-x64.exe` (installer; not signed yet, so Windows SmartScreen warns once) |
-| Linux, any distribution | `mumh5-<version>-linux-x86_64.AppImage` (make it executable, then run it) |
-| Debian, Ubuntu | `mumh5-<version>-linux-amd64.deb` |
-| Linux, portable | `mumh5-<version>-linux-x64.tar.gz` (runs from its folder, or installs with the script inside) |
+| Windows | [mumh5-win-x64.exe](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-win-x64.exe) (installer; not signed yet, so Windows SmartScreen warns once) |
+| Linux, any distribution | [mumh5-linux-x64.AppImage](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.AppImage) (make it executable, then run it) |
+| Debian, Ubuntu | [mumh5-linux-x64.deb](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.deb) |
+| Linux, portable | [mumh5-linux-x64.tar.gz](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.tar.gz) (runs from its folder, or installs with the script inside) |
+| macOS, Apple Silicon | [mumh5-mac-arm64.dmg](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-mac-arm64.dmg) (unsigned) |
 
 The `.tar.gz` comes with an installer and an uninstaller. Unpack it and run the installer from that folder; it adds the app, a `mumh5` command and a menu entry, and running it again with a newer version updates it:
 
 ```bash
-tar xzf mumh5-<version>-linux-x64.tar.gz
+tar xzf mumh5-linux-x64.tar.gz
 cd mumh5-<version>-linux-x64
 ./install.sh                 # for you only, in ~/.local
 sudo ./install.sh --system   # or for everyone, in /opt
@@ -48,8 +49,7 @@ sudo ./install.sh --system   # or for everyone, in /opt
 
 To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/uninstall.sh`). Your settings and identities stay in `~/.config/mumh5`; `uninstall.sh --purge` deletes them too, after asking. Back up your identity first. The Windows installer has its own uninstaller in the system settings; the `.deb` is removed with `sudo apt remove mumh5`.
 
-For macOS Apple Silicon, download the unsigned `.dmg` from a GitHub Actions build
-(see [Building installers](#building-installers)), or build it on a Mac from the source.
+For macOS Apple Silicon, download the unsigned `.dmg` above, or build it on a Mac from the source.
 
 ## A look around
 
@@ -311,9 +311,12 @@ On GitHub, `.github/workflows/build.yml` builds the latest commit on every push 
 `main`, on pull requests targeting `main`, or manually from **Actions → Build
 desktop app and Docker image → Run workflow** (choose the branch to build).
 It runs type checks and tests, then packages Linux x64 (AppImage, `.deb`, `.tar.gz`),
-Windows x64 (`.exe`), and macOS Apple Silicon (`.dmg`) apps. Download the unsigned
-installers from the run's **Artifacts** section; they are kept for 14 days and named
-with the commit SHA.
+Windows x64 (`.exe`), and macOS Apple Silicon (`.dmg`) apps. Successful builds from
+`main` update the [Latest snapshot prerelease](https://github.com/licentiapoetica/mumh5/releases/tag/snapshot)
+with direct installer downloads and SHA256 checksums. The `snapshot` tag tracks the
+built commit, and download filenames stay the same across updates. Release assets
+remain available until replaced. Pull requests and manual builds from other
+branches keep their installers in the run's **Artifacts** section for 14 days.
 
 Pushes and manual runs also publish the browser app and proxy image to
 `ghcr.io/licentiapoetica/mumh5:sha-<full-commit-sha>` using the built-in
