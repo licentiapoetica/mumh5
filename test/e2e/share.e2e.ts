@@ -227,7 +227,16 @@ try {
   const at = { x: spotBox.x + spotBox.width * 0.3, y: spotBox.y + spotBox.height * 0.4 };
   const before = await under(at.x, at.y);
   await bob.page.mouse.move(at.x, at.y);
-  await view.getByRole('group', { name: 'Zoom' }).waitFor();
+  // The panel only appears once zoomed, not on hover
+  await bob.page.waitForTimeout(300);
+  assert.equal(await view.getByRole('group', { name: 'Zoom' }).count(), 0, 'no zoom panel before zooming');
+  // Only a magnifier button, shown on hover
+  const zoomButton = view.locator('.pic .zoom-btn');
+  await bob.page.waitForFunction(() => getComputedStyle(document.querySelector('.spot .zoom-btn')!).visibility === 'visible');
+  if (process.env.SHOTS_DIR) { await bob.page.waitForTimeout(200); await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/zoom-button.png` }); }
+  await bob.page.mouse.move(spotBox.x + spotBox.width / 2, spotBox.y - 60);
+  await bob.page.waitForFunction(() => getComputedStyle(document.querySelector('.spot .zoom-btn')!).visibility === 'hidden');
+  await bob.page.mouse.move(at.x, at.y);
   await bob.page.mouse.wheel(0, -400);
   await bob.page.waitForFunction(() => Number((document.querySelector('.spot .zoom input') as HTMLInputElement).value) > 1, null, { timeout: 3000 });
   const level = Math.round(Number(await slider.inputValue()) * 100);
@@ -251,8 +260,16 @@ try {
   await bob.page.locator('.spot .pic > video').click({ button: 'right' });
   await bob.page.getByRole('menuitem', { name: 'Reset zoom' }).click();
   await bob.page.waitForFunction(() => getComputedStyle(document.querySelector('.spot .pic > video')!).transform === 'none');
-  assert.equal(await slider.inputValue(), '1');
-  assert.ok(await view.getByRole('button', { name: 'Zoom out' }).isDisabled());
+  await view.getByRole('group', { name: 'Zoom' }).waitFor({ state: 'detached' });
+  // The magnifier button zooms to 200% around the centre
+  await bob.page.mouse.move(at.x, at.y);
+  await zoomButton.click();
+  await view.getByRole('group', { name: 'Zoom' }).waitFor();
+  assert.equal(await slider.inputValue(), '2');
+  assert.equal(await zoomButton.count(), 0, 'the button gives way to the panel');
+  await bob.page.locator('.spot .pic > video').click({ button: 'right' });
+  await bob.page.getByRole('menuitem', { name: 'Reset zoom' }).click();
+  await zoomButton.waitFor({ state: 'attached' });
   console.log(`ok: wheel zooms the picture (${level}%), drag and the map pan, buttons and reset`);
 
   // The large picture can move to a window of its own
@@ -266,6 +283,21 @@ try {
   await view.getByText('In a separate window').waitFor();
   assert.equal(await view.locator('video').count(), 0, 'no picture left in the main window');
   await view.getByRole('button', { name: 'Bring back' }).waitFor();
+  // The separate window zooms too, with the same panel in the app's styles
+  const popBox = (await streamWindow.locator('video').first().boundingBox())!;
+  await streamWindow.mouse.move(popBox.x + popBox.width * 0.4, popBox.y + popBox.height * 0.4);
+  assert.equal(await streamWindow.getByRole('group', { name: 'Zoom' }).count(), 0, 'no zoom panel in the window before zooming');
+  await streamWindow.mouse.wheel(0, -400);
+  const popPanel = streamWindow.getByRole('group', { name: 'Zoom' });
+  await popPanel.waitFor({ timeout: 3000 });
+  assert.ok(Number(await popPanel.getByRole('slider', { name: 'Zoom' }).inputValue()) > 1, 'zoomed in the separate window');
+  assert.notEqual(await streamWindow.evaluate(() => getComputedStyle(document.querySelector('video')!).transform), 'none');
+  const panelBox = (await popPanel.boundingBox())!;
+  assert.ok(Math.abs(panelBox.x + panelBox.width + 8 - popBox.width) < 4 && Math.abs(panelBox.y + panelBox.height + 8 - popBox.height) < 4,
+    `the panel sits in the bottom right corner of the window (${JSON.stringify(panelBox)} in ${popBox.width}x${popBox.height})`);
+  for (let i = 0; i < 6 && await popPanel.count(); i++) await popPanel.getByRole('button', { name: 'Zoom out' }).click();
+  await popPanel.waitFor({ state: 'detached' });
+  console.log('ok: the separate window zooms with the same panel');
   await streamWindow.close();
   await view.getByRole('button', { name: 'Open in a separate window' }).waitFor();
   await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0);
