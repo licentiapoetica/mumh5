@@ -33,6 +33,7 @@ export interface Settings {
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
   shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
+  updateCheck: boolean;   // ask GitHub now and then whether a newer build is out (desktop)
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -73,7 +74,8 @@ const defaults: Settings = {
   relayServer: '',
   stunServer: '',
   shareNoticeSeen: false,
-  hints: false
+  hints: false,
+  updateCheck: true
 };
 
 class SettingsStore {

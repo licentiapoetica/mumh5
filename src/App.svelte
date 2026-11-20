@@ -22,6 +22,8 @@
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
   import Shell from './ui2/Shell.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { updates } from './lib/updates.svelte.ts';
   import { identities } from './lib/identities.svelte.ts';
   import { session } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
@@ -106,6 +108,15 @@
     onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
+<div class="frame">
+{#if updates.showBar && updates.info}
+  <div class="update-bar" role="status">
+    <Icon name="download" size={16} />
+    <span class="msg">A newer mumh5 is available ({updates.info.changes} {updates.info.changes === 1 ? 'change' : 'changes'}).</span>
+    <a class="btn primary" href={updates.info.url} target="_blank" rel="noreferrer">Download</a>
+    <button class="icon-btn" aria-label="Not now" title="Hide until there is another update" onclick={() => updates.dismiss()}><Icon name="x" size={16} /></button>
+  </div>
+{/if}
 {#if store.settings.interface === 'rooms'}
 <Shell onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
 {:else}
@@ -148,6 +159,7 @@
   {/if}
 </div>
 {/if}
+</div>
 
 {#if editing}<ConnectDialog server={editing.server} onclose={() => (editing = null)} />{/if}
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
@@ -172,6 +184,12 @@
 <ContextMenu />
 
 <style>
+  /* The update bar on top, whichever interface below it */
+  .frame { height: 100%; display: flex; flex-direction: column; }
+  .frame > .app, .frame > :global(.shell) { flex: 1; min-height: 0; height: auto; }
+  .update-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; background: var(--bg-2); border-bottom: 1px solid var(--line); box-shadow: inset 2px 0 0 var(--accent); color: var(--text); }
+  .update-bar .msg { flex: 1; min-width: 0; }
+  .update-bar .btn { padding-block: 5px; text-decoration: none; }
   .app { position: relative; height: 100%; display: flex; overflow: hidden; }
   .nav { display: flex; flex: none; min-height: 0; }
   .nav.drawer { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; max-width: calc(100% - 48px); box-shadow: 8px 0 32px rgb(0 0 0 / 0.4); }

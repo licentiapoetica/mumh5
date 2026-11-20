@@ -73,6 +73,13 @@ const app = await electron.launch({
   args: [root, `--user-data-dir=${userData}`, '--ozone-platform=x11', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
   env: env as Record<string, string>
 });
+// The update check asks GitHub; answer for it, as if the release had three newer commits
+const updateAsks: string[] = [];
+await app.context().route('https://api.github.com/**', route => {
+  updateAsks.push(route.request().url());
+  return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+    body: JSON.stringify({ status: 'ahead', ahead_by: 3, behind_by: 0 }) });
+});
 const bob = await headless('bob');
 // SuperUser can create channels; needs MUMBLE_SUPERUSER_PASSWORD on the test server
 const admin = process.env.MUMBLE_SUPERUSER_PASSWORD ? await headless('SuperUser', process.env.MUMBLE_SUPERUSER_PASSWORD) : null;
@@ -420,6 +427,24 @@ try {
   await page.getByLabel('Show hints when the pointer rests').uncheck();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: color schemes, hints off by default and can be turned on');
+
+  // A newer build on GitHub: a bar on top, the same in Settings > About, hidden until the next one
+  const updateBar = page.locator('.update-bar');
+  await updateBar.getByText('A newer mumh5 is available (3 changes).').waitFor();
+  assert.match(updateAsks[0], /^https:\/\/api\.github\.com\/repos\/[\w.-]+\/[\w.-]+\/compare\/[0-9a-f]{40}\.\.\.snapshot/);
+  assert.match(await updateBar.getByRole('link', { name: 'Download' }).getAttribute('href') ?? '', /\/releases\/tag\/snapshot$/);
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'About' }).click();
+  await page.getByRole('status').getByText('A newer build is available (3 changes).').waitFor();
+  assert.ok(await page.getByLabel('Check for updates').isChecked());
+  await page.getByRole('button', { name: 'Check now' }).click();
+  for (let i = 0; i < 50 && updateAsks.length < 2; i++) await page.waitForTimeout(100);
+  assert.equal(updateAsks.length, 2, 'Check now asks again');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await updateBar.getByRole('button', { name: 'Not now' }).click();
+  await updateBar.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.updateCheck')!).dismissed), 3);
+  console.log('ok: update check shows a newer build and can be dismissed');
 
   // Layouts like the desktop client: classic (channels right of chat), stacked (channels above)
   const box = (sel: string) => page.locator(sel).first().boundingBox().then(b => b!);

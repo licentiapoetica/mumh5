@@ -9,11 +9,12 @@
   import { previewMode } from '../lib/preview.ts';
   import { files } from '../lib/files.svelte.ts';
   import { formatBytes } from '../lib/html.ts';
+  import { updates, build } from '../lib/updates.svelte.ts';
 
-  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' } = $props();
+  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about' } = $props();
 
   // svelte-ignore state_referenced_locally
-  let tab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities'>(initialTab);
+  let tab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about'>(initialTab);
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
 
@@ -39,15 +40,17 @@
   // How much the kept files take, once the tab is open
   $effect(() => { if (tab === 'files') files.measure(); });
 
-  type Tab = 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities';
+  type Tab = 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
   const tabs: { id: Tab; label: string }[] = [
     { id: 'voice', label: 'Voice' },
     { id: 'sounds', label: 'Sounds' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'accessibility', label: 'Accessibility' },
     { id: 'files', label: 'Chat and files' },
-    ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : [])
+    ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : []),
+    { id: 'about', label: 'About' }
   ];
+  const checkedAt = $derived(updates.lastCheck ? new Date(updates.lastCheck).toLocaleString() : '');
 </script>
 
 <Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880}>
@@ -114,6 +117,24 @@
       <option value="click">Player card, loads from YouTube when clicked</option>
       <option value="thumbnail">Player card with thumbnail (loads the thumbnail from YouTube)</option>
     </select>
+  {:else if tab === 'about'}
+    <p class="about">mumh5 {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
+    {#if updates.possible}
+      <label class="check"><input type="checkbox" bind:checked={s.updateCheck} onchange={() => store.saveSettings()} /> Check for updates</label>
+      <p class="help">Asks GitHub every few hours whether a newer build is out. GitHub sees your IP address. Nothing is downloaded by itself.</p>
+      <div class="row kept">
+        <p class="help" role="status">
+          {#if updates.checking}Checking...
+          {:else if updates.error}Could not check: {updates.error}
+          {:else if updates.info?.newer}A newer build is available ({updates.info.changes} {updates.info.changes === 1 ? 'change' : 'changes'}). <a href={updates.info.url} target="_blank" rel="noreferrer">Download</a>
+          {:else if updates.info}Up to date{checkedAt ? ` (checked ${checkedAt})` : ''}.
+          {:else}Not checked yet.{/if}
+        </p>
+        <button class="btn" disabled={updates.checking} onclick={() => updates.check()}>Check now</button>
+      </div>
+    {:else}
+      <p class="help">{isWeb ? 'This site is updated by whoever runs it.' : 'This build does not know its commit, so it cannot check for updates.'}</p>
+    {/if}
   {:else}
     <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.{isWeb ? ' Certificates are kept in this browser and passed to the proxy when you connect.' : ''}</p>
     <IdentityList />
@@ -152,4 +173,5 @@
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 14px; }
   select:disabled, input:disabled { opacity: 0.5; }
   textarea { resize: vertical; }
+  .about { margin: 6px 0 0; font-size: 14px; }
 </style>

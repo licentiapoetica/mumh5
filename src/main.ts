@@ -13,6 +13,7 @@ import { startHints } from './lib/hints.ts';
 import { isWeb } from './lib/native.ts';
 import { proxyInfo } from './lib/web.svelte.ts';
 import { serverStatus } from './lib/server-status.svelte.ts';
+import { updates } from './lib/updates.svelte.ts';
 
 if (isWeb) proxyInfo.load();
 
@@ -21,3 +22,4 @@ startTray();
 startTextMenu();
 startHints();
 serverStatus.start();
+updates.start();
