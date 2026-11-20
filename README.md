@@ -33,10 +33,18 @@ The picture goes straight from you to the people watching, not through a company
 | System | File |
 |---|---|
 | Windows | [mumh5-win-x64.exe](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-win-x64.exe) (installer; not signed yet, so Windows SmartScreen warns once) |
-| Linux, any distribution | [mumh5-linux-x64.AppImage](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.AppImage) (make it executable, then run it) |
+| Linux, AppImage | [mumh5-linux-x64.AppImage](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.AppImage) (make it executable, then run it; FUSE support is bundled) |
 | Debian, Ubuntu | [mumh5-linux-x64.deb](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.deb) |
 | Linux, portable | [mumh5-linux-x64.tar.gz](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.tar.gz) (runs from its folder, or installs with the script inside) |
 | macOS, Apple Silicon | [mumh5-mac-arm64.dmg](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-mac-arm64.dmg) (unsigned) |
+
+Older builds use an AppImage runtime that requires the system's FUSE 2 library. Current builds bundle a static FUSE runtime instead. If an older AppImage stops with `dlopen(): error loading libfuse.so.2`, download a new build, or run it without FUSE by extracting it at launch:
+
+```bash
+./mumh5-linux-x64.AppImage --appimage-extract-and-run
+```
+
+This extracts to a temporary folder on each launch. For regular use without FUSE, choose the `.deb` or `.tar.gz` instead. See the [AppImage FUSE troubleshooting guide](https://docs.appimage.org/user-guide/troubleshooting/fuse.html) for installation instructions for your distribution.
 
 The `.tar.gz` comes with an installer and an uninstaller. Unpack it and run the installer from that folder; it adds the app, a `mumh5` command and a menu entry, and running it again with a newer version updates it:
 

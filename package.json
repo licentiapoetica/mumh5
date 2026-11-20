@@ -28,6 +28,9 @@
   "build": {
     "appId": "dev.f0ck.mumh5",
     "productName": "mumh5",
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
     "files": [
       "dist/**",
       "dist-electron/**",

@@ -59,6 +59,17 @@ jobs:
       - run: npm run build
       - name: Package desktop app
         run: npx --no-install electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+      - name: Verify AppImage uses a static runtime
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          for appimage in release/*.AppImage; do
+            if readelf --program-headers "$appimage" | grep -q INTERP; then
+              echo "AppImage runtime is dynamically linked; use the bundled static FUSE runtime."
+              exit 1
+            fi
+            "$appimage" --appimage-version
+          done
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
