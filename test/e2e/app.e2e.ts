@@ -1014,10 +1014,14 @@ try {
       for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) movers.push(await headless(`move-${suffix}`));
       const mover = (suffix: string) => page.locator('.sidebar .user', { hasText: `move-${suffix}` });
       await mover('f').waitFor();
-      await mover('a').click({ modifiers: ['Control'] });
+      // Shift and Ctrl/Cmd both add or remove one person; Shift does not select a range
+      await mover('a').click({ modifiers: ['Shift'] });
       await mover('f').click({ modifiers: ['Shift'] });
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'Shift-click picks one person at a time');
+      for (const suffix of ['b', 'c']) await mover(suffix).click({ modifiers: ['Control'] });
+      for (const suffix of ['d', 'e']) await mover(suffix).click({ modifiers: ['Shift'] });
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6);
-      await mover('c').click({ modifiers: ['Control'] });
+      await mover('c').click({ modifiers: ['Shift'] });
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 5);
       await mover('c').click({ modifiers: ['Meta'] });
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6);
@@ -1041,8 +1045,8 @@ try {
         check();
       }), 'only the unselected client moved');
       assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === 0));
-      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 1, 'dragging an unselected client replaces the group');
-      await page.locator('.sidebar').getByLabel('Move selected clients to').selectOption('0');
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6, 'dragging an unselected client keeps the selection');
+      bob.joinChannel(0);
       await within(new Promise<void>(resolve => {
         const check = () => bob.self?.channelId === 0 ? resolve() : setTimeout(check, 100);
         check();
@@ -1054,22 +1058,22 @@ try {
       assert.equal(await selected(), 0);
       assert.equal(await page.locator('.selection').count(), 0, 'no bar without a selection');
       await mover('a').click({ modifiers: ['Shift'] });
-      assert.equal(await selected(), 1, 'Shift without an anchor selects one client');
       await mover('b').click({ modifiers: ['Control'] });
       await mover('c').click({ modifiers: ['Control'] });
       assert.equal(await selected(), 3);
       movers[2].disconnect();
       await mover('c').waitFor({ state: 'detached' });
       assert.equal(await selected(), 2, 'disconnected clients leave the selection');
-      await mover('d').click();
-      assert.equal(await selected(), 0, 'a plain click clears the selection');
-      await page.getByRole('dialog', { name: 'Profile of move-d' }).waitFor();
-      await mover('f').click({ modifiers: ['Shift'] });
-      assert.equal(await selected(), 3, 'a plain click marks where a Shift range starts');
-      assert.equal(await page.getByRole('dialog', { name: /Profile of move-/ }).count(), 0);
+      await mover('f').click();
+      await page.getByRole('dialog', { name: 'Profile of move-f' }).waitFor();
+      assert.equal(await selected(), 2, 'a plain click opens the profile and keeps the selection');
+      await page.keyboard.press('Escape');
+      await page.getByRole('dialog', { name: /Profile of move-/ }).waitFor({ state: 'detached' });
+      assert.equal(await selected(), 2, 'Escape that closes a profile keeps the selection');
+      await mover('a').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0, 'Escape on a selected row clears the selection');
-      console.log('ok: Shift ranges, Ctrl/Cmd toggles, group dragging, bulk move picker and clearing selection');
+      console.log('ok: Shift and Ctrl/Cmd pick people one by one, group dragging, bulk move picker and clearing selection');
     } finally {
       for (const client of movers) client.disconnect();
     }

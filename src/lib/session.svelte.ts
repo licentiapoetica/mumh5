@@ -78,7 +78,6 @@ export class Session {
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
   selectedUsers = $state<number[]>([]);
-  private userAnchor: number | null = null;
   // Channel highlighted by a single click in the tree (a double click joins)
   selectedChannel = $state<number | null>(null);
 
@@ -147,31 +146,13 @@ export class Session {
     return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
   }
 
-  selectUser(id: number, order: number[], modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): void {
-    const additive = modifiers.ctrlKey || modifiers.metaKey;
-    const anchor = this.userAnchor == null ? -1 : order.indexOf(this.userAnchor);
-    const end = order.indexOf(id);
-    if (modifiers.shiftKey && anchor >= 0 && end >= 0) {
-      const range = order.slice(Math.min(anchor, end), Math.max(anchor, end) + 1);
-      this.selectedUsers = [...new Set([...(additive ? this.selectedUsers : []), ...range])];
-    } else if (additive || modifiers.shiftKey) {
-      this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
-      this.userAnchor = id;
-    } else {
-      // A plain click opens the profile; it only marks where a Shift range starts
-      if (this.selectedUsers.length) this.selectedUsers = [];
-      this.userAnchor = id;
-    }
-  }
-
-  selectOnlyUser(id: number): void {
-    this.selectedUsers = [id];
-    this.userAnchor = id;
+  // Shift or Ctrl/Cmd adds or removes one person; a plain click opens the profile instead
+  toggleUser(id: number): void {
+    this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
   }
 
   clearUserSelection(): void {
-    this.selectedUsers = [];
-    this.userAnchor = null;
+    if (this.selectedUsers.length) this.selectedUsers = [];
   }
 
   moveUsers(ids: number[], channelId: number): void {
@@ -465,7 +446,6 @@ export class Session {
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
-      if (this.userAnchor === user.session) this.userAnchor = null;
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
         const by = actor != null ? client.users.get(actor)?.name ?? '' : '';
