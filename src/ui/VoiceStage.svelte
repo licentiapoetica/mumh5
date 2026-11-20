@@ -11,6 +11,8 @@
   import { sessions } from '../lib/session.svelte.ts';
   import ResizeHandle from './ResizeHandle.svelte';
   import ShareStats from './ShareStats.svelte';
+  import ZoomView from './ZoomView.svelte';
+  import { mount, unmount } from 'svelte';
 
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
   // (always), and on any window while someone in the channel shares something. A screen is shown
@@ -182,110 +184,9 @@
   }
   const touchEnd = () => clearTimeout(hold);
 
-  // Zoom into the large picture: the wheel zooms toward the pointer, dragging pans, two fingers
-  // pinch. Pan is kept as a fraction of the video box so it survives full screen and resizes.
-  const MAX_ZOOM = 8;
+  // Zoom of the large picture (ZoomView); here for the menu, which lives in this window
   let zoom = $state(1);
-  let panX = $state(0);
-  let panY = $state(0);
-  let boxW = $state(0);
-  let boxH = $state(0);
-  let srcW = $state(0);
-  let srcH = $state(0);
-  // Keeps the picture (not its letterbox bars) covering the box; centred while it is smaller
-  function clampPan(s: number, x: number, y: number): [number, number] {
-    const [a, b] = pictureShare();
-    const axis = (p: number, f: number) => s * f >= 1
-      ? Math.min(-s * (1 - f) / 2, Math.max(1 - s * (1 + f) / 2, p))
-      : (1 - s) / 2;
-    return [axis(x, a), axis(y, b)];
-  }
-  const view = $derived(clampPan(zoom, panX, panY));
-  function resetZoom() { zoom = 1; panX = 0; panY = 0; }
-  // A new picture on the stage starts unzoomed
-  $effect(() => { void focus; void popped; resetZoom(); });
-  // Picture size as a fraction of the video box (the rest is letterbox)
-  function pictureShare(): [number, number] {
-    const ratio = srcW && srcH && boxW && boxH ? (srcW / srcH) / (boxW / boxH) : 1;
-    return [Math.min(1, ratio), Math.min(1, 1 / ratio)];
-  }
-  // Zooms so that the point at (qx, qy), as a fraction of the untransformed box, stays put
-  function zoomAround(s: number, qx: number, qy: number) {
-    if (!spotVideo || !boxW || !boxH) return;
-    const next = Math.min(MAX_ZOOM, Math.max(1, s));
-    srcW = spotVideo.videoWidth;
-    srcH = spotVideo.videoHeight;
-    if (next === 1) return resetZoom();
-    const cx = (qx - view[0]) / zoom, cy = (qy - view[1]) / zoom;
-    [panX, panY] = clampPan(next, qx - cx * next, qy - cy * next);
-    zoom = next;
-  }
-  function zoomAt(s: number, clientX: number, clientY: number) {
-    if (!spotVideo || !boxW || !boxH) return;
-    const r = spotVideo.getBoundingClientRect();
-    zoomAround(s, (clientX - r.left) / boxW + view[0], (clientY - r.top) / boxH + view[1]);
-  }
-  const zoomCentre = (s: number) => zoomAround(s, 0.5, 0.5);
-  // The part of the picture in view, as fractions of the picture, for the frame on the map
-  const seen = $derived.by(() => {
-    const [a, b] = pictureShare();
-    const part = (p: number, f: number) => {
-      const from = ((-p / zoom) - (1 - f) / 2) / f, to = (((1 - p) / zoom) - (1 - f) / 2) / f;
-      return [Math.max(0, from), Math.min(1, to)];
-    };
-    const [x0, x1] = part(view[0], a), [y0, y1] = part(view[1], b);
-    return { left: x0 * 100, top: y0 * 100, width: (x1 - x0) * 100, height: (y1 - y0) * 100 };
-  });
-  // A click or drag on the map centres the view on that point of the picture
-  function mapPoint(e: PointerEvent) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const u = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), v = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
-    const [a, b] = pictureShare();
-    [panX, panY] = clampPan(zoom, 0.5 - zoom * ((1 - a) / 2 + u * a), 0.5 - zoom * ((1 - b) / 2 + v * b));
-  }
-  function mapDown(e: PointerEvent) {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    mapPoint(e);
-  }
-  const mapMove = (e: PointerEvent) => { if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) mapPoint(e); };
-  // Non-passive, so the wheel does not also scroll the page
-  function wheelZoom(node: HTMLElement) {
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
-      zoomAt(zoom * Math.exp(-dy * 0.002), e.clientX, e.clientY);
-    };
-    node.addEventListener('wheel', onWheel, { passive: false });
-    return { destroy: () => node.removeEventListener('wheel', onWheel) };
-  }
-  const pointers = new Map<number, { x: number; y: number }>();
-  let dragging = $state(false);
-  function pointerDown(e: PointerEvent) {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragging = zoom > 1 || pointers.size > 1;
-  }
-  function pointerMove(e: PointerEvent) {
-    const last = pointers.get(e.pointerId);
-    if (!last) return;
-    if (pointers.size === 2) {
-      const [p, q] = [...pointers.values()];
-      const before = Math.hypot(p.x - q.x, p.y - q.y);
-      last.x = e.clientX; last.y = e.clientY;
-      const after = Math.hypot(p.x - q.x, p.y - q.y);
-      if (before > 0) zoomAt(zoom * after / before, (p.x + q.x) / 2, (p.y + q.y) / 2);
-      return;
-    }
-    const dx = e.clientX - last.x, dy = e.clientY - last.y;
-    last.x = e.clientX; last.y = e.clientY;
-    if (zoom > 1 && boxW && boxH) [panX, panY] = clampPan(zoom, view[0] + dx / boxW, view[1] + dy / boxH);
-  }
-  function pointerUp(e: PointerEvent) {
-    pointers.delete(e.pointerId);
-    if (!pointers.size) dragging = false;
-  }
+  const resetZoom = () => { zoom = 1; };
 
   let frame = $state<HTMLElement>();
   function fullscreen() {
@@ -296,7 +197,10 @@
   // The large picture in a window of its own, to put on another screen. The window is an
   // empty page that gets the same stream; sound keeps coming from the main window.
   let popup: Window | null = null;
-  let popVideo: HTMLVideoElement | null = null;
+  let popView: ReturnType<typeof mount> | null = null;
+  let popTheme: MutationObserver | null = null;
+  // Props of the picture in the window; it follows them like any component
+  const popProps = $state<{ stream: MediaStream | null; ondblclick?: () => void }>({ stream: null });
   let spotVideo = $state<HTMLVideoElement>();
   const popped = $derived(share.poppedOut);
   function popOut() {
@@ -314,22 +218,42 @@
     }
     popup = w;
     share.poppedOut = true;
-    w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
-    const v = w.document.createElement('video');
-    v.autoplay = true;
-    v.muted = true;
-    v.playsInline = true;
-    v.style.cssText = 'width:100vw;height:100vh;object-fit:contain;display:block';
-    v.ondblclick = () => { if (w.document.fullscreenElement) w.document.exitFullscreen(); else v.requestFullscreen().catch(() => {}); };
-    w.document.body.replaceChildren(v);
-    popVideo = v;
-    w.addEventListener('pagehide', () => { if (popup === w) { popup = null; popVideo = null; share.poppedOut = false; } });
+    const doc = w.document;
+    // The app's styles and theme, so the zoom panel looks as it does here
+    for (const el of document.querySelectorAll<HTMLLinkElement | HTMLStyleElement>('link[rel="stylesheet"], style')) {
+      const copy = el.cloneNode(true) as HTMLElement;
+      // The empty page has no address of its own to resolve a relative one against
+      if (el instanceof HTMLLinkElement) copy.setAttribute('href', el.href);
+      doc.head.append(copy);
+    }
+    const theme = () => {
+      for (const a of [...doc.documentElement.attributes]) doc.documentElement.removeAttribute(a.name);
+      for (const a of document.documentElement.attributes) doc.documentElement.setAttribute(a.name, a.value);
+    };
+    theme();
+    popTheme = new MutationObserver(theme);
+    popTheme.observe(document.documentElement, { attributes: true });
+    doc.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
+    const box = doc.createElement('div');
+    box.style.cssText = 'position:relative;width:100vw;height:100vh;display:flex;overflow:hidden;user-select:none';
+    doc.body.replaceChildren(box);
+    popProps.stream = focused;
+    popProps.ondblclick = () => { if (doc.fullscreenElement) doc.exitFullscreen(); else box.requestFullscreen().catch(() => {}); };
+    popView = mount(ZoomView, { target: box, props: popProps });
+    w.addEventListener('pagehide', () => { if (popup === w) closePopup(); });
+  }
+  function closePopup() {
+    if (popView) unmount(popView);
+    popView = null;
+    popTheme?.disconnect();
+    popTheme = null;
+    popup = null;
+    share.poppedOut = false;
   }
   function popIn() {
-    popup?.close();
-    popup = null;
-    popVideo = null;
-    share.poppedOut = false;
+    const w = popup;
+    closePopup();
+    w?.close();
   }
   // The window follows the picture on the stage and closes with it
   $effect(() => {
@@ -337,10 +261,10 @@
     const title = focus === self?.session ? `Your ${focusKind}` : focusUser ? store.displayName(focusUser) : 'Screen share';
     if (!popped) return;
     if (!stream) return popIn();
-    if (popVideo && popVideo.srcObject !== stream) popVideo.srcObject = stream;
+    if (popProps.stream !== stream) popProps.stream = stream;
     if (popup) popup.document.title = `${title} - mumh5`;
   });
-  $effect(() => () => { popup?.close(); share.poppedOut = false; });
+  $effect(() => () => popIn());
 </script>
 
 {#if voice.error && session.status === 'connected'}<div class="bar bad" role="alert"><span>Voice is not working: {voice.error}</span></div>{/if}
@@ -380,32 +304,11 @@
         {/if}
         {#if !videoOnly || shown.length}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
       </div>
-      <!-- svelte-ignore a11y_media_has_caption -->
       {#if !popped}
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
           <!-- Large, your own camera is shown as the others see it; only the small tile is a mirror -->
-          <video bind:this={spotVideo} use:media={focused} use:wheelZoom autoplay playsinline muted ondblclick={fullscreen}
-            class:zoomed={zoom > 1} class:dragging bind:clientWidth={boxW} bind:clientHeight={boxH}
-            onloadedmetadata={() => { srcW = spotVideo?.videoWidth ?? 0; srcH = spotVideo?.videoHeight ?? 0; }}
-            onresize={() => { srcW = spotVideo?.videoWidth ?? 0; srcH = spotVideo?.videoHeight ?? 0; }}
-            onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
-            style:transform={zoom > 1 ? `translate(${view[0] * boxW}px, ${view[1] * boxH}px) scale(${zoom})` : undefined}></video>
-          <!-- Shown on hover and while zoomed: the whole picture with the part in view framed -->
-          <div class="zoom" class:shown={zoom > 1} role="group" aria-label="Zoom">
-            <!-- svelte-ignore a11y_media_has_caption -->
-            <div class="map" role="presentation" style:aspect-ratio={srcW && srcH ? `${srcW} / ${srcH}` : '16 / 9'}
-              onpointerdown={mapDown} onpointermove={mapMove}>
-              <video use:media={focused} autoplay playsinline muted></video>
-              <span class="seen" style:left="{seen.left}%" style:top="{seen.top}%" style:width="{seen.width}%" style:height="{seen.height}%"></span>
-            </div>
-            <div class="zoom-row">
-              <button class="icon-btn" title="Zoom out" aria-label="Zoom out" disabled={zoom <= 1} onclick={() => zoomCentre(zoom / 1.5)}><Icon name="zoom-out" size={16} /></button>
-              <input type="range" min="1" max={MAX_ZOOM} step="0.01" value={zoom} oninput={e => zoomCentre(Number(e.currentTarget.value))}
-                aria-label="Zoom" aria-valuetext="{Math.round(zoom * 100)}%" title="{Math.round(zoom * 100)}%" />
-              <button class="icon-btn" title="Zoom in" aria-label="Zoom in" disabled={zoom >= MAX_ZOOM} onclick={() => zoomCentre(zoom * 1.5)}><Icon name="zoom-in" size={16} /></button>
-            </div>
-          </div>
+          <ZoomView stream={focused} bind:zoom bind:video={spotVideo} ondblclick={fullscreen} />
           {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
             <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
               ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
@@ -583,32 +486,16 @@
   .stage.solo:has(.spot.popped) { flex: none; background: var(--bg-0); }
   .spot-who { flex: 1 0 auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
   .pic { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; -webkit-touch-callout: none; user-select: none; }
-  .spot .pic video { transform-origin: 0 0; touch-action: none; }
-  .spot .pic video.zoomed { cursor: grab; }
-  .spot .pic video.dragging { cursor: grabbing; }
-  /* Zoom panel, bottom right; over the picture, so its colours are fixed dark ones */
-  .zoom { position: absolute; right: 8px; bottom: 8px; z-index: 1; width: min(220px, 45%); padding: 6px; display: flex; flex-direction: column; gap: 4px;
-    background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15); box-shadow: var(--shadow-pop);
-    opacity: 0; visibility: hidden; transition: opacity 0.15s var(--ease), visibility 0.15s; }
-  .pic:hover .zoom, .zoom.shown, .zoom:focus-within { opacity: 1; visibility: visible; }
-  .map { position: relative; width: 100%; overflow: hidden; background: #000; cursor: pointer; touch-action: none; }
-  .spot .pic .zoom .map video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: none; touch-action: auto; pointer-events: none; }
-  .seen { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); pointer-events: none; }
-  .zoom-row { display: flex; align-items: center; gap: 4px; }
-  .zoom-row input { flex: 1; min-width: 0; padding: 0; }
-  .zoom-row .icon-btn { flex: none; color: #ddd; }
-  .zoom-row .icon-btn:disabled { opacity: 0.4; }
   .pending { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
     color: #ddd; font-size: 13px; background: rgb(0 0 0 / 0.6); }
   .pending.bad { color: #ffb3ad; }
-  .spot video { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .vol { width: 110px; flex: none; padding: 0; }
   /* Video only: the picture as wide as the chat, as tall as its shape asks */
   /* It gives way when the window is short, so the chat below keeps its last lines in view */
   .stage.solo { flex: 0 1 auto; background: #000; }
   .stage.solo .spot { flex: 0 1 auto; }
   .stage.solo .pic { flex: 0 1 auto; flex-direction: column; }
-  .stage.solo .spot video { flex: 0 1 auto; height: auto; max-height: 62vh; }
+  .stage.solo .spot .pic > :global(video) { flex: 0 1 auto; height: auto; max-height: 62vh; }
   .wait { margin: 0; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; color: var(--text-dim); background: var(--bg-1); }
   .wait span { flex: 1; min-width: 0; }
   .wait.bad { color: var(--danger); }
