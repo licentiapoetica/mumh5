@@ -70,8 +70,8 @@ const userData = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'));
 const app = await electron.launch({
   executablePath: electronPath as unknown as string,
   // Stay on $DISPLAY (e.g. Xvfb); Electron would otherwise pick the Wayland session automatically
-  // Fake microphone (a beeping tone) and auto-granted permission for the voice tests
-  args: [root, `--user-data-dir=${userData}`, '--ozone-platform=x11', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+  // Fake microphone (a beeping tone) and auto-granted permission for the voice tests; nothing reaches the speakers
+  args: [root, `--user-data-dir=${userData}`, '--ozone-platform=x11', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
   env: env as Record<string, string>
 });
 // The update check asks GitHub; answer for it, as if the release had three newer commits
@@ -536,6 +536,16 @@ try {
   await app.evaluate(() => (globalThis as any).__mumh5Tray.click('Mute'));
   await within(new Promise<void>(res => bob.on('user', (u, ch) => { if (u.name === 'alice' && ch.includes('selfMute') && !u.selfMute) res(); })), 'unmuted from the tray');
   await trayUntil('connected', t => /connected on Test Server/.test(t.tooltip) && !t.items.find((i: any) => i.label === 'Mute').checked);
+  // The sphere takes the color scheme's accent
+  const trayIcon = () => app.evaluate(() => (globalThis as any).__mumh5Tray.fullIcon as string);
+  const darkIcon = await trayIcon();
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  await page.getByRole('radio', { name: 'Forest' }).click();
+  await within((async () => { while ((await trayIcon()) === darkIcon) await new Promise(r => setTimeout(r, 100)); })(), 'tray icon follows the accent');
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await within((async () => { while ((await trayIcon()) !== darkIcon) await new Promise(r => setTimeout(r, 100)); })(), 'tray icon back to the dark accent');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await app.evaluate(() => (globalThis as any).__mumh5Tray.click('Mute'));
   await trayUntil('muted again', t => /muted/.test(t.tooltip));
   console.log('ok: tray icon follows voice state and its menu mutes');
