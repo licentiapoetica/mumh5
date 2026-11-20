@@ -839,6 +839,13 @@ export class Session {
     delete this.unread[key];
   }
 
+  // Removes a direct chat from the list; a new message from that person opens it again
+  closeDm(key: `dm:${number}`): void {
+    delete this.logs[key];
+    delete this.unread[key];
+    if (this.view === key) this.view = `ch:${this.self?.channelId ?? 0}`;
+  }
+
   // The view follows once the server confirms the move (see the 'user' handler). Murmur
   // silently drops own state changes sent too quickly (leaky bucket, about one per second),
   // so an unconfirmed join is sent once more before giving up.

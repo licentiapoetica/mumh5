@@ -336,6 +336,12 @@ try {
   const played = await soundLog();
   for (const ev of ['connected', 'message', 'privateMessage']) assert.ok(played.includes(ev), `sound for ${ev}: ${played}`);
   console.log('ok: sounds for connect, channel and direct messages');
+  const dmRow = page.locator('.dm-row', { hasText: 'bob' });
+  await dmRow.hover();
+  await dmRow.getByRole('button', { name: 'Close conversation with bob' }).click();
+  await page.locator('.sidebar').getByText('Direct messages').waitFor({ state: 'detached' });
+  await page.locator('.msg', { hasText: 'psst' }).waitFor({ state: 'detached' });
+  console.log('ok: direct message closed');
   await page.locator('.channel .name').first().dblclick();
 
   // Mute toggles propagate
