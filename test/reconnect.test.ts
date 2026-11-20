@@ -10,7 +10,7 @@ import type { SavedServer } from '../src/lib/settings.svelte.ts';
 // failures and timers are deterministic, without a microphone, proxy or Mumble server.
 const sessionPath = new URL('../src/lib/session.svelte.ts', import.meta.url).pathname;
 const stubs = `
-  export const control = { opens: 0, failure: false, fingerprint: 'first', hold: null };
+  export const control = { opens: 0, failure: false, fingerprint: 'first', hold: null, attached: null };
   export const native = { platformInfo: async () => ({ os: 'test', osVersion: '' }) };
   export async function openTransport() {
     control.opens++;
@@ -22,7 +22,7 @@ const stubs = `
   export const store = { pins: {}, pin(key, value) { this.pins[key] = value; } };
   const service = { closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
   export const share = service, textChannels = service, files = service;
-  export const voice = { settings: { forceTcp: false }, attach() {}, detach() {} };
+  export const voice = { settings: { forceTcp: false }, attach(c) { control.attached = c; }, detach() { control.attached = null; } };
   export const sounds = { play() {} };
   export const ownAvatar = { loaded: Promise.resolve(), bytes: null };
   export const renderIncoming = x => x, textToHtml = x => x, escapeHtml = x => x;
@@ -46,8 +46,8 @@ const result = await build({
 });
 const { Session, sessions, control, store } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`) as {
   Session: new () => SessionType;
-  sessions: { open(s: SavedServer): void; close(id: string): void; byServer(id: string): SessionType | undefined };
-  control: { opens: number; failure: boolean; fingerprint: string; hold: Promise<void> | null };
+  sessions: { voiceId: string | null; open(s: SavedServer): void; close(id: string): void; byServer(id: string): SessionType | undefined };
+  control: { opens: number; failure: boolean; fingerprint: string; hold: Promise<void> | null; attached: unknown };
   store: { pins: Record<string, string> };
 };
 const server = (autoReconnect?: boolean, id = 'test'): SavedServer => ({
@@ -55,7 +55,7 @@ const server = (autoReconnect?: boolean, id = 'test'): SavedServer => ({
 });
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 function setup(t: TestContext): SessionType {
-  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   control.opens = 0;
   control.failure = false;
   control.fingerprint = 'first';
@@ -81,7 +81,7 @@ test('auto reconnect is opt-in, including for previously saved servers', async t
   assert.equal(control.opens, 2);
 });
 
-test('connection loss retries with bounded backoff, then success resets it', async t => {
+test('connection loss retries with bounded backoff, reset only by a lasting connection', async t => {
   const s = setup(t);
   await s.connect(server(true));
   sync(s);
@@ -102,8 +102,123 @@ test('connection loss retries with bounded backoff, then success resets it', asy
   sync(s);
   assert.equal(s.status, 'connected');
   assert.equal(s.reconnectDelay, null);
+  // Dropped right after login (a kick on join): keep backing off
   s.client!.emit('close', 'Connection lost again');
+  assert.equal(s.reconnectDelay, 30);
+  t.mock.timers.tick(30_000);
+  await flush();
+  sync(s);
+  t.mock.timers.tick(61_000);
+  s.client!.emit('close', 'Connection lost after a while');
   assert.equal(s.reconnectDelay, 5);
+});
+
+test('the countdown goes down every second', async t => {
+  const s = setup(t);
+  await s.connect(server(true));
+  s.client!.emit('close', 'Connection lost');
+  assert.equal(s.reconnectDelay, 5);
+  t.mock.timers.tick(1000);
+  assert.equal(s.reconnectDelay, 4);
+  t.mock.timers.tick(3000);
+  assert.equal(s.reconnectDelay, 1);
+});
+
+test('a full server or a name still in use is retried, other rejections are not', async t => {
+  const s = setup(t);
+  for (const [type, retried] of [[6, true], [5, true], [4, false], [0, false]] as const) {
+    await s.connect(server(true));
+    s.client!.emit('reject', type, 'Refused');
+    s.client!.emit('close', 'Refused');
+    assert.equal(s.reconnectDelay != null, retried, `reject type ${type}`);
+  }
+  // A full server, then a retry that only times out: still retried
+  await s.connect(server(true));
+  s.client!.emit('reject', 6, 'Server is full');
+  s.client!.emit('close', 'Server is full');
+  t.mock.timers.tick(5000);
+  await flush();
+  t.mock.timers.tick(20_000);
+  assert.equal(s.error, 'Login timed out');
+  assert.equal(s.reconnectDelay, 10);
+});
+
+test('the kick notice stays through failed retries and clears once back in', async t => {
+  const s = setup(t);
+  await s.connect(server(true));
+  sync(s);
+  const client = s.client!;
+  client.session = 7;
+  client.emit('userRemove', { session: 7 } as never, null, 'spam', false);
+  client.emit('close', 'Disconnected');
+  control.failure = true;
+  t.mock.timers.tick(5000);
+  await flush();
+  assert.equal(s.error, 'Server unavailable');
+  assert.equal(s.disconnectInfo?.kind, 'kicked');
+  assert.equal(s.disconnectInfo?.reason, 'spam');
+  control.failure = false;
+  t.mock.timers.tick(10_000);
+  await flush();
+  sync(s);
+  assert.equal(s.disconnectInfo, null);
+});
+
+test('an automatic reconnect keeps channel chats, drops direct chats and rejoins the channel', async t => {
+  const s = setup(t);
+  await s.connect(server(true));
+  const before = s.client!;
+  before.channels.set(0, { id: 0, name: 'Root' } as never);
+  before.channels.set(4, { id: 4, name: 'Raid' } as never);
+  before.session = 7;
+  before.users.set(7, { session: 7, name: 'Tester', channelId: 4 } as never);
+  sync(s);
+  s.logs = { 'ch:4': [{ id: 1 } as never], 'dm:9': [{ id: 2 } as never] };
+  s.unread = { 'dm:9': 1 };
+  before.emit('close', 'Connection lost');
+  t.mock.timers.tick(5000);
+  await flush();
+  const after = s.client!;
+  assert.notEqual(after, before);
+  const joins: number[] = [];
+  after.joinChannel = (id: number) => { joins.push(id); };
+  after.channels.set(0, { id: 0, name: 'Root' } as never);
+  after.channels.set(4, { id: 4, name: 'Raid' } as never);
+  after.session = 3;
+  after.users.set(3, { session: 3, name: 'Tester', channelId: 0 } as never);
+  sync(s);
+  assert.deepEqual(joins, [4]);
+  assert.equal(s.view, 'ch:4');
+  assert.equal(s.logs['ch:4'][0].id, 1);
+  assert.equal(s.logs['dm:9'], undefined);
+  assert.equal(s.unread['dm:9'], undefined);
+  // A manual connect starts over
+  await s.connect(server(true));
+  assert.deepEqual(s.logs, {});
+});
+
+test('voice waits for a server that reconnects by itself', async t => {
+  setup(t);
+  sessions.open(server(true));
+  sessions.open(server(true, 'other'));
+  await flush();
+  const s = sessions.byServer('test')!;
+  sync(s);
+  sync(sessions.byServer('other')!);
+  assert.equal(sessions.voiceId, 'test');
+  s.client!.emit('close', 'Connection lost');
+  assert.equal(sessions.voiceId, 'test');
+  assert.equal(control.attached, null);
+  t.mock.timers.tick(5000);
+  await flush();
+  sync(s);
+  assert.equal(sessions.voiceId, 'test');
+  assert.equal(control.attached, s.client);
+  // Without a retry, voice moves on
+  s.client!.emit('close', 'Connection lost');
+  s.cancelReconnect();
+  assert.equal(sessions.voiceId, 'other');
+  assert.equal(control.attached, sessions.byServer('other')!.client);
 });
 
 test('initial connection failure and login timeout retry', async t => {

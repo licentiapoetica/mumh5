@@ -12,7 +12,8 @@
   const initials = (label: string) =>
     label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
-  const stateOf = (id: string) => sessions.byServer(id)?.status ?? 'idle';
+  // Waiting for an automatic reconnect counts as connecting, so it shows and can be stopped
+  const stateOf = (id: string) => { const s = sessions.byServer(id); return s?.reconnectDelay != null ? 'connecting' : s?.status ?? 'idle'; };
   const unreadOf = (id: string) => {
     const s = sessions.byServer(id);
     return s && sessions.activeId !== id ? Object.values(s.unread).reduce((a, b) => a + b, 0) : 0;

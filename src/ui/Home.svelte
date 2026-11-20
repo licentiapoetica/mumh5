@@ -69,7 +69,7 @@
     {/if}
 
     {#if session.reconnectDelay != null}
-      <p role="status">Retrying in {session.reconnectDelay} seconds.</p>
+      <p role="status">Retrying in {session.reconnectDelay} second{session.reconnectDelay === 1 ? '' : 's'}.</p>
       <button class="btn" onclick={() => session.cancelReconnect()}>Cancel auto-reconnect</button>
     {/if}
 
