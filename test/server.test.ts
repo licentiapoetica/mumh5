@@ -9,6 +9,7 @@ import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity } from '../electron/identity.ts';
 import { encodeVoice, decodeVoice } from '../src/core/voice-packet.ts';
 import { udpChannel } from '../electron/udp-voice.ts';
+import { encodePoke, decodePoke } from '../src/core/poke.ts';
 import { FILE, FILE_DATA_ID, FileAssembler, Sender, announce, takeFiles, encodeFileSignal, encode15, decode15, fromRanges, toRanges, parsePiece, pieceBytes, pieceCount, pieceForm, pieceMessage, pieceSize, pump, isPiece } from '../src/core/file-transfer.ts';
 
 const target = process.env.MUMBLE_TEST_HOST;
@@ -334,6 +335,21 @@ test('file announcements with a preview pass the server as they are', { skip: !t
     const arrived = await got;
     assert.equal(arrived, html);
     assert.equal(takeFiles(arrived).files[0].meta.n, 'clip--1.mp4');
+  } finally {
+    alice.disconnect();
+    bob.disconnect();
+  }
+});
+
+test('a poke reaches one person as a private message with its marker intact', { skip: !target }, async () => {
+  const alice = await connect('pokeA' + Date.now() % 1000);
+  const bob = await connect('pokeB' + Date.now() % 1000);
+  try {
+    const got = until<{ html: string; users: number[]; channels: number[] }>(res => bob.on('text', m => res({ html: m.html, users: m.sessions, channels: m.channels })));
+    alice.sendText({ users: [bob.session!] }, encodePoke('Hey wake up! <3'));
+    const arrived = await got;
+    assert.equal(arrived.channels.length, 0);
+    assert.equal(decodePoke(arrived.html), 'Hey wake up! <3');
   } finally {
     alice.disconnect();
     bob.disconnect();

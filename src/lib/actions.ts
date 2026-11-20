@@ -6,6 +6,7 @@ import { voice, userKey } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 import { menu, type MenuItem } from './menu.svelte.ts';
 import { PERM, type Channel, type User } from '../core/client.ts';
+import { POKE_MAX } from '../core/poke.ts';
 
 // A person's profile card, next to the element that was clicked (or at a point, from a menu)
 export function openProfile(user: number, at: Element | { x: number; y: number }): void {
@@ -94,6 +95,7 @@ export function userMenu(u: User): MenuItem[] {
     } else if (sharing) items.push({ label: `Watch ${sharing}`, action: () => share.watch(sessions.active, u.session) });
     items.push(
       { label: 'Send message', action: () => session.selectView(`dm:${u.session}`) },
+      { label: 'Poke...', action: () => pokePrompt(u) },
       { label: 'Mute for me', checked: !!voice.settings.localMutes[userKey(u)], action: () => voice.setLocalMute(u, !voice.settings.localMutes[userKey(u)]) },
       {
         label: 'Volume',
@@ -136,6 +138,14 @@ export function changeNamePrompt(u: User): void {
       ? 'You are registered here, so the server keeps your registered name. The new name applies on servers where you are a guest.'
       : 'Mumble cannot rename you while connected, so mumh5 reconnects with the new name and remembers it for this server.',
     onsubmit: name => session.changeName(name)
+  };
+}
+
+export function pokePrompt(u: User): void {
+  ui.prompt = {
+    title: `Poke ${store.displayName(u)}`, label: 'Message (optional)', confirm: 'Poke', maxlength: POKE_MAX,
+    text: 'Pops up for them in mumh5. Other Mumble clients show it as a private message.',
+    onsubmit: note => session.poke(u.session, note)
   };
 }
 

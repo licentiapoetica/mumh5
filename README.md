@@ -115,6 +115,7 @@ On a phone or in a narrow window, everything fits on one screen:
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
+- Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 and arrives as a private message in other Mumble clients
 - Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
 - Inline pictures, video and audio for shared files
 - YouTube links as click-to-play players (off by default)

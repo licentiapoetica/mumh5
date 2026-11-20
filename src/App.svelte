@@ -8,6 +8,7 @@
   import CertDialog from './ui/CertDialog.svelte';
   import CertViewer from './ui/CertViewer.svelte';
   import PromptDialog from './ui/PromptDialog.svelte';
+  import PokeDialog from './ui/PokeDialog.svelte';
   import ContextMenu from './ui/ContextMenu.svelte';
   import IdentityWizard from './ui/IdentityWizard.svelte';
   import QuickAudio from './ui/QuickAudio.svelte';
@@ -178,6 +179,7 @@
   {#key ui.channelDialog}<ChannelDialog {...ui.channelDialog} onclose={() => (ui.channelDialog = null)} />{/key}
 {/if}
 {#if share.dialog}<ShareDialog onclose={() => (share.dialog = null)} />{/if}
+{#if ui.pokes.length}<PokeDialog />{/if}
 {#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => { const p = ui.prompt; ui.prompt = null; p?.oncancel?.(); }} />{/if}
 <ProfileCard />
 <ImageViewer />

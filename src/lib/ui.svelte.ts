@@ -7,6 +7,7 @@ export interface PromptRequest {
   danger?: boolean;
   input?: 'text' | 'password' | 'none';
   initial?: string;
+  maxlength?: number;
   text?: string;
   onsubmit: (value: string) => void;
   // Closed without confirming
@@ -17,6 +18,16 @@ export interface CertRequest {
   title: string;
   chain: CertDetails[];
   status?: { ok: boolean; text: string };
+}
+
+export interface Poke {
+  id: number;
+  server: string;
+  serverName: string;
+  from: number;
+  name: string;
+  note: string;
+  time: number;
 }
 
 // App-wide dialogs that can be opened from anywhere (menus, panels)
@@ -45,6 +56,8 @@ class Ui {
   // Profile card of a person, opened next to the area that was clicked
   // el: what was clicked, followed when the list scrolls; anchor: its box at the time (or a point)
   profile = $state<{ session: number; anchor: { left: number; top: number; right: number; bottom: number }; el?: Element } | null>(null);
+  // Pokes not yet dismissed, oldest first
+  pokes = $state<Poke[]>([]);
   // Set when a panel was opened on a layout where it is an overlay
   panelOpen = $state(false);
 }
