@@ -181,6 +181,80 @@
   }
   const touchEnd = () => clearTimeout(hold);
 
+  // Zoom into the large picture: the wheel zooms toward the pointer, dragging pans, two fingers
+  // pinch. Pan is kept as a fraction of the video box so it survives full screen and resizes.
+  const MAX_ZOOM = 8;
+  let zoom = $state(1);
+  let panX = $state(0);
+  let panY = $state(0);
+  let boxW = $state(0);
+  let boxH = $state(0);
+  let srcW = $state(0);
+  let srcH = $state(0);
+  // Keeps the picture (not its letterbox bars) covering the box; centred while it is smaller
+  function clampPan(s: number, x: number, y: number): [number, number] {
+    const ratio = srcW && srcH && boxW && boxH ? (srcW / srcH) / (boxW / boxH) : 1;
+    const a = Math.min(1, ratio), b = Math.min(1, 1 / ratio);
+    const axis = (p: number, f: number) => s * f >= 1
+      ? Math.min(-s * (1 - f) / 2, Math.max(1 - s * (1 + f) / 2, p))
+      : (1 - s) / 2;
+    return [axis(x, a), axis(y, b)];
+  }
+  const view = $derived(clampPan(zoom, panX, panY));
+  function resetZoom() { zoom = 1; panX = 0; panY = 0; }
+  // A new picture on the stage starts unzoomed
+  $effect(() => { void focus; void popped; resetZoom(); });
+  function zoomAt(s: number, clientX: number, clientY: number) {
+    if (!spotVideo || !boxW || !boxH) return;
+    const next = Math.min(MAX_ZOOM, Math.max(1, s));
+    srcW = spotVideo.videoWidth;
+    srcH = spotVideo.videoHeight;
+    const r = spotVideo.getBoundingClientRect();
+    // Pointer in the untransformed box, then the picture point under it stays put
+    const qx = (clientX - r.left) / boxW + view[0], qy = (clientY - r.top) / boxH + view[1];
+    const cx = (qx - view[0]) / zoom, cy = (qy - view[1]) / zoom;
+    if (next === 1) return resetZoom();
+    [panX, panY] = clampPan(next, qx - cx * next, qy - cy * next);
+    zoom = next;
+  }
+  // Non-passive, so the wheel does not also scroll the page
+  function wheelZoom(node: HTMLElement) {
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+      zoomAt(zoom * Math.exp(-dy * 0.002), e.clientX, e.clientY);
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return { destroy: () => node.removeEventListener('wheel', onWheel) };
+  }
+  const pointers = new Map<number, { x: number; y: number }>();
+  let dragging = $state(false);
+  function pointerDown(e: PointerEvent) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragging = zoom > 1 || pointers.size > 1;
+  }
+  function pointerMove(e: PointerEvent) {
+    const last = pointers.get(e.pointerId);
+    if (!last) return;
+    if (pointers.size === 2) {
+      const [p, q] = [...pointers.values()];
+      const before = Math.hypot(p.x - q.x, p.y - q.y);
+      last.x = e.clientX; last.y = e.clientY;
+      const after = Math.hypot(p.x - q.x, p.y - q.y);
+      if (before > 0) zoomAt(zoom * after / before, (p.x + q.x) / 2, (p.y + q.y) / 2);
+      return;
+    }
+    const dx = e.clientX - last.x, dy = e.clientY - last.y;
+    last.x = e.clientX; last.y = e.clientY;
+    if (zoom > 1 && boxW && boxH) [panX, panY] = clampPan(zoom, view[0] + dx / boxW, view[1] + dy / boxH);
+  }
+  function pointerUp(e: PointerEvent) {
+    pointers.delete(e.pointerId);
+    if (!pointers.size) dragging = false;
+  }
+
   let frame = $state<HTMLElement>();
   function fullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
@@ -279,7 +353,15 @@
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
           <!-- Large, your own camera is shown as the others see it; only the small tile is a mirror -->
-          <video bind:this={spotVideo} use:media={focused} autoplay playsinline muted ondblclick={fullscreen}></video>
+          <video bind:this={spotVideo} use:media={focused} use:wheelZoom autoplay playsinline muted ondblclick={fullscreen}
+            class:zoomed={zoom > 1} class:dragging bind:clientWidth={boxW} bind:clientHeight={boxH}
+            onloadedmetadata={() => { srcW = spotVideo?.videoWidth ?? 0; srcH = spotVideo?.videoHeight ?? 0; }}
+            onresize={() => { srcW = spotVideo?.videoWidth ?? 0; srcH = spotVideo?.videoHeight ?? 0; }}
+            onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
+            style:transform={zoom > 1 ? `translate(${view[0] * boxW}px, ${view[1] * boxH}px) scale(${zoom})` : undefined}></video>
+          {#if zoom > 1}
+            <button class="zoom-level" title="Reset zoom" aria-label="Reset zoom" onclick={resetZoom}>{Math.round(zoom * 100)}%</button>
+          {/if}
           {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
             <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
               ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
@@ -456,7 +538,13 @@
   .spot.popped { flex: none !important; min-height: 0 !important; background: var(--bg-0); }
   .stage.solo:has(.spot.popped) { flex: none; background: var(--bg-0); }
   .spot-who { flex: 1 0 auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
-  .pic { position: relative; flex: 1; min-height: 0; display: flex; -webkit-touch-callout: none; user-select: none; }
+  .pic { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; -webkit-touch-callout: none; user-select: none; }
+  .spot .pic video { transform-origin: 0 0; touch-action: none; }
+  .spot .pic video.zoomed { cursor: grab; }
+  .spot .pic video.dragging { cursor: grabbing; }
+  .zoom-level { position: absolute; top: 8px; right: 8px; padding: 3px 8px; font-size: 12px; font-variant-numeric: tabular-nums;
+    color: #ddd; background: rgb(0 0 0 / 0.6); border: 1px solid rgb(255 255 255 / 0.2); cursor: pointer; }
+  .zoom-level:hover { color: #fff; background: rgb(0 0 0 / 0.8); }
   .pending { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
     color: #ddd; font-size: 13px; background: rgb(0 0 0 / 0.6); }
   .pending.bad { color: #ffb3ad; }

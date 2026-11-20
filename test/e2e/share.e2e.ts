@@ -208,6 +208,36 @@ try {
   await bob.page.keyboard.press('Escape');
   console.log('ok: long press on the picture opens the menu');
 
+  // The wheel zooms toward the pointer, dragging pans, the percentage resets it
+  const spotBox = (await bob.page.locator('.spot video').boundingBox())!;
+  const transform = () => bob.page.evaluate(() => getComputedStyle(document.querySelector('.spot video')!).transform);
+  // The picture point under the pointer, in stream pixels, from the video's on-screen box
+  const under = (x: number, y: number) => bob.page.evaluate(([x, y]) => {
+    const v = document.querySelector('.spot video') as HTMLVideoElement;
+    const r = v.getBoundingClientRect();
+    const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+    return [(x - r.left - (r.width - v.videoWidth * s) / 2) / s, (y - r.top - (r.height - v.videoHeight * s) / 2) / s];
+  }, [x, y]);
+  const at = { x: spotBox.x + spotBox.width * 0.7, y: spotBox.y + spotBox.height * 0.6 };
+  const before = await under(at.x, at.y);
+  await bob.page.mouse.move(at.x, at.y);
+  await bob.page.mouse.wheel(0, -400);
+  const reset = view.getByRole('button', { name: 'Reset zoom' });
+  await reset.waitFor({ timeout: 3000 });
+  const level = Number((await reset.innerText()).replace('%', ''));
+  assert.ok(level > 100, `zoomed in (${level}%)`);
+  const after = await under(at.x, at.y);
+  assert.ok(Math.abs(after[0] - before[0]) < 4 && Math.abs(after[1] - before[1]) < 4, `the point under the pointer stays (${before} -> ${after})`);
+  const zoomed = await transform();
+  await bob.page.mouse.down();
+  await bob.page.mouse.move(at.x - 60, at.y - 40, { steps: 4 });
+  await bob.page.mouse.up();
+  assert.notEqual(await transform(), zoomed, 'dragging pans the picture');
+  await reset.click();
+  await reset.waitFor({ state: 'detached' });
+  assert.equal(await transform(), 'none');
+  console.log(`ok: wheel zooms the picture (${level}%), drag pans, reset`);
+
   // The large picture can move to a window of its own
   const opened = bob.app.waitForEvent('window');
   // From the right-click menu on the picture
@@ -238,7 +268,7 @@ try {
   await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   // The sharer's profile says so and offers to watch
   await bob.page.locator('.sidebar .row.user', { hasText: aliceName }).click();
-  const profile = bob.page.locator('.panel .sharing');
+  const profile = bob.page.getByRole('dialog', { name: /^Profile of / });
   await profile.getByText('Sharing their screen').waitFor();
   await profile.getByRole('button', { name: 'Watch' }).click();
   await profile.getByRole('button', { name: 'Stop watching' }).waitFor();
@@ -249,6 +279,8 @@ try {
   await alice.page.locator('.me').getByRole('button', { name: 'Stop sharing your screen' }).click();
   await view.waitFor({ state: 'detached' });
   await watch.waitFor({ state: 'detached' });
+  await profile.getByText('Sharing their screen').waitFor({ state: 'detached' });
+  await bob.page.keyboard.press('Escape');
   await profile.waitFor({ state: 'detached' });
   assert.equal(await alice.page.locator('.stage .status').count(), 0);
   console.log('ok: stopping ends the stream for viewers');
