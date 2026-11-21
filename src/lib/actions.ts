@@ -26,7 +26,8 @@ export function channelMenu(c: Channel): MenuItem[] {
     { separator: true, label: '' },
     { label: 'Create channel...', disabled: no(PERM.MakeChannel) && no(PERM.MakeTempChannel), action: () => (ui.channelDialog = { mode: 'create', parent: c.id }) },
     { label: 'Edit channel...', disabled: no(PERM.Write), action: () => (ui.channelDialog = { mode: 'edit', id: c.id }) },
-    { label: 'Permissions...', disabled: no(PERM.Write), action: () => (ui.channelDialog = { mode: 'edit', id: c.id, tab: 'permissions' }) }
+    { label: 'Permissions...', disabled: no(PERM.Write), action: () => (ui.channelDialog = { mode: 'edit', id: c.id, tab: 'permissions' }) },
+    { label: 'Roles and members...', disabled: session.can(0, PERM.Write) !== true, action: () => (ui.rolesDialog = {}) }
   ];
   if (!here) {
     manage.push(linked
@@ -86,6 +87,7 @@ export function userMenu(u: User): MenuItem[] {
       { label: 'Change name...', action: () => changeNamePrompt(u) }
     );
     if (u.userId == null) items.push({ label: 'Register on this server', action: () => session.register(u.session) });
+    items.push({ label: 'Use an access key...', action: accessKeyPrompt });
   } else {
     const sharing = session.sharing[u.session];
     if (sharing === 'camera') {
@@ -118,6 +120,9 @@ export function userMenu(u: User): MenuItem[] {
     { label: 'Priority speaker', checked: u.prioritySpeaker, action: () => session.setPrioritySpeaker(u.session, !u.prioritySpeaker) }
   );
   if (!isSelf && u.userId == null) items.push({ label: 'Register user', action: () => session.register(u.session) });
+  if (u.userId != null && u.userId !== 0 && session.can(0, PERM.Write) === true) {
+    items.push({ label: 'Manage roles...', action: () => (ui.rolesDialog = { tab: 'members', userId: u.userId }) });
+  }
   if (!isSelf) {
     items.push(
       { separator: true, label: '' },
@@ -129,6 +134,14 @@ export function userMenu(u: User): MenuItem[] {
   if (u.hash) items.push({ label: 'Copy certificate hash', action: () => navigator.clipboard.writeText(u.hash) });
   items.push({ separator: true, label: '' }, { label: 'Information', action: () => (ui.userInfo = u.session) });
   return items;
+}
+
+// A key from a server admin; kept like a channel password and sent on every connect
+function accessKeyPrompt(): void {
+  ui.prompt = {
+    title: 'Use an access key', label: 'Access key', confirm: 'Use key',
+    onsubmit: key => { if (key.trim()) session.rememberChannelPassword(key.trim()); }
+  };
 }
 
 export function changeNamePrompt(u: User): void {

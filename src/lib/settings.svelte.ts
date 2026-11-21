@@ -38,6 +38,8 @@ export interface Settings {
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
   updateCheck: boolean;   // desktop: ask GitHub now and then for a newer build; browser: ask the site
   pokeNotify: boolean;    // a system notification for a poke while the window is not focused
+  roleIcons: 'all' | 'top' | 'off'; // role icons next to names
+  roleColors: boolean;   // names in the color of their top role
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -86,7 +88,9 @@ const defaults: Settings = {
   shareNoticeSeen: false,
   hints: false,
   updateCheck: true,
-  pokeNotify: true
+  pokeNotify: true,
+  roleIcons: 'all',
+  roleColors: true
 };
 
 class SettingsStore {

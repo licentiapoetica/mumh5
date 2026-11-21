@@ -52,6 +52,8 @@ class Ui {
   editServer = $state<SavedServer | null>(null);
   // Channel dialog: create a subchannel of `parent`, or edit channel `id`
   channelDialog = $state<{ mode: 'create'; parent: number } | { mode: 'edit'; id: number; tab?: 'general' | 'permissions' | 'groups' } | null>(null);
+  // Roles, members and access keys of the current server; userId: the person to open on
+  rolesDialog = $state<{ tab?: 'roles' | 'members' | 'keys'; userId?: number | null } | null>(null);
   // Session whose connection information is shown
   userInfo = $state<number | null>(null);
   // Description preview of a channel in the tree, opened from its menu at that point

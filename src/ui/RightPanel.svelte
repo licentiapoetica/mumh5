@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { stripMark } from '../core/text-signal.ts';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import Members from './Members.svelte';
@@ -28,7 +29,7 @@
   $effect(() => { if (channel?.descriptionHash && !channel.description) session.loadDescription(channel.id); });
   $effect(() => { if (user?.commentHash && !user.comment) session.loadComment(user.session); });
 
-  const description = $derived(channel?.description ? renderIncoming(channel.description, store.trustedHosts).html : '');
+  const description = $derived(channel?.description ? renderIncoming(stripMark(channel.description), store.trustedHosts).html : '');
   const comment = $derived(user?.comment ? renderIncoming(user.comment, store.trustedHosts).html : '');
   const pendingDescription = $derived(!!channel?.descriptionHash && !channel.description);
   const pendingComment = $derived(!!user?.commentHash && !user.comment);

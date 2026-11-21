@@ -1,9 +1,38 @@
+import { isRoleImage } from '../core/roles.ts';
+
 const readDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
   const r = new FileReader();
   r.onload = () => resolve(String(r.result));
   r.onerror = () => reject(r.error);
   r.readAsDataURL(file);
 });
+
+// A role icon: at most 32 px and small enough to publish with the roles. Drawn through <img>,
+// which also renders SVG without running anything inside it.
+export async function makeRoleIcon(file: File): Promise<string | null> {
+  if (!file.type.startsWith('image/')) return null;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const w = img.naturalWidth || 32;
+    const h = img.naturalHeight || 32;
+    for (const size of [32, 24, 16]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const scale = Math.min(size / w, size / h);
+      const dw = w * scale, dh = h * scale;
+      canvas.getContext('2d')!.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+      for (const uri of [canvas.toDataURL('image/webp', 0.85), canvas.toDataURL('image/webp', 0.6), canvas.toDataURL('image/png')]) {
+        if (isRoleImage(uri)) return uri;
+      }
+    }
+  } catch { /* undecodable image */ } finally {
+    URL.revokeObjectURL(url);
+  }
+  return null;
+}
 
 // JPEG data URI of an image, scaled down until it fits in maxChars. Mumble clients render
 // inline data: images, which is also how the desktop client sends pasted pictures.

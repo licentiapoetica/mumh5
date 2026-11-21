@@ -4,6 +4,7 @@ import type { MenuItem } from './menu.svelte.ts';
 import { sessions } from './session.svelte.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
+import { PERM } from '../core/client.ts';
 
 // Waiting for an automatic reconnect counts as connecting, so it shows and can be stopped
 export function serverState(id: string): string {
@@ -77,6 +78,9 @@ export function currentServerMenu(s: SavedServer | undefined): MenuItem[] {
       ? [sessions.homeShown
         ? { label: 'Back to server', action: () => (sessions.homeShown = false) }
         : { label: 'Go to home screen', action: () => (sessions.homeShown = true) }]
+      : []),
+    ...(sessions.active.status === 'connected'
+      ? [{ label: 'Roles and members...', disabled: sessions.active.can(0, PERM.Write) !== true, action: () => (ui.rolesDialog = {}) }]
       : []),
     { label: 'Add a server...', action: () => (ui.addServer = {}) },
     // The public list and its pings need the desktop app

@@ -324,7 +324,8 @@ export function accessTargets(acl: ChannelAcl): AccessTarget[] {
     if (!seen.has(key)) { seen.add(key); list.push({ key, group, userId }); }
   };
   const passwords = passwordRules(acl);
-  for (const r of acl.acls) if (!r.inherited && !passwords.has(r)) add(r.userId != null ? null : r.group, r.userId);
+  // Access keys (#mk.) are managed with their role
+  for (const r of acl.acls) if (!r.inherited && !passwords.has(r) && !r.group?.startsWith('#mk.')) add(r.userId != null ? null : r.group, r.userId);
   for (const g of acl.groups) add(g.name, null);
   return list;
 }

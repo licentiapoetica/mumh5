@@ -162,6 +162,7 @@ type ClientEvents = {
   udp: (ok: boolean, rtt: number) => void;
   acl: (acl: ChannelAcl) => void;
   userNames: (names: Map<number, string>) => void;
+  userList: (users: { id: number; name: string }[]) => void;
   permissions: (channelId: number | null, bits: number) => void;
   ping: (rttMs: number) => void;
   close: (reason: string) => void;
@@ -452,6 +453,11 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.send('QueryUsers', { ids: q.ids ?? [], names: q.names ?? [] });
   }
 
+  // Every registered user; the server answers people who may register others
+  queryUserList(): void {
+    this.send('UserList', {});
+  }
+
   // Connection details of a user; the server decides how much we may see
   requestUserStats(session: number, statsOnly = false): void {
     this.send('UserStats', { session, stats_only: statsOnly });
@@ -644,6 +650,12 @@ export class MumbleClient extends Emitter<ClientEvents> {
         const ids: number[] = msg.ids ?? [], names: string[] = msg.names ?? [];
         ids.forEach((id, i) => { if (names[i]) this.registeredNames.set(id, names[i]); });
         this.emit('userNames', this.registeredNames);
+        break;
+      }
+      case 'UserList': {
+        const users = (msg.users ?? []).filter((u: any) => u.name).map((u: any) => ({ id: u.user_id as number, name: u.name as string }));
+        for (const u of users) this.registeredNames.set(u.id, u.name);
+        this.emit('userList', users);
         break;
       }
       case 'PermissionQuery':

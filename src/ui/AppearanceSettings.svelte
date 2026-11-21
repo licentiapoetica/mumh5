@@ -86,6 +86,19 @@
   {/each}
 </div>
 
+<h3 class="gap">Role icons</h3>
+<div class="role-opts">
+  <label for="role-icons">Show next to names</label>
+  <select id="role-icons" value={store.settings.roleIcons ?? 'all'}
+    onchange={e => { store.settings.roleIcons = e.currentTarget.value as 'all' | 'top' | 'off'; store.saveSettings(); }}>
+    <option value="all">All roles</option>
+    <option value="top">Top role only</option>
+    <option value="off">Off</option>
+  </select>
+  <label class="role-check"><input type="checkbox" checked={store.settings.roleColors !== false}
+    onchange={e => { store.settings.roleColors = e.currentTarget.checked; store.saveSettings(); }} /> Color names by top role</label>
+</div>
+
 {#if (store.settings.interface ?? 'standard') === 'standard'}
 <h3 class="gap">Layout</h3>
 <div class="themes" role="radiogroup" aria-label="Layout">
@@ -115,6 +128,9 @@
 {/if}
 
 <style>
+  .role-opts { max-width: 280px; }
+  .role-opts label:first-child { margin-top: 0; }
+  .role-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-size: 14px; font-weight: 400; color: var(--text); }
   .gap { margin-top: 22px; }
   .narrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .narrow input { flex: 1 1 180px; width: auto; }

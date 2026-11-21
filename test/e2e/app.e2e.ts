@@ -1270,6 +1270,92 @@ try {
     await bobSees('access room removed', () => !chByName('Access Room'));
     console.log('ok: access presets, grid and checker');
 
+    // Roles: permission, look, member and access key in one dialog, enforced by the server
+    const carol = await headless('carol');
+    admin.register(carol.session!);
+    await within((async () => { while (carol.self?.userId == null) await page.waitForTimeout(50); })(), 'carol registered');
+    const carolId = carol.self!.userId!;
+    const holds = (c: MumbleClient, bit: number, label: string) => within((async () => {
+      for (;;) {
+        c.requestPermissions(0);
+        await page.waitForTimeout(200);
+        if ((c.permissions.get(0) ?? 0) & bit) return;
+      }
+    })(), label);
+    const openRoles = async () => {
+      await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Roles and members...' }).click();
+      const d = page.getByRole('dialog', { name: 'Roles and members' });
+      await d.getByLabel('New role name').waitFor();
+      return d;
+    };
+    const rolesDlg = await openRoles();
+    await rolesDlg.getByLabel('New role name').fill('Moderator');
+    await rolesDlg.getByRole('button', { name: 'Add', exact: true }).click();
+    await rolesDlg.getByRole('button', { name: 'Move people: Allow' }).click();
+    if (shots) await page.screenshot({ path: path.join(shots, 'roles.png') });
+    const roleSections = rolesDlg.getByRole('tablist', { name: 'Role sections' });
+    await roleSections.getByRole('tab', { name: 'Display' }).click();
+    await rolesDlg.getByRole('button', { name: 'Icon star' }).click();
+    await rolesDlg.getByRole('button', { name: 'Color #6fb3ff' }).click();
+    // An uploaded picture becomes a small raster icon; the built-in one is chosen again after
+    await rolesDlg.getByLabel('Icon file').setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: testPng(64, 64) });
+    await rolesDlg.getByRole('button', { name: 'Your picture' }).waitFor();
+    await rolesDlg.getByRole('button', { name: 'Icon star' }).click();
+    await roleSections.getByRole('tab', { name: 'Members' }).click();
+    await rolesDlg.locator('#role-people option[value="carol"]').waitFor({ state: 'attached' });
+    await rolesDlg.getByLabel('Add a member').fill('carol');
+    await rolesDlg.getByRole('button', { name: 'Add member' }).click();
+    await rolesDlg.locator('.people', { hasText: 'carol' }).waitFor();
+    await rolesDlg.getByRole('tab', { name: 'Access keys' }).click();
+    await rolesDlg.getByRole('button', { name: 'New key' }).click();
+    const roleKey = (await rolesDlg.locator('.key code').textContent())!;
+    assert.match(roleKey, /^mk\.[A-Z2-9-]{14}\.role\.moderator-/);
+    if (shots) await page.screenshot({ path: path.join(shots, 'roles-keys.png') });
+    await page.setViewportSize({ width: 390, height: 800 });
+    assert.ok(await rolesDlg.evaluate(d => {
+      const box = d.getBoundingClientRect();
+      const body = d.querySelector('.body')!;
+      return box.left >= 0 && box.right <= innerWidth && body.scrollWidth <= body.clientWidth;
+    }), 'the roles dialog fits a phone');
+    await rolesDlg.getByRole('tab', { name: 'Roles', exact: true }).click();
+    if (shots) await page.screenshot({ path: path.join(shots, 'roles-phone.png') });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await rolesDlg.getByRole('button', { name: 'Save', exact: true }).click();
+    const rolesSaved = await aclSaved(0, a => a.acls.some(r => r.group === `#${roleKey}`), 'role saved');
+    const roleGroup = rolesSaved.groups.find(g => g.name.startsWith('role.moderator-'))!;
+    assert.deepEqual(roleGroup.add, [carolId]);
+    await holds(carol, PERM.Move, 'the role gives carol Move');
+    assert.ok(!((bob.permissions.get(0) ?? 0) & PERM.Move), 'bob has no role');
+    bob.setTokens([roleKey]);
+    await holds(bob, PERM.Move, 'the access key gives bob Move');
+    bob.setTokens([]);
+    await page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').waitFor();
+    await page.locator('.sidebar .user', { hasText: 'carol' }).click();
+    await page.getByRole('list', { name: 'Roles' }).getByText('Moderator').waitFor();
+    if (shots) await page.screenshot({ path: path.join(shots, 'roles-badge.png') });
+    await page.keyboard.press('Escape');
+    // Each person can turn role icons off
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'Appearance' }).click();
+    await page.getByLabel('Show next to names').selectOption('off');
+    await page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').waitFor({ state: 'detached' });
+    await page.getByLabel('Show next to names').selectOption('all');
+    await page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').waitFor();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    // The published role data is never drawn
+    assert.equal(await page.locator('img[src^="data:,mumh5roles"]').count(), 0);
+    // Deleting the role removes its group, its rules and its key
+    const rolesAgain = await openRoles();
+    await rolesAgain.getByRole('list', { name: 'Roles' }).getByRole('button', { name: /^Moderator/ }).click();
+    await rolesAgain.getByRole('button', { name: 'Delete role' }).click();
+    await rolesAgain.getByRole('button', { name: 'Save', exact: true }).click();
+    const rolesGone = await aclSaved(0, a => !a.groups.some(g => g.name === roleGroup.name), 'role deleted');
+    assert.ok(!rolesGone.acls.some(r => r.group === `#${roleKey}`));
+    await page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').waitFor({ state: 'detached' });
+    carol.disconnect();
+    console.log('ok: roles with a permission, icon, member and access key');
+
     // Drag the channel into Games, and bob into Lobby
     await page.locator('.channel .name', { hasText: 'Team Room' }).dragTo(page.locator('.channel .name', { hasText: 'Games' }));
     const gamesId = chByName('Games')!.id;

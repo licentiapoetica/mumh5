@@ -6,7 +6,8 @@ import { createCodec } from '../src/core/proto.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../src/core/client.ts';
 import { channelPassword, withPassword } from '../src/core/channel-password.ts';
 import { parseAdmins, withAdmins } from '../src/core/admins.ts';
-import { ROOT_ONLY, effectivePermissions, explain, type AccessLevel, type Person } from '../src/core/access.ts';
+import { ROOT_ONLY, effectivePermissions, explain, setCell, type AccessLevel, type Person } from '../src/core/access.ts';
+import { addKey, createRole, docFromRoles, parseRoles, prepareRoles, roleMembers, rolesFromAcl, roleTarget, setMember, withRoles } from '../src/core/roles.ts';
 import type { Transport } from '../src/core/transport.ts';
 import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity } from '../electron/identity.ts';
@@ -633,5 +634,74 @@ test('the access checker agrees with the server on random rules', { skip: !targe
     // Saves are paced: the answer to this query means the server has the old rules back
     await aclOf(0);
     for (const c of [a, b, guest, su]) c.disconnect();
+  }
+});
+
+test('roles: enforced by the server, readable by everyone, keys grant them, members cannot forge them', { skip: !target || !superPw, timeout: 60000 }, async () => {
+  const tag = Date.now() % 100000;
+  const su = await connect('SuperUser', superPw);
+  const [member, keyHolder, outsider] = await Promise.all([connect(`rolem${tag}`), connect(`rolek${tag}`), connect(`roleo${tag}`)]);
+  const poll = (ok: () => boolean, ms = 8000) => until<void>(res => {
+    const t = setInterval(() => { if (ok()) { clearInterval(t); res(); } }, 25);
+  }, ms);
+  const aclOf = (id: number) => until<ChannelAcl>(res => {
+    const off = su.on('acl', x => { if (x.channelId === id) { off(); res(x); } });
+    su.queryAcl(id);
+  }, 15000);
+  const holds = async (c: MumbleClient, bit: number) => {
+    await c.flushed();
+    const got = until<number>(res => { const off = c.on('permissions', (ch, p) => { if (ch === 0) { off(); res(p); } }); });
+    c.requestPermissions(0);
+    return ((await got) & bit) !== 0;
+  };
+  const rootText = async (c: MumbleClient) => {
+    const root = c.channels.get(0)!;
+    if (root.description || !root.descriptionHash) return root.description;
+    const got = until<string>(res => { const off = c.on('channel', ch => { if (ch.id === 0 && ch.description) { off(); res(ch.description); } }); });
+    c.requestBlob({ descriptions: [0] });
+    return got;
+  };
+  const baseAcl = await aclOf(0);
+  const baseText = await rootText(su);
+  try {
+    su.register(member.self!.session);
+    await poll(() => member.self?.userId != null);
+    const id = member.self!.userId!;
+
+    const made = createRole(baseAcl, 'Moderator', 'tst');
+    let acl = setCell(made.acl, roleTarget(made.group), PERM.Move, 'allow');
+    acl = setMember(acl, made.group, id, true);
+    acl = addKey(acl, made.group, 'ABCD-EFGH-JKLM');
+    const roles = rolesFromAcl(acl, null).map(r => (r.g === made.group ? { ...r, n: 'Moderator', c: '#6fb3ff', i: 'star' } : r));
+    const ready = prepareRoles(acl, roles);
+    const text = withRoles(`<p>${'Welcome. '.repeat(30)}</p>`, docFromRoles(roles));
+    const seen = until<void>(res => { const off = outsider.on('channel', c => { if (c.id === 0) { off(); res(); } }); });
+    su.saveAcl(ready);
+    su.updateChannel(0, { description: text });
+    await seen;
+
+    const back = await aclOf(0);
+    assert.deepEqual(roleMembers(back, made.group), [id]);
+    assert.ok(await holds(member, PERM.Move), 'the role gives its member the permission');
+    assert.ok(!(await holds(outsider, PERM.Move)), 'nobody else has it');
+    keyHolder.setTokens(['mk.abcd-efgh-jklm.' + made.group]);
+    assert.ok(await holds(keyHolder, PERM.Move), 'the key gives it, in any case');
+
+    // A member without Write reads the published data but cannot change it
+    const doc = parseRoles(await rootText(outsider))!;
+    assert.deepEqual(doc.roles.find(r => r.g === made.group)!.m, [id]);
+    assert.equal(doc.roles.find(r => r.g === made.group)!.i, 'star');
+    assert.ok(!(await rootText(outsider)).includes('ABCD-EFGH-JKLM'), 'keys are not published');
+    const denied = until<number>(res => { const off = member.on('permissionDenied', d => { off(); res(d.permission); }); });
+    member.updateChannel(0, { description: withRoles('', docFromRoles([{ ...roles[0], m: [id] }])) });
+    assert.equal(await denied, PERM.Write);
+    const deniedAcl = until<number>(res => { const off = member.on('permissionDenied', d => { off(); res(d.permission); }); });
+    member.saveAcl(setMember(back, made.group, id, false));
+    assert.equal(await deniedAcl, PERM.Write);
+  } finally {
+    su.saveAcl(baseAcl);
+    su.updateChannel(0, { description: baseText });
+    await aclOf(0);
+    for (const c of [member, keyHolder, outsider, su]) c.disconnect();
   }
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
-  import AdminBadge from './AdminBadge.svelte';
+  import RoleBadges from './RoleBadges.svelte';
   import ChannelNode from './ChannelNode.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -33,7 +33,7 @@
 
   // Resting on a channel that has a description for 1 second opens a quick preview next to its row
   const hasDescription = $derived(!!(stripMark(channel.description) || (!channel.description && channel.descriptionHash)));
-  const descriptionHtml = $derived(channel.description ? renderIncoming(channel.description, store.trustedHosts).html : '');
+  const descriptionHtml = $derived(channel.description ? renderIncoming(stripMark(channel.description), store.trustedHosts).html : '');
   let preview = $state<{ x: number; y: number } | null>(null);
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
   // Opened on purpose (the marker or the menu): stays until a click elsewhere or Escape
@@ -273,8 +273,8 @@
             title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
-            <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)}>{store.displayName(u)}</span>
-            {#if session.isAdmin(u)}<AdminBadge />{:else if u.userId != null}<span class="reg" title="Registered">R</span>{/if}
+            <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
+            <RoleBadges user={u} />{#if !session.isAdmin(u) && u.userId != null && !session.rolesFor(u).length}<span class="reg" title="Registered">R</span>{/if}
             {#if session.sharing[u.session]}
               {@const kind = session.sharing[u.session]}
               {#if isSelf}
