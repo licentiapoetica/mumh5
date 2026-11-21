@@ -453,9 +453,12 @@ export const ACCESS_PRESETS: AccessPreset[] = [
   ] }
 ];
 
+// A preset never takes away who runs the channel, such as the rule Murmur gives its creator
+const grantsAdmin = (r: AclEntry) => (r.grant & PERM.Write) !== 0;
+
 const gridRules = (acl: ChannelAcl) => {
   const passwords = passwordRules(acl);
-  return acl.acls.filter(r => !r.inherited && !passwords.has(r));
+  return acl.acls.filter(r => !r.inherited && !passwords.has(r) && !grantsAdmin(r));
 };
 
 export function presetOf(acl: ChannelAcl): string | null {
@@ -478,7 +481,7 @@ export function applyPreset(acl: ChannelAcl, id: string): ChannelAcl {
   return {
     ...acl,
     acls: [
-      ...acl.acls.filter(r => r.inherited).map(r => ({ ...r })),
+      ...acl.acls.filter(r => r.inherited || (!passwords.has(r) && grantsAdmin(r))).map(r => ({ ...r })),
       ...rules,
       ...acl.acls.filter(r => passwords.has(r)).map(r => ({ ...r }))
     ]

@@ -78,14 +78,16 @@
   }
 </script>
 
-<h4>Who is this channel for?</h4>
-<div class="presets">
-  {#each ACCESS_PRESETS as p (p.id)}
-    <button type="button" class="preset" class:on={active === p.id} aria-pressed={active === p.id} onclick={() => pickPreset(p.id)}>
-      <b>{p.name}</b><span>{p.help}</span>
-    </button>
-  {/each}
-</div>
+{#if !isRoot}
+  <h4>Who is this channel for?</h4>
+  <div class="presets">
+    {#each ACCESS_PRESETS as p (p.id)}
+      <button type="button" class="preset" class:on={active === p.id} aria-pressed={active === p.id} onclick={() => pickPreset(p.id)}>
+        <b>{p.name}</b><span>{p.help}</span>
+      </button>
+    {/each}
+  </div>
+{/if}
 {#if undo}
   <p class="replaced">Replaced {undo.count} {undo.count === 1 ? 'rule' : 'rules'}. <button type="button" class="link" onclick={() => { onchange(undo!.acl); undo = null; }}>Undo</button></p>
 {/if}

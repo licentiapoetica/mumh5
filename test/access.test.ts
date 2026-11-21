@@ -220,6 +220,20 @@ test('giving admins their voice back works when rules were ordered by hand', () 
   assert.ok(!can(levels, person({ userId: 6 }), PERM.Speak));
 });
 
+test('a preset keeps the rules that make someone an admin', () => {
+  const creator = rule({ userId: 9, group: null, applySubs: false, grant: PERM.Write | PERM.Traverse });
+  const admins = rule({ group: 'admin', grant: PERM.Write });
+  const custom = rule({ group: 'team', grant: PERM.Move });
+  const a = acl([admins, creator, custom]);
+  assert.equal(replacedByPreset(a, 'open'), 1);
+  const open = applyPreset(a, 'open');
+  assert.deepEqual(open.acls, [admins, creator]);
+  assert.equal(presetOf(open), 'open');
+  const stage = applyPreset(a, 'stage');
+  assert.deepEqual(stage.acls.slice(0, 2), [admins, creator]);
+  assert.equal(presetOf(stage), 'stage');
+});
+
 test('presets are recognized, count what they replace and keep inherited rules', () => {
   const inherited = rule({ group: 'admin', grant: PERM.Write, inherited: true });
   const custom = acl([inherited, rule({ group: 'team', grant: PERM.Move })]);
