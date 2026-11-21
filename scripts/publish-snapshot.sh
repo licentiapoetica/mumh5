@@ -9,9 +9,9 @@ publish_dir="$(mktemp -d)"
 trap 'rm -rf -- "$publish_dir"' EXIT
 
 # Stable filenames keep direct download links working across version changes.
-extensions=(AppImage deb tar.gz exe dmg)
-filenames=(mumh5-linux-x64.AppImage mumh5-linux-x64.deb mumh5-linux-x64.tar.gz mumh5-win-x64.exe mumh5-mac-arm64.dmg)
-labels=('Linux AppImage' 'Debian / Ubuntu' 'Linux portable' 'Windows installer' 'macOS Apple Silicon')
+extensions=(AppImage deb tar.gz exe)
+filenames=(mumh5-linux-x64.AppImage mumh5-linux-x64.deb mumh5-linux-x64.tar.gz mumh5-win-x64.exe)
+labels=('Linux AppImage' 'Debian / Ubuntu' 'Linux portable' 'Windows installer')
 for i in "${!extensions[@]}"; do
   mapfile -d '' -t matches < <(find "$artifact_dir" -type f -name "*.${extensions[$i]}" -print0)
   if [[ ${#matches[@]} -ne 1 ]]; then

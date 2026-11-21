@@ -36,7 +36,6 @@ The picture goes straight from you to the people watching, not through a company
 | Linux, AppImage | [mumh5-linux-x64.AppImage](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.AppImage) (make it executable, then run it; FUSE support is bundled) |
 | Debian, Ubuntu | [mumh5-linux-x64.deb](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.deb) |
 | Linux, portable | [mumh5-linux-x64.tar.gz](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.tar.gz) (runs from its folder, or installs with the script inside) |
-| macOS, Apple Silicon | [mumh5-mac-arm64.dmg](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-mac-arm64.dmg) (unsigned) |
 
 Older builds use an AppImage runtime that requires the system's FUSE 2 library. Current builds bundle a static FUSE runtime instead. If an older AppImage stops with `dlopen(): error loading libfuse.so.2`, download a new build, or run it without FUSE by extracting it at launch:
 
@@ -65,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/licentiapoetica/mumh5/main/scripts/
 
 To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/uninstall.sh`). Your settings and identities stay in `~/.config/mumh5`; `uninstall.sh --purge` deletes them too, after asking. Back up your identity first. The Windows installer has its own uninstaller in the system settings; the `.deb` is removed with `sudo apt remove mumh5`.
 
-For macOS Apple Silicon, download the unsigned `.dmg` above, or build it on a Mac from the source.
+Automated macOS builds are disabled. To use mumh5 on macOS, build it on a Mac from the source.
 
 ## A look around
 
@@ -334,8 +333,8 @@ Installers are written to `release/`. The Windows installer also builds on Linux
 On GitHub, `.github/workflows/build.yml` builds the latest commit on every push to
 `main`, on pull requests targeting `main`, or manually from **Actions → Build
 desktop app and Docker image → Run workflow** (choose the branch to build).
-It runs type checks and tests, then packages Linux x64 (AppImage, `.deb`, `.tar.gz`),
-Windows x64 (`.exe`), and macOS Apple Silicon (`.dmg`) apps. Successful builds from
+It runs type checks and tests, then packages Linux x64 (AppImage, `.deb`, `.tar.gz`)
+and Windows x64 (`.exe`) apps. Successful builds from
 `main` update the [Latest snapshot prerelease](https://github.com/licentiapoetica/mumh5/releases/tag/snapshot)
 with direct installer downloads and SHA256 checksums. The `snapshot` tag tracks the
 built commit, and download filenames stay the same across updates. Release assets

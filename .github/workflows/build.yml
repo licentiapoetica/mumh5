@@ -46,9 +46,6 @@ jobs:
           - os: windows-latest
             platform: win
             arch: x64
-          - os: macos-latest
-            platform: mac
-            arch: arm64
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -81,7 +78,6 @@ jobs:
             release/*.deb
             release/*.tar.gz
             release/*.exe
-            release/*.dmg
           if-no-files-found: error
           retention-days: 14
 
