@@ -4,6 +4,8 @@ import { native, desktop, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
+import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
+import { withPassword } from '../core/channel-password.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, escapeHtml, formatBytes, type Embed } from './html.ts';
@@ -107,6 +109,12 @@ export class Session {
   private lastImageSend: { key: string; fallback: string; at: number } | null = null;
   // Channel we asked to move to; the chat view switches when the server confirms it
   private pendingJoin: number | null = null;
+  // A password being tried on a locked channel; saved once the server lets us in
+  private passwordTry: { id: number; password: string } | null = null;
+  // Admins according to the root ACL, until the description they are published in has loaded
+  private adminList: number[] | null = null;
+  // The root rules were saved, so the published admin list may be out of date
+  private adminsStale = false;
   // Mute and deafen the app set by itself (your choice from before connecting, or restored when
   // voice comes back here); the server's confirmation of exactly that plays no sound
   private applied: { mute: boolean; deaf: boolean } | null = null;
@@ -245,6 +253,13 @@ export class Session {
     return textChannels.isText(this, channelId);
   }
 
+  // SuperUser, or listed on the root channel by someone allowed to edit it (see core/admins.ts)
+  isAdmin(user: { userId: number | null }): boolean {
+    void this.tick;
+    if (user.userId == null) return false;
+    return user.userId === 0 || parseAdmins(this.client?.channels.get(0)?.description ?? '').includes(user.userId);
+  }
+
   isInside(channelId: number, ancestor: number): boolean {
     let c = this.client?.channels.get(channelId);
     while (c && c.parent != null) {
@@ -296,6 +311,9 @@ export class Session {
     this.dropPictures();
     this.applied = null;
     this.own = null;
+    this.passwordTry = null;
+    this.adminList = null;
+    this.adminsStale = false;
     this.serverCert = null;
     this.removedBy = null;
     this.noRetry = false;
@@ -346,6 +364,7 @@ export class Session {
       client.connect(transport, {
         username: server.username,
         password: server.password,
+        tokens: store.tokensFor(hostPort),
         os: platform.os,
         osVersion: platform.osVersion
       });
@@ -445,6 +464,9 @@ export class Session {
       for (const u of client.users.values()) this.lastChannel.set(u.session, u.channelId);
       // What we may do per channel, for menus (not rate limited by the server)
       for (const id of client.channels.keys()) client.requestPermissions(id);
+      // The admin list is on the root channel; whoever may edit it keeps it current
+      this.loadDescription(0);
+      this.refreshAdmins();
       if (back) this.system(this.view, 'Reconnected');
       else if (client.welcomeText) this.system(this.view, client.welcomeText, true);
       // Back to the channel we were in; the server may still refuse it
@@ -467,13 +489,33 @@ export class Session {
     client.on('channel', ch => {
       if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
       if (live() && client.synced) textChannels.channelChanged(this, ch.id);
+      if (live() && client.synced && ch.id === 0) {
+        this.loadDescription(0);
+        this.publishAdmins(client);
+      }
       bump();
+    });
+    client.on('acl', acl => {
+      if (!live() || acl.channelId !== 0) return;
+      this.adminList = rootAdmins(acl);
+      this.publishAdmins(client);
     });
     client.on('permissions', () => {
       if (!live()) return;
-      // A flush means permissions changed somewhere (e.g. an ACL edit); ask again
-      if (!client.permissions.size) for (const id of client.channels.keys()) client.requestPermissions(id);
+      this.checkAdmins(client);
       bump();
+    });
+    client.on('message', (name, msg) => {
+      if (!live()) return;
+      // Our permissions changed. The flush carries one channel; ask again for the others
+      if (name === 'PermissionQuery' && msg.flush) {
+        for (const id of client.channels.keys()) if (id !== msg.channel_id) client.requestPermissions(id);
+      }
+      // Murmur sends everyone this, without a name, after the rules of a channel were saved
+      if (name === 'ChannelState' && client.synced && msg.channel_id === 0 && msg.is_enter_restricted != null && msg.name == null) {
+        this.adminsStale = true;
+        this.checkAdmins(client);
+      }
     });
     client.on('channelRemove', id => {
       if (!live()) return;
@@ -493,6 +535,10 @@ export class Session {
       const self = client.self;
       const before = this.lastChannel.get(user.session);
       this.lastChannel.set(user.session, user.channelId);
+      if (user.session === client.session && this.passwordTry?.id === user.channelId) {
+        store.addToken(this.tokenKey, this.passwordTry.password);
+        this.passwordTry = null;
+      }
       if (client.synced && self && (isNew || changed.includes('channelId'))) {
         if (user.session === self.session) share.entered(this);
         else share.userMoved(this, user);
@@ -584,7 +630,20 @@ export class Session {
         client.sendText(this.target(img.key), img.fallback);
         return;
       }
-      if (d.channelId != null && d.channelId === this.pendingJoin) this.pendingJoin = null;
+      // Refused at the door: the channel may have a password. Servers before 1.4 do not say
+      // in advance which channels are locked, so this is also where those ask for it.
+      if (d.type === 1 && d.permission === PERM.Enter && d.channelId != null && d.channelId === this.pendingJoin) {
+        const wrong = this.passwordTry?.id === d.channelId;
+        this.pendingJoin = null;
+        this.dropPasswordTry(client);
+        sounds.play('denied');
+        this.askPassword(d.channelId, wrong);
+        return;
+      }
+      if (d.channelId != null && d.channelId === this.pendingJoin) {
+        this.pendingJoin = null;
+        this.dropPasswordTry(client);
+      }
       sounds.play('denied');
       const ch = d.channelId != null ? client.channels.get(d.channelId)?.name : undefined;
       this.system(this.view, escapeHtml(describeDenial(d, ch)));
@@ -852,6 +911,10 @@ export class Session {
   joinChannel(id: number): void {
     const client = this.client;
     if (!client) return;
+    if (this.self?.channelId !== id && client.channels.get(id)?.canEnter === false && this.passwordTry?.id !== id) {
+      this.askPassword(id);
+      return;
+    }
     // Joining a channel is where you want to talk: voice moves to this server
     sessions.setVoice(this);
     if (this.self?.channelId === id) {
@@ -867,9 +930,104 @@ export class Session {
       setTimeout(() => {
         if (moved()) return;
         this.pendingJoin = null;
+        this.dropPasswordTry(client);
         this.system(this.view, `The server did not move you to ${escapeHtml(client.channels.get(id)?.name || 'Root')}. Try again in a moment.`);
       }, 1500);
     }, 1200);
+  }
+
+  // ─── Channel passwords and admins ───────────────────────────────────────────
+
+  // Passwords are kept per address, so editing a saved server never sends them somewhere else
+  private get tokenKey(): string {
+    const s = this.server;
+    return s ? `${s.host.toLowerCase()}:${s.port}` : '';
+  }
+
+  // A client cannot tell a password from a channel that is simply closed to it
+  private askPassword(id: number, wrong = false): void {
+    const name = this.client?.channels.get(id)?.name || 'Root';
+    ui.prompt = {
+      title: `Join ${name}`, label: 'Channel password', confirm: 'Join', input: 'password',
+      text: wrong ? 'Wrong password, or this channel is closed to you.' : 'This channel is locked.',
+      onsubmit: password => this.enterWithPassword(id, password)
+    };
+  }
+
+  // The token goes first: the server handles it before the move that follows
+  private enterWithPassword(id: number, password: string): void {
+    const client = this.client;
+    if (!client || !password) return;
+    this.passwordTry = { id, password };
+    client.setTokens([...store.tokensFor(this.tokenKey), password]);
+    this.joinChannel(id);
+  }
+
+  private dropPasswordTry(client: MumbleClient): void {
+    if (!this.passwordTry) return;
+    this.passwordTry = null;
+    client.setTokens(store.tokensFor(this.tokenKey));
+  }
+
+  // After setting a password: keep it, so this person is not locked out without Write later
+  rememberChannelPassword(password: string, previous = ''): void {
+    if (previous) store.removeToken(this.tokenKey, previous);
+    if (password) store.addToken(this.tokenKey, password);
+    this.client?.setTokens(store.tokensFor(this.tokenKey));
+  }
+
+  // Call before creating the channel: the server only takes rules on a channel that exists
+  passwordForNewChannel(parent: number, name: string, password: string): void {
+    const client = this.client;
+    if (!client) return;
+    this.rememberChannelPassword(password);
+    const known = new Set(client.channels.keys());
+    let id: number | null = null;
+    const offs: (() => void)[] = [];
+    const done = () => { clearTimeout(timer); offs.forEach(off => off()); };
+    const timer = setTimeout(() => {
+      done();
+      // A channel that looks protected but is not must not go unnoticed
+      if (id != null && this.client === client) this.system(this.view, `The password for ${escapeHtml(name)} was not set.`);
+    }, 8000);
+    offs.push(client.on('channel', ch => {
+      if (id != null || known.has(ch.id) || ch.parent !== parent || ch.name !== name) return;
+      id = ch.id;
+      client.queryAcl(id);
+    }));
+    offs.push(client.on('acl', acl => {
+      if (acl.channelId !== id) return;
+      done();
+      client.saveAcl(withPassword(acl, password));
+    }));
+  }
+
+  // Asks for the root rules if we may read them; the answer updates the published list
+  refreshAdmins(): void {
+    const client = this.client;
+    if (client?.can(0, PERM.Write)) client.queryAcl(0);
+  }
+
+  // Waits until we know again whether we may read the root rules
+  private checkAdmins(client: MumbleClient): void {
+    if (!this.adminsStale || client.can(0, PERM.Write) == null) return;
+    this.adminsStale = false;
+    this.refreshAdmins();
+  }
+
+  private publishAdmins(client: MumbleClient): void {
+    const ids = this.adminList;
+    const root = client.channels.get(0);
+    if (!ids || !root || client.config.allowHtml === false) return;
+    // Rewriting a description we have not read yet would erase it
+    if (root.descriptionHash && !root.description) {
+      this.loadDescription(0);
+      return;
+    }
+    this.adminList = null;
+    const next = withAdmins(root.description, ids);
+    const limit = /<img/i.test(next) ? client.config.imageMessageLength : client.config.messageLength;
+    if (next !== root.description && (!limit || next.length <= limit)) client.updateChannel(0, { description: next });
   }
 
   private target(key: string): { channels?: number[]; users?: number[] } {

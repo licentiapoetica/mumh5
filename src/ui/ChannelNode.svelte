@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
+  import AdminBadge from './AdminBadge.svelte';
   import ChannelNode from './ChannelNode.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -232,7 +233,7 @@
       <span class="caret"></span>
     {/if}
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
-    <button class="name" class:text={isText} title={isText ? 'Text channel: click to open' : 'Double-click to join'} {...channelClicks}
+    <button class="name" class:text={isText} title={isText ? 'Text channel: click to open' : channel.canEnter ? 'Double-click to join' : 'Locked. Double-click to enter the password'} {...channelClicks}
       draggable={channel.id !== 0}
       ondragstart={e => { clearTimeout(hoverTimer); preview = null; drag.item = { kind: 'channel', id: channel.id }; e.dataTransfer?.setData('text/plain', channel.name); }}
       ondragend={() => { drag.item = null; setZone(null); }}>
@@ -273,7 +274,7 @@
             oncontextmenu={e => menu.show(e, userMenu(u))}>
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)}>{store.displayName(u)}</span>
-            {#if u.userId != null}<span class="reg" title="Registered">R</span>{/if}
+            {#if session.isAdmin(u)}<AdminBadge />{:else if u.userId != null}<span class="reg" title="Registered">R</span>{/if}
             {#if session.sharing[u.session]}
               {@const kind = session.sharing[u.session]}
               {#if isSelf}

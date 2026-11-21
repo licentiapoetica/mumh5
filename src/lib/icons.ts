@@ -28,6 +28,7 @@ export const ICON_PATHS: Record<string, string> = {
   trash: 'M3 6h18M8 6V3h8v3M19 6l-1 15H6L5 6',
   server: 'M2 3h20v8H2zM2 13h20v8H2zM6 7h.01M6 17h.01',
   shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+  crown: 'M3 7l5 5 4-8 4 8 5-5-2 13H5z',
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
   globe: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2c3.5 3.5 3.5 16.5 0 20M12 2c-3.5 3.5-3.5 16.5 0 20',
   list: 'M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01',

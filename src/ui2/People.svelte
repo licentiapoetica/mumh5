@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
+  import AdminBadge from '../ui/AdminBadge.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -51,8 +52,9 @@
                 <Avatar name={u.name} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} />
                 <span class="text">
                   <span class="name" class:talking={talking(u.session)}>{store.displayName(u)}</span>
-                  <span class="sub">{me ? 'You' : u.userId != null ? 'Registered' : 'Guest'}{u.deaf || u.selfDeaf ? ', deafened' : u.mute || u.selfMute || u.suppress ? ', muted' : ''}{session.sharing[u.session] ? `, sharing ${session.sharing[u.session]}` : ''}{u.recording ? ', recording' : ''}</span>
+                  <span class="sub">{me ? 'You' : session.isAdmin(u) ? 'Admin' : u.userId != null ? 'Registered' : 'Guest'}{u.deaf || u.selfDeaf ? ', deafened' : u.mute || u.selfMute || u.suppress ? ', muted' : ''}{session.sharing[u.session] ? `, sharing ${session.sharing[u.session]}` : ''}{u.recording ? ', recording' : ''}</span>
                 </span>
+                {#if session.isAdmin(u)}<AdminBadge size={16} />{/if}
               </button>
               {#if !me}
                 <button class="icon-btn" aria-label="Message {store.displayName(u)}" title="Send a message" onclick={() => { session.selectView(`dm:${u.session}`); onchat(); }}><Icon name="message" size={18} /></button>

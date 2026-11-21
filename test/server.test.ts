@@ -3,7 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCodec } from '../src/core/proto.ts';
-import { MumbleClient } from '../src/core/client.ts';
+import { MumbleClient, PERM, type ChannelAcl } from '../src/core/client.ts';
+import { channelPassword, withPassword } from '../src/core/channel-password.ts';
+import { parseAdmins, withAdmins } from '../src/core/admins.ts';
 import type { Transport } from '../src/core/transport.ts';
 import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity } from '../electron/identity.ts';
@@ -99,6 +101,120 @@ test('two clients sync, see each other, exchange text, and update state', { skip
   } finally {
     alice.disconnect();
     bob.disconnect();
+  }
+});
+
+test('channel passwords: enforced by the server, tokens open them, operators are dangerous', { skip: !target || !process.env.MUMBLE_SUPERUSER_PASSWORD }, async () => {
+  const su = await connect('SuperUser', process.env.MUMBLE_SUPERUSER_PASSWORD);
+  const guest = await connect('pwguest' + Date.now() % 100000);
+  const name = `pw-${Date.now()}`;
+  const aclOf = (id: number) => {
+    const got = until<ChannelAcl>(res => { const off = su.on('acl', a => { if (a.channelId === id) { off(); res(a); } }); });
+    su.queryAcl(id);
+    return got;
+  };
+  const canEnter = (id: number, want: boolean) => until<void>(res => {
+    if (guest.channels.get(id)?.canEnter === want) return res();
+    const off = guest.on('channel', c => { if (c.id === id && c.canEnter === want) { off(); res(); } });
+  });
+  let id: number | undefined;
+  try {
+    const made = until<number>(res => guest.on('channel', c => { if (c.name === name) res(c.id); }));
+    su.createChannel(0, name);
+    id = await made;
+    su.saveAcl(withPassword(await aclOf(id), 'Open Sesame'));
+    await canEnter(id, false);
+    assert.equal(channelPassword(await aclOf(id)), 'Open Sesame');
+
+    const denied = until<number>(res => guest.on('permissionDenied', d => res(d.permission)));
+    guest.joinChannel(id);
+    assert.equal(await denied, PERM.Enter);
+
+    guest.setTokens(['wrong']);
+    await guest.flushed();
+    assert.equal(guest.channels.get(id)!.canEnter, false);
+
+    // Tokens are compared without case, and work on a live connection
+    guest.setTokens(['wrong', 'open sesame']);
+    await canEnter(id, true);
+    const moved = until<void>(res => guest.on('user', u => { if (u.session === guest.session && u.channelId === id) res(); }));
+    guest.joinChannel(id);
+    await moved;
+    guest.joinChannel(0);
+    guest.setTokens([]);
+    await canEnter(id, false);
+
+    // Why passwordProblem refuses these: "#!x" admits everyone who does not hold "x"
+    su.saveAcl(withPassword(await aclOf(id), '!nothing'));
+    await canEnter(id, true);
+
+    su.saveAcl(withPassword(await aclOf(id), ''));
+    await su.flushed();
+    assert.equal(channelPassword(await aclOf(id)), '');
+    assert.equal(guest.channels.get(id)!.canEnter, true);
+  } finally {
+    if (id != null) su.removeChannel(id);
+    await su.flushed();
+    su.disconnect();
+    guest.disconnect();
+  }
+});
+
+test('a temporary channel takes a password from the person who made it', { skip: !target || !process.env.MUMBLE_SUPERUSER_PASSWORD }, async () => {
+  const su = await connect('SuperUser', process.env.MUMBLE_SUPERUSER_PASSWORD);
+  const guest = await connect('tmpguest' + Date.now() % 100000);
+  const name = `tmp-${Date.now()}`;
+  try {
+    const made = until<number>(res => su.on('channel', c => { if (c.name === name) res(c.id); }));
+    su.createChannel(0, name, { temporary: true });
+    const id = await made;
+    const acl = until<ChannelAcl>(res => su.on('acl', a => { if (a.channelId === id) res(a); }));
+    su.queryAcl(id);
+    su.saveAcl(withPassword(await acl, 'temp pass'));
+    await until<void>(res => {
+      if (guest.channels.get(id)?.canEnter === false) return res();
+      guest.on('channel', c => { if (c.id === id && !c.canEnter) res(); });
+    });
+  } finally {
+    su.disconnect();
+    guest.disconnect();
+  }
+});
+
+test('the admin list: kept by the server, and only people with Write can change it', { skip: !target || !process.env.MUMBLE_SUPERUSER_PASSWORD }, async () => {
+  const su = await connect('SuperUser', process.env.MUMBLE_SUPERUSER_PASSWORD);
+  const guest = await connect('adminguest' + Date.now() % 100000);
+  const rootText = async (c: MumbleClient) => {
+    const root = c.channels.get(0)!;
+    if (root.description || !root.descriptionHash) return root.description;
+    const got = until<string>(res => { const off = c.on('channel', ch => { if (ch.id === 0 && ch.description) { off(); res(ch.description); } }); });
+    c.requestBlob({ descriptions: [0] });
+    return got;
+  };
+  const before = await rootText(su);
+  try {
+    // Long enough that the server only announces it by hash
+    const text = withAdmins(`<p>${'Welcome. '.repeat(30)}</p>`, [41, 42]);
+    const seen = until<void>(res => guest.on('channel', c => { if (c.id === 0) res(); }));
+    su.updateChannel(0, { description: text });
+    await seen;
+    assert.deepEqual(parseAdmins(await rootText(guest)), [41, 42]);
+
+    const denied = until<number>(res => guest.on('permissionDenied', d => res(d.permission)));
+    guest.updateChannel(0, { description: withAdmins('', [guest.self!.session]) });
+    assert.equal(await denied, PERM.Write);
+    await su.flushed();
+    assert.deepEqual(parseAdmins(await rootText(su)), [41, 42]);
+
+    // Emptied: nothing is left to fetch, so the list can be published again
+    const cleared = until<void>(res => guest.on('channel', c => { if (c.id === 0 && !c.descriptionHash) res(); }));
+    su.updateChannel(0, { description: '' });
+    await cleared;
+  } finally {
+    su.updateChannel(0, { description: before });
+    await su.flushed();
+    su.disconnect();
+    guest.disconnect();
   }
 });
 

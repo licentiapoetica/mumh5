@@ -48,7 +48,7 @@ export function channelMenu(c: Channel): MenuItem[] {
   const open: MenuItem[] = session.isText(c.id)
     ? [{ label: 'Open text channel', action: () => session.selectView(`ch:${c.id}`) }]
     : [
-      { label: here ? 'You are here' : 'Join channel', action: () => session.joinChannel(c.id), disabled: here || !c.canEnter },
+      { label: here ? 'You are here' : c.canEnter ? 'Join channel' : 'Join with password...', action: () => session.joinChannel(c.id), disabled: here },
       // Opens the channel's chat in the side panel, ready to type, without joining it
       { label: 'Send message to channel', action: () => { session.showChannel(c.id, 'chat'); ui.panelOpen = true; } }
     ];

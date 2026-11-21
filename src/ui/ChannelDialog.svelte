@@ -5,6 +5,8 @@
   import { PERM, type ChannelAcl, type AclEntry, type AclGroup } from '../core/client.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { isTextChannel, markText, stripMark } from '../core/text-signal.ts';
+  import { parseAdmins, withAdmins } from '../core/admins.ts';
+  import { channelPassword, passwordProblem, withPassword } from '../core/channel-password.ts';
   import { textChannels } from '../lib/text-channels.ts';
   import { sessions } from '../lib/session.svelte.ts';
 
@@ -59,12 +61,16 @@
   let selectedRule = $state(-1);
   let selectedGroup = $state('');
   let names = $state<Record<number, string>>({});
+  let password = $state('');
+  let savedPassword = '';
+  let showPassword = $state(false);
 
   const offs: (() => void)[] = [];
   if (client && channelId != null) {
     offs.push(client.on('acl', a => {
       if (a.channelId !== channelId || acl) return;
       acl = a;
+      password = savedPassword = channelPassword(a);
       selectedRule = a.acls.findIndex(r => !r.inherited);
       selectedGroup = a.groups[0]?.name ?? '';
     }));
@@ -222,8 +228,14 @@
   function save() {
     if (!client) return;
     error = '';
+    const passwordChanged = password !== savedPassword;
+    const problem = passwordChanged ? passwordProblem(password) : null;
+    if (problem) { error = problem; return; }
+    // Its messages go to everyone on the server, so a password would protect nothing
+    if (textChannel && password) { error = 'A text channel cannot have a password.'; return; }
     if (mode === 'create') {
       if (!name.trim()) { error = 'The channel needs a name.'; return; }
+      if (password) session.passwordForNewChannel(parentId!, name.trim(), password);
       client.createChannel(parentId!, name.trim(), { temporary, description: markText(description, textChannel), position, maxUsers });
       sounds.play('channelCreated');
       return onclose();
@@ -234,12 +246,19 @@
     if (!isRoot && name.trim() && name.trim() !== ch.name) fields.name = name.trim();
     // An untouched description may not start with the marker; that alone is no change
     const changed = description !== stripMark(ch.description) || textChannel !== isTextChannel(ch.description);
-    if (descLoaded && changed) fields.description = markText(description, textChannel);
+    if (descLoaded && changed) fields.description = withAdmins(markText(description, textChannel), parseAdmins(ch.description));
     if (position !== ch.position) fields.position = Number(position) || 0;
     if (maxUsers !== ch.maxUsers) fields.maxUsers = Number(maxUsers) || 0;
     if (Object.keys(fields).length) client.updateChannel(channelId, fields);
-    if (acl && aclDirty) client.saveAcl($state.snapshot(acl) as ChannelAcl);
-    if (Object.keys(fields).length || aclDirty) sounds.play('channelEdited');
+    const saveRules = !!acl && (aclDirty || passwordChanged);
+    if (acl && saveRules) {
+      const rules = $state.snapshot(acl) as ChannelAcl;
+      client.saveAcl(passwordChanged ? withPassword(rules, password) : rules);
+      if (passwordChanged) session.rememberChannelPassword(password, savedPassword);
+      // Who holds Write on root may have changed
+      if (isRoot) session.refreshAdmins();
+    }
+    if (Object.keys(fields).length || saveRules) sounds.play('channelEdited');
     onclose();
   }
 
@@ -278,6 +297,14 @@
       {/if}
     </div>
     {#if !isRoot}
+      <label for="ch-password" title="People need it to join. Not case sensitive. Anyone who can edit this channel can read it.">Password</label>
+      <div class="target">
+        <input id="ch-password" type={showPassword ? 'text' : 'password'} bind:value={password} autocomplete="new-password"
+          disabled={(mode === 'edit' && !acl) || (textChannel && !password)}
+          placeholder={mode === 'edit' && !acl ? 'Loading...' : textChannel ? 'Not available for text channels' : 'No password'}
+          title="People need it to join. Not case sensitive. Anyone who can edit this channel can read it." />
+        <button class="btn" type="button" onclick={() => (showPassword = !showPassword)}>{showPassword ? 'Hide' : 'Show'}</button>
+      </div>
       <label class="check top" title="Read and written without joining, from any channel. Only mumh5 shows it this way; in other Mumble clients it is an ordinary channel and its messages are not visible there. The server keeps no messages: mumh5 clients keep them and pass the recent ones on to people who connect later. Everyone on the server who uses mumh5 can read it.">
         <input type="checkbox" bind:checked={textChannel} disabled={!textPossible} /> Text channel (mumh5 only)
       </label>

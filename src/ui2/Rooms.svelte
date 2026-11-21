@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
+  import AdminBadge from '../ui/AdminBadge.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { store, type SavedServer } from '../lib/settings.svelte.ts';
   import { menu, type MenuItem } from '../lib/menu.svelte.ts';
@@ -232,7 +233,7 @@
               {#if here}
                 <span class="tag">You are here</span>
               {:else}
-                <button class="join" disabled={!c.canEnter} aria-label="Join {c.name || 'Root'}" onclick={() => session.joinChannel(c.id)}>{c.canEnter ? 'Join' : 'Locked'}</button>
+                <button class="join" aria-label="Join {c.name || 'Root'}" onclick={() => session.joinChannel(c.id)}>{c.canEnter ? 'Join' : 'Unlock'}</button>
               {/if}
               <button class="icon-btn" aria-label="More for {c.name || 'Root'}" onclick={e => menu.show(e, channelMenu(c))}><Icon name="more" size={18} /></button>
             </div>
@@ -247,6 +248,7 @@
                         <button class="person" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
                           <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                           <span class="pname" class:talking={talking(u.session)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
+                          {#if session.isAdmin(u)}<AdminBadge />{/if}
                           {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
                           {#if u.recording}<span class="rec">REC</span>{/if}
                           {#if u.deaf || u.selfDeaf}<span class="mark" class:bad={u.deaf} title={u.deaf ? 'Deafened by server' : 'Deafened'}><Icon name="headphones-off" size={14} /></span>

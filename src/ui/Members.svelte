@@ -1,6 +1,7 @@
 <script lang="ts">
   import Avatar from './Avatar.svelte';
   import Icon from './Icon.svelte';
+  import AdminBadge from './AdminBadge.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { userMenu, openProfile } from '../lib/actions.ts';
@@ -30,8 +31,9 @@
               <Avatar name={u.name} size={32} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
               <span class="who">
                 <span class="name">{store.displayName(u)}</span>
-                <span class="sub">{u.userId != null ? 'Registered' : 'Guest'}{title !== 'In channel' ? ` in ${session.channel(u.channelId)?.name || 'Root'}` : ''}</span>
+                <span class="sub">{session.isAdmin(u) ? 'Admin' : u.userId != null ? 'Registered' : 'Guest'}{title !== 'In channel' ? ` in ${session.channel(u.channelId)?.name || 'Root'}` : ''}</span>
               </span>
+              {#if session.isAdmin(u)}<AdminBadge />{/if}
               {#if u.selfDeaf || u.deaf}<Icon name="headphones-off" size={14} />{:else if u.selfMute || u.mute}<Icon name="mic-off" size={14} />{/if}
             </button>
           </li>

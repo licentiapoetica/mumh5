@@ -10,7 +10,8 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
-import { MumbleClient } from '../../src/core/client.ts';
+import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
+import { channelPassword, withPassword } from '../../src/core/channel-password.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
@@ -1202,6 +1203,116 @@ try {
     bob.joinChannel(0);
     console.log('ok: drag and drop moves channels and people');
 
+    // Channel password: set in the dialog, in the form the desktop client uses
+    const aclOf = (id: number) => {
+      const got = new Promise<ChannelAcl>(res => { const off = admin.on('acl', a => { if (a.channelId === id) { off(); res(a); } }); });
+      admin.queryAcl(id);
+      return within(got, `ACL of channel ${id}`);
+    };
+    await page.mouse.click(listBox.x + listBox.width / 2, listBox.y + listBox.height - 20, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Create channel...' }).click();
+    await page.getByLabel('Name').fill('Vault');
+    await page.getByLabel('Password', { exact: true }).fill('!bad');
+    await page.getByRole('button', { name: 'Create channel' }).click();
+    await page.getByText('cannot start with').waitFor();
+    await page.getByLabel('Password', { exact: true }).fill('first pass');
+    await page.getByRole('button', { name: 'Create channel' }).click();
+    await bobSees('password locks the channel', () => chByName('Vault')?.canEnter === false);
+    const vaultId = chByName('Vault')!.id;
+    assert.equal(channelPassword(await aclOf(vaultId)), 'first pass');
+
+    // Changing it: the dialog shows the current one, and the old one stops working
+    const vaultRow = page.locator('.channel .name', { hasText: 'Vault' });
+    await vaultRow.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Edit channel...' }).click();
+    const vaultDlg = page.getByRole('dialog', { name: 'Channel: Vault' });
+    await vaultDlg.locator('#ch-password:not([disabled])').waitFor();
+    assert.equal(await vaultDlg.locator('#ch-password').inputValue(), 'first pass');
+    await vaultDlg.locator('#ch-password').fill('vault pass');
+    await vaultDlg.getByRole('button', { name: 'Save', exact: true }).click();
+    await vaultDlg.waitFor({ state: 'detached' });
+    await within((async () => { while (channelPassword(await aclOf(vaultId)) !== 'vault pass') await page.waitForTimeout(200); })(), 'password changed');
+    bob.setTokens(['first pass']);
+    await bob.flushed();
+    assert.equal(chByName('Vault')!.canEnter, false, 'the old password no longer opens it');
+    bob.setTokens(['VAULT PASS']);
+    await bobSees('the new password opens it, in any case', () => chByName('Vault')?.canEnter === true);
+    bob.setTokens([]);
+    await bobSees('locked again without it', () => chByName('Vault')?.canEnter === false);
+
+    // Alice has Write everywhere and keeps the password she set. To meet the prompt she loses
+    // Write here, and the password changes to one she does not have.
+    const aliceId = [...admin.users.values()].find(u => u.name === 'alice')!.session;
+    const aliceWas = admin.users.get(aliceId)!.channelId;
+    const vaultRules = withPassword(await aclOf(vaultId), 'door pass');
+    admin.saveAcl({ ...vaultRules, acls: [...vaultRules.acls, { applyHere: true, applySubs: false, inherited: false, userId: null, group: `$${aliceHash}`, grant: 0, deny: PERM.Write }] });
+    await within((async () => { while (await vaultRow.getAttribute('title') !== 'Locked. Double-click to enter the password') await page.waitForTimeout(100); })(), 'locked for alice');
+    await vaultRow.locator('svg').first().waitFor();
+    await vaultRow.dblclick();
+    const ask = page.getByRole('dialog', { name: 'Join Vault' });
+    await ask.getByLabel('Channel password').fill('nope');
+    await ask.getByRole('button', { name: 'Join', exact: true }).click();
+    await ask.getByText('Wrong password').waitFor();
+    assert.notEqual(admin.users.get(aliceId)!.channelId, vaultId);
+    await ask.getByLabel('Channel password').fill('door pass');
+    await ask.getByRole('button', { name: 'Join', exact: true }).click();
+    await within(new Promise<void>(res => {
+      const check = () => admin.users.get(aliceId)?.channelId === vaultId ? res() : setTimeout(check, 100);
+      check();
+    }), 'alice joined with the password');
+    assert.deepEqual(await page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('mumh5.tokens') ?? '{}')).flat().includes('door pass')), true, 'a password that worked is kept');
+    admin.setUserState(aliceId, { channel_id: aliceWas });
+    admin.saveAcl(vaultRules);
+    await within(new Promise<void>(res => {
+      const check = () => admin.users.get(aliceId)?.channelId === aliceWas ? res() : setTimeout(check, 100);
+      check();
+    }), 'alice back');
+    await within((async () => { while ((await aclOf(vaultId)).acls.some(r => !r.inherited && r.group === `$${aliceHash}`)) await page.waitForTimeout(200); })(), 'rule removed');
+
+    // Clearing the field removes the password for everyone
+    await vaultRow.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Edit channel...' }).click();
+    await vaultDlg.locator('#ch-password:not([disabled])').waitFor();
+    await vaultDlg.locator('#ch-password').fill('');
+    await vaultDlg.getByRole('button', { name: 'Save', exact: true }).click();
+    await bobSees('password removed', () => chByName('Vault')?.canEnter === true);
+    admin.removeChannel(vaultId);
+    await bobSees('vault gone', () => !chByName('Vault'));
+    console.log('ok: channel password set, changed, asked for, kept and removed');
+
+    // Admin badge: from the root group, published by a client that may read it
+    const crownName = `crown-${Date.now() % 100000}`;
+    const crown = await headless(crownName);
+    try {
+      admin.register(crown.session!);
+      await within(new Promise<void>(res => {
+        const check = () => admin.users.get(crown.session!)?.userId != null ? res() : setTimeout(check, 100);
+        check();
+      }), 'registered');
+      const crownId = admin.users.get(crown.session!)!.userId!;
+      const rootBefore = await aclOf(0);
+      const groups = rootBefore.groups.some(g => g.name === 'admin')
+        ? rootBefore.groups.map(g => g.name === 'admin' ? { ...g, add: [...g.add, crownId] } : g)
+        : [...rootBefore.groups, { name: 'admin', inherited: false, inherit: true, inheritable: true, add: [crownId], remove: [], inheritedMembers: [] }];
+      const crownRow = page.locator('.sidebar .user', { hasText: crownName });
+      await crownRow.waitFor();
+      assert.equal(await crownRow.getByLabel('Server admin').count(), 0, 'no badge before joining the group');
+      // Changed by someone else: alice's client has Write, notices and publishes the list
+      admin.saveAcl({ ...rootBefore, groups });
+      await crownRow.getByLabel('Server admin').waitFor();
+      await page.locator('.sidebar .user', { hasText: 'SuperUser' }).getByLabel('Server admin').waitFor();
+      assert.equal(await page.locator('.sidebar .user', { hasText: 'bob' }).getByLabel('Server admin').count(), 0);
+      if (shots) await page.screenshot({ path: path.join(shots, 'admin-badge.png') });
+      await crownRow.click();
+      await page.getByRole('dialog', { name: `Profile of ${crownName}` }).getByText('Admin', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      admin.saveAcl(rootBefore);
+      await within((async () => { while (await crownRow.getByLabel('Server admin').count()) await page.waitForTimeout(100); })(), 'badge gone when removed from the group');
+    } finally {
+      crown.disconnect();
+    }
+    console.log('ok: admin badge follows the root admin group');
+
     // Move a group of six by dragging, then by the channel picker.
     const movers: MumbleClient[] = [];
     try {
@@ -1656,6 +1767,8 @@ try {
     // People: a profile opens over the screen, a message opens the chat
     await nav.getByRole('button', { name: 'People' }).click();
     const people = page.getByRole('region', { name: 'People' });
+    if (admin) await people.locator('.entry', { hasText: 'SuperUser' }).getByLabel('Server admin').waitFor();
+    assert.equal(await people.locator('.entry', { hasText: 'bob' }).getByLabel('Server admin').count(), 0);
     await people.locator('.entry', { hasText: 'bob' }).locator('.main').click({ modifiers: ['Control'] });
     await people.locator('.entry', { hasText: newName }).locator('.main').click({ modifiers: ['Shift'] });
     assert.ok(await people.locator('.main[aria-pressed="true"]').count() >= 2);
