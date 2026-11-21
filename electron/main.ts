@@ -289,9 +289,10 @@ app.whenReady().then(async () => {
     } catch { /* refused */ }
   });
 
-  // Microphone, camera and screen capture for voice and video; nothing else
+  // Microphone, camera and screen capture for voice and video, full screen for videos and
+  // streams; nothing else
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
-    cb(['media', 'display-capture', 'clipboard-sanitized-write', 'notifications'].includes(permission));
+    cb(['media', 'display-capture', 'clipboard-sanitized-write', 'notifications', 'fullscreen'].includes(permission));
   });
   createWindow();
   await tray.setupTray(() => mainWindow, action => mainWindow?.webContents.send('tray:action', action));

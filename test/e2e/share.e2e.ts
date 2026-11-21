@@ -305,6 +305,13 @@ try {
   await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0);
   console.log('ok: stream in a separate window, back when it is closed');
 
+  // Full screen: the app must grant it, or the button does nothing
+  await view.getByRole('button', { name: 'Full screen' }).click();
+  await bob.page.waitForFunction(() => document.fullscreenElement?.classList.contains('spot'), null, { timeout: 5000 });
+  await bob.page.evaluate(() => document.exitFullscreen());
+  await bob.page.waitForFunction(() => !document.fullscreenElement);
+  console.log('ok: full screen');
+
   // Back to tiles hides the picture; the sharer's tile brings it back
   await view.getByRole('button', { name: 'Back to tiles' }).click();
   await view.waitFor({ state: 'detached' });
