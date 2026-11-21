@@ -153,6 +153,8 @@ await page.getByRole('button', { name: 'Done' }).click();
 const press = async (loc: ReturnType<typeof page.locator>) => { const b = (await loc.boundingBox())!; await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
 const tab = (name: string) => press(page.getByRole('tab', { name }));
 
+// The steps below use the server list directly
+await page.getByRole('button', { name: 'Show servers' }).click();
 // The README shows the Modern layout (channels left, members right); Stacked is the default
 await page.getByTitle('Settings').click();
 await tab('Appearance');
@@ -253,6 +255,8 @@ async function client(name: string, colors?: [number[], number[]], stageHeight?:
   await p.getByRole('button', { name: 'Create', exact: true }).click();
   await p.getByRole('button', { name: 'Skip for now' }).click();
   await p.getByRole('button', { name: 'Done' }).click();
+  // The steps below use the server list directly
+  await p.getByRole('button', { name: 'Show servers' }).click();
   // A taller meeting view than the default, so the stream fills the picture
   if (stageHeight) await p.evaluate(h => localStorage.setItem('mumh5.stageHeightMeeting', String(h)), stageHeight);
   await p.getByTitle('Settings').click();

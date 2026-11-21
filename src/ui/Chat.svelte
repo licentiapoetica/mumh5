@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import ServerButton from './ServerButton.svelte';
   import ChatLog from './ChatLog.svelte';
   import Composer from './Composer.svelte';
   import VoiceStage from './VoiceStage.svelte';
@@ -9,7 +10,7 @@
 
   // showStage: voice tiles above the chat when the window is too narrow for the member list
   // videoOnly: streams as a plain picture without the tiles (stacked layout)
-  let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean } = $props();
+  let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false, serverButton = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean; serverButton?: boolean } = $props();
 
   // Stacked layout with a stream above the chat: the chat's height can be dragged larger than
   // its minimum; the picture gets the rest. Unset until dragged, then the picture decides.
@@ -51,7 +52,8 @@
 <section class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat" bind:this={chatEl} style:--composer-h="{composerH}px">
   <!-- Stacked layout: no title bar; the channel list above already names the channel -->
   {#if !videoOnly}
-  <header>
+  <header class:with-server={serverButton}>
+    {#if serverButton}<ServerButton />{/if}
     {#if showMenu}<button class="icon-btn" onclick={onmenu} aria-label="Open channels"><Icon name="menu" /></button>{/if}
     <Icon name={isDm ? 'message' : 'hash'} size={20} />
     <h1>{title}</h1>
@@ -105,6 +107,8 @@
   .chat.log-fixed :global(.stage.solo .spot .pic > video) { flex: 1 1 0; max-height: none; }
   .chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
   header { height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); color: var(--text-faint); }
+  header.with-server { padding-left: 8px; }
+  header.with-server > :global(.server-btn) { margin-top: 1px; color: var(--text); }
   h1 { flex: 0 1 auto; max-width: 60%; font-size: 15px; font-weight: 650; margin: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .topic { flex: 1 1 0; font-size: 13px; color: var(--text-dim); padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .grow { flex: 1; }

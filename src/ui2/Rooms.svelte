@@ -3,7 +3,7 @@
   import Avatar from '../ui/Avatar.svelte';
   import AdminBadge from '../ui/AdminBadge.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
-  import { store, type SavedServer } from '../lib/settings.svelte.ts';
+  import { serverInitials as initials, store, type SavedServer } from '../lib/settings.svelte.ts';
   import { menu, type MenuItem } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { channelMenu, userMenu, openProfile } from '../lib/actions.ts';
@@ -105,7 +105,6 @@
   }
 
   // ─── Servers ────────────────────────────────────────────────────────────────
-  const initials = (label: string) => label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
   // Waiting for an automatic reconnect counts as connecting, so it shows and can be stopped
   const stateOf = (id: string) => { const s = sessions.byServer(id); return s?.reconnectDelay != null ? 'connecting' : s?.status ?? 'idle'; };
   const unreadOf = (id: string) => {

@@ -26,6 +26,7 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  railHidden: boolean;    // the server list is closed; the current server's button brings it back
   // standard: the channel tree in one of the layouts above. rooms: one screen at a time, made for phones.
   interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
@@ -60,6 +61,10 @@ export const THEMES: { id: ThemeId; name: string; note: string; light: boolean }
   ...GENERATED_THEMES
 ];
 
+// What a server's tile shows without an icon
+export const serverInitials = (label: string) =>
+  label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+
 const defaults: Settings = {
   embedHosts: [],
   mediaLinks: 'click',
@@ -71,6 +76,7 @@ const defaults: Settings = {
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'stacked',
+  railHidden: true,
   interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,

@@ -27,6 +27,8 @@
   --header-h: 52px;
   /* Height of the bottom bar of the sidebar when it is a single row (stacked layout) */
   --footer-h: 52px;
+  /* Width of the server list */
+  --rail-w: 52px;
   /* Buttons and single-line fields */
   --control-h: 36px;
   /* Borders of fields and buttons: a step stronger than the dividers between areas */

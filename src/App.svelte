@@ -55,6 +55,21 @@
   const showPanel = $derived(ui.panelOpen && session.status === 'connected');
   // Not connected to the server shown: the start screen with the saved servers takes the window
   const home = $derived(session.status === 'idle');
+  const railHidden = $derived(store.settings.railHidden);
+  // The phone drawer holds the server list and the channels together, hidden or not
+  const inDrawer = $derived(layout === 'narrow' && arrangement === 'side' && !home);
+  // Home on request lies over the server view: unmounting it would lose drafts and stop stream audio
+  const homeOver = $derived(sessions.homeShown && !home);
+  let appEl = $state<HTMLElement>();
+  $effect(() => {
+    void layout; void arrangement;
+    if (!homeOver || !appEl) return;
+    navOpen = false;
+    (document.activeElement as HTMLElement | null)?.blur();
+    const behind = [...appEl.querySelectorAll<HTMLElement>(':scope > .chat, :scope > .stack, :scope > .sidebar, :scope > .panel, .nav > .sidebar')];
+    for (const el of behind) el.inert = true;
+    return () => { for (const el of behind) el.inert = false; };
+  });
 
   // Servers marked to connect at start, once the identities are ready (not during first-run setup)
   let started = false;
@@ -126,12 +141,12 @@
 <svelte:window bind:innerWidth={width} onclickcapture={e => { imageClick(e); codeCopy(e); }} />
 
 {#snippet rail()}
-  <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)}
+  <ServerRail canHide={!inDrawer} onadd={() => (editing = { server: null })} onbrowse={() => (ui.publicServers = true)}
     onsettings={() => (ui.settingsOpen = true)} />
 {/snippet}
 {#snippet chat()}
   <Chat showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
-    onmenu={() => (navOpen = true)} onpanel={togglePanel} />
+    serverButton={railHidden && arrangement === 'classic'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
 <div class="frame">
@@ -151,16 +166,16 @@
 {#if store.settings.interface === 'rooms'}
 <Shell onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
 {:else}
-<div class="app {layout} {arrangement}" class:home>
+<div class="app {layout} {arrangement}" class:home bind:this={appEl}>
   {#if home}
-    {@render rail()}
+    {#if !railHidden}{@render rail()}{/if}
     <Home top={arrangement === 'stacked'} onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
   {:else if arrangement === 'classic'}
-    {@render rail()}
+    {#if !railHidden}{@render rail()}{/if}
     {@render chat()}
     <Sidebar handleEdge="left" onnavigate={() => {}} />
   {:else if arrangement === 'stacked'}
-    {@render rail()}
+    {#if !railHidden}{@render rail()}{/if}
     <div class="stack" bind:this={stackEl}>
       <div class="tree" style:height="{treeHeight}px">
         <Sidebar fill onnavigate={() => {}} />
@@ -172,12 +187,18 @@
   {:else}
     {#if layout !== 'narrow' || navOpen}
       <div class="nav" class:drawer={layout === 'narrow'}>
-        {@render rail()}
-        <Sidebar resizable={layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+        {#if !railHidden || layout === 'narrow'}{@render rail()}{/if}
+        <Sidebar resizable={layout !== 'narrow'} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
       </div>
       {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
     {/if}
     {@render chat()}
+  {/if}
+
+  {#if homeOver}
+    <div class="home-over" class:after-rail={!railHidden && !inDrawer}>
+      <Home top={arrangement === 'stacked'} onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
+    </div>
   {/if}
 
   {#if showPanel}
@@ -193,6 +214,7 @@
 </div>
 
 {#if editing}<ConnectDialog server={editing.server} onclose={() => (editing = null)} />{/if}
+{#if ui.editServer}<ConnectDialog server={ui.editServer} onclose={() => (ui.editServer = null)} />{/if}
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
 {#if ui.publicServers}<PublicServers onclose={() => (ui.publicServers = false)} />{/if}
 {#if ui.serverInfo && session.status === 'connected'}<ServerInfoDialog onclose={() => (ui.serverInfo = false)} />{/if}
@@ -225,12 +247,14 @@
   .app { position: relative; height: 100%; display: flex; overflow: hidden; }
   .nav { display: flex; flex: none; min-height: 0; }
   .nav.drawer { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; max-width: calc(100% - 48px); box-shadow: 8px 0 32px rgb(0 0 0 / 0.4); }
-  .nav.drawer :global(.sidebar) { width: min(260px, calc(100vw - 68px - 48px)); }
+  .nav.drawer :global(.sidebar) { width: min(260px, calc(100vw - var(--rail-w) - 48px)); }
   .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   /* Its minimum (the shortest chat and the message box) comes from Chat.svelte; the list above gives way to it */
   .stack > :global(.chat) { flex: 1; }
   /* Its chosen height while there is room; on short windows it gives way first, down to its toolbar */
   .tree { position: relative; z-index: 1; flex: 0 1 auto; display: flex; min-height: var(--footer-h); border-bottom: 1px solid var(--line); }
   .scrim { position: absolute; inset: 0; z-index: 15; background: rgb(0 0 0 / 0.5); }
+  .home-over { position: absolute; z-index: 14; inset: 0; display: flex; }
+  .home-over.after-rail { left: var(--rail-w); }
   .panel-drawer { position: absolute; z-index: 20; top: 0; right: 0; bottom: 0; max-width: calc(100% - 48px); display: flex; box-shadow: -8px 0 32px rgb(0 0 0 / 0.4); }
 </style>

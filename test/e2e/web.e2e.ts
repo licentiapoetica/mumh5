@@ -87,6 +87,8 @@ try {
   assert.ok(existsSync(saved + '.done') && statSync(saved).size > 1000, 'backup file downloaded');
   await page.getByRole('button', { name: 'Done' }).click();
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor({ state: 'detached' });
+  // The steps below use the server list directly
+  await page.getByRole('button', { name: 'Show servers' }).click();
   // Written for the Modern layout; Stacked is the default
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
@@ -269,6 +271,7 @@ try {
   await page2.getByRole('button', { name: 'Create', exact: true }).click();
   await page2.getByRole('button', { name: 'Skip for now' }).click();
   await page2.getByRole('button', { name: 'Done' }).click();
+  await page2.getByRole('button', { name: 'Show servers' }).click();
   await page2.getByTitle('Add a server').click();
   await page2.getByRole('button', { name: 'Save and connect' }).click();
   await page2.getByText(/Connected/).first().waitFor();

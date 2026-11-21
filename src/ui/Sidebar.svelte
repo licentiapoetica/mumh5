@@ -8,13 +8,15 @@
   import { PERM } from '../core/client.ts';
   import ResizeHandle from './ResizeHandle.svelte';
   import UserBar from './UserBar.svelte';
+  import ServerButton from './ServerButton.svelte';
   import UserSelection from './UserSelection.svelte';
 
   // resizable: false in the phone drawer, which keeps a fixed width
   // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
   // fill: take the whole area (stacked layout, where the parent sizes it)
-  let { onnavigate, resizable = true, handleEdge = 'right', fill = false }:
-    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean } = $props();
+  // serverButton: the current server leads the header while the server list is hidden
+  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false }:
+    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean } = $props();
 
   const MIN_W = 200, DEFAULT_W = 260;
   const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
@@ -57,7 +59,8 @@
 
 <aside class="sidebar" class:fill style:width={resizable && !fill ? `${width}px` : undefined}>
   {#if resizable && !fill}<ResizeHandle bind:width edge={handleEdge} min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
-  <header class:trusted>
+  <header class:trusted class:with-server={serverButton}>
+    {#if serverButton}<ServerButton />{/if}
     <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <strong>{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={14} />{/if}{session.server?.label ?? 'mumh5'}</strong>
       <span class="status">
@@ -113,6 +116,9 @@
   .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
   .sidebar.fill { width: 100%; height: 100%; }
   header { height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
+  header.with-server { padding-left: 8px; }
+  header.with-server .title { padding-left: 2px; }
+  header.with-server > :global(.server-btn) { margin-top: 1px; }
   header.trusted { background: #1d5c38; border-bottom-color: #2a7a4c; }
   header.trusted .status, header.trusted .icon-btn { color: #cfeedd; }
   header.trusted .dot { background: #fff; }

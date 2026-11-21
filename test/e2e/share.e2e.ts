@@ -39,6 +39,8 @@ async function join(page: Page, name: string) {
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await page.getByRole('button', { name: 'Done' }).click();
+  // The steps below use the server list directly
+  await page.getByRole('button', { name: 'Show servers' }).click();
   // Written for the Modern layout; Stacked is the default
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
