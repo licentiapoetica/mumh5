@@ -18,6 +18,9 @@ const RATE_LIMITED = new Set<MessageName>(['TextMessage', 'ChannelState', 'ACL',
 // messages always go out at once
 const BULK_CAP = RATE_BURST - 2;
 
+const sameBytes = (a: Uint8Array, b: Uint8Array | null) =>
+  !!b && a.length === b.length && a.every((v, i) => v === b[i]);
+
 export interface Channel {
   id: number;
   parent: number | null;
@@ -684,7 +687,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
     }
     if (msg.parent != null) ch.parent = msg.parent;
     if (msg.name != null) ch.name = msg.name;
-    if (msg.description_hash != null && msg.description == null) ch.description = '';
+    // Only a different hash makes the text we have stale
+    if (msg.description_hash != null && msg.description == null && !sameBytes(msg.description_hash, ch.descriptionHash)) ch.description = '';
     if (msg.description != null) ch.description = msg.description;
     if (msg.description_hash != null) ch.descriptionHash = msg.description_hash;
     // An emptied description comes without a hash; the old one would mean text is still to fetch

@@ -21,6 +21,7 @@
   let selected = $state('');
   let registered = $state.raw<{ id: number; name: string }[]>([]);
   let dirty = $state(false);
+  let saving = $state(false);
   let error = $state('');
   let newName = $state('');
   let addName = $state('');
@@ -163,8 +164,14 @@
     return !(effectivePermissions([level], who, () => null) & PERM.Write);
   });
 
-  function save() {
-    if (!acl) return;
+  async function save() {
+    if (!acl || saving) return;
+    saving = true;
+    error = '';
+    // The role data is written into this text, so it has to be here first
+    const loaded = await session.whenRootLoaded();
+    saving = false;
+    if (!loaded) { error = 'Could not read the server description. Nothing was saved.'; return; }
     const ready = prepareRoles(acl, roles);
     const problem = session.saveRoles(ready, docFromRoles(roles.map(r => ({ ...r, m: isBuiltinRole(r.g) ? [] : roleMembers(ready, r.g) }))));
     if (problem) { error = problem; return; }
@@ -361,7 +368,7 @@
   {#snippet footer()}
     {#if losesAdmin}<p class="foot warn">Saving removes your own admin access.</p>{:else if error}<p class="foot err">{error}</p>{/if}
     <button class="btn" onclick={onclose}>Cancel</button>
-    <button class="btn primary" disabled={!acl || !dirty} onclick={save}>Save</button>
+    <button class="btn primary" disabled={!acl || !dirty || saving} onclick={save}>Save</button>
   {/snippet}
 </Modal>
 

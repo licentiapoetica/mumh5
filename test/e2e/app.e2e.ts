@@ -1,7 +1,7 @@
 // Drives the built Electron app against a real Mumble server, with a headless second client.
 //   npm run build && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e
 // Optional: E2E_INTERNET=1 to also test link previews (fetches github.com), SHOTS_DIR to save screenshots.
-import { _electron as electron } from 'playwright-core';
+import { _electron as electron, type Locator } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -1298,10 +1298,10 @@ try {
     await roleSections.getByRole('tab', { name: 'Display' }).click();
     await rolesDlg.getByRole('button', { name: 'Icon star' }).click();
     await rolesDlg.getByRole('button', { name: 'Color #6fb3ff' }).click();
-    // An uploaded picture becomes a small raster icon; the built-in one is chosen again after
-    await rolesDlg.getByLabel('Icon file').setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: testPng(64, 64) });
+    // An uploaded picture becomes a small raster icon
+    const roleIconFile = { name: 'icon.png', mimeType: 'image/png', buffer: testPng(64, 64) };
+    await rolesDlg.getByLabel('Icon file').setInputFiles(roleIconFile);
     await rolesDlg.getByRole('button', { name: 'Your picture' }).waitFor();
-    await rolesDlg.getByRole('button', { name: 'Icon star' }).click();
     await roleSections.getByRole('tab', { name: 'Members' }).click();
     await rolesDlg.locator('#role-people option[value="carol"]').waitFor({ state: 'attached' });
     await rolesDlg.getByLabel('Add a member').fill('carol');
@@ -1335,6 +1335,23 @@ try {
     await page.getByRole('list', { name: 'Roles' }).getByText('Moderator').waitFor();
     if (shots) await page.screenshot({ path: path.join(shots, 'roles-badge.png') });
     await page.keyboard.press('Escape');
+    const carolIcon = page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').locator('img');
+    await carolIcon.waitFor();
+    // Away from the picture and back: the description returns to text the client has seen before
+    const changeIcon = async (pick: (d: Locator) => Promise<void>) => {
+      const d = await openRoles();
+      await d.getByRole('list', { name: 'Roles' }).getByRole('button', { name: /^Moderator/ }).click();
+      await d.getByRole('tablist', { name: 'Role sections' }).getByRole('tab', { name: 'Display' }).click();
+      await pick(d);
+      await d.getByRole('button', { name: 'Save', exact: true }).click();
+      await d.waitFor({ state: 'detached' });
+    };
+    await changeIcon(d => d.getByRole('button', { name: 'Icon star' }).click());
+    await carolIcon.waitFor({ state: 'detached' });
+    await changeIcon(d => d.getByLabel('Icon file').setInputFiles(roleIconFile));
+    await carolIcon.waitFor();
+    await changeIcon(d => d.getByRole('button', { name: 'Icon star' }).click());
+    await carolIcon.waitFor({ state: 'detached' });
     // Each person can turn role icons off
     await page.getByTitle('Settings').click();
     await page.getByRole('tab', { name: 'Appearance' }).click();

@@ -21,6 +21,7 @@ import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 
 const codec = createCodec();
+const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
 
 // A chat view is a channel ("ch:<id>") or a direct conversation with a user ("dm:<session>").
 export type ViewKey = `ch:${number}` | `dm:${number}`;
@@ -519,6 +520,8 @@ export class Session {
       files.receive(this, sender, dataId, data);
     });
     client.on('channel', ch => {
+      // A description can return to earlier text, and so to a hash that must be fetchable again
+      if (ch.description && ch.descriptionHash) this.requested.delete(descriptionTag(ch.id, ch.descriptionHash));
       if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
       if (live() && client.synced) textChannels.channelChanged(this, ch.id);
       if (live() && client.synced && ch.id === 0) {
@@ -761,10 +764,29 @@ export class Session {
   loadDescription(id: number): void {
     const c = this.client?.channels.get(id);
     if (!c?.descriptionHash || c.description) return;
-    const tag = `d:${id}:${[...c.descriptionHash].join(',')}`;
+    const tag = descriptionTag(id, c.descriptionHash);
     if (this.requested.has(tag)) return;
     this.requested.add(tag);
     this.client!.requestBlob({ descriptions: [id] });
+  }
+
+  // For changes that rewrite the root description: false if its text does not arrive
+  whenRootLoaded(ms = 5000): Promise<boolean> {
+    const client = this.client;
+    const root = client?.channels.get(0);
+    if (!client || !root) return Promise.resolve(false);
+    if (!root.descriptionHash || root.description) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { off(); resolve(false); }, ms);
+      const off = client.on('channel', ch => {
+        if (ch.id !== 0 || !ch.description) return;
+        clearTimeout(timer);
+        off();
+        resolve(true);
+      });
+      this.requested.delete(descriptionTag(0, root.descriptionHash!));
+      this.loadDescription(0);
+    });
   }
 
   loadComment(session: number): void {
