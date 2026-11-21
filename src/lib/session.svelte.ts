@@ -1048,6 +1048,13 @@ class Sessions {
     if (s.status === 'idle') s.connect(server);
   }
 
+  // At start: connect the servers marked for it, showing the first of them
+  connectOnStart(servers: SavedServer[]): void {
+    const auto = servers.filter(s => s.autoConnect);
+    for (const s of auto) this.open(s);
+    if (auto.length) this.select(auto[0].id);
+  }
+
   select(id: string): void {
     this.activeId = id;
     this.active.markVisibleRead();

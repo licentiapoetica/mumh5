@@ -119,6 +119,7 @@ On a phone or in a narrow window, everything fits on one screen:
 - Create, edit, delete and link channels. Drag a channel into another, or in front of or behind it; drag people between channels
 - Permission editor: rules per channel with inheritance, groups and members
 - If you are kicked, you see who did it and why, with a Reconnect button
+- Optional connect at start per server (Add/Edit server): the server connects when mumh5 starts; with several, the first in the list is shown
 - Optional automatic reconnect per server (Add/Edit server): retries connection loss, kicks and failed connections after 5 seconds, backing off to 30 seconds. Cancel a pending retry at any time; manual disconnects, bans, login rejections and certificate changes stop retries.
 
 ### Chat

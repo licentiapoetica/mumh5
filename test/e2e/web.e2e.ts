@@ -184,13 +184,18 @@ try {
   const hash = () => [...bob.users.values()].find(u => u.name === name)?.hash;
   const before = hash();
   assert.ok(before, 'bob sees the certificate hash');
+  // Marked to connect at start: after the reload it connects without a click
+  await page.locator('.rail .tile[title^="Test Server"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Edit...' }).click();
+  await page.getByLabel('Connect when mumh5 starts').check();
+  await page.getByRole('button', { name: 'Save and connect' }).click();
+  await page.getByText(/Connected/).first().waitFor();
   await page.reload();
-  await page.locator('.rail .tile[title^="Test Server"]').click();
   await page.getByText(/Connected/).first().waitFor();
   const deadline = Date.now() + 5000;
   while (hash() !== before && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
   assert.equal(hash(), before, 'same certificate after a reload');
-  console.log('ok: identity kept across a reload');
+  console.log('ok: identity kept across a reload, connected at start');
 
   // Screen sharing between two browsers: the proxy's own STUN is used without any setting
   assert.equal((await (await fetch(`http://127.0.0.1:${proxyPort}/api/config`)).json()).stun, proxyPort + 1000);

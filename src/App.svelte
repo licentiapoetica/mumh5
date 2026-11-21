@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ServerRail from './ui/ServerRail.svelte';
   import Sidebar from './ui/Sidebar.svelte';
   import Chat from './ui/Chat.svelte';
@@ -26,7 +27,7 @@
   import Icon from './ui/Icon.svelte';
   import { updates } from './lib/updates.svelte.ts';
   import { identities } from './lib/identities.svelte.ts';
-  import { session } from './lib/session.svelte.ts';
+  import { session, sessions } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
 
@@ -54,6 +55,14 @@
   const showPanel = $derived(ui.panelOpen && session.status === 'connected');
   // Not connected to the server shown: the start screen with the saved servers takes the window
   const home = $derived(session.status === 'idle');
+
+  // Servers marked to connect at start, once the identities are ready (not during first-run setup)
+  let started = false;
+  $effect(() => {
+    if (started || !identities.loaded || !identities.setupDone) return;
+    started = true;
+    untrack(() => sessions.connectOnStart(store.servers));
+  });
 
   // Color scheme on the root element; dark is the stylesheet default
   $effect(() => {

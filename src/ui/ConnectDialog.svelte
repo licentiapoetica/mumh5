@@ -19,6 +19,7 @@
   let port = $state(initial?.port ?? pre.port ?? 64738);
   let password = $state(initial?.password ?? '');
   let autoReconnect = $state(initial?.autoReconnect ?? false);
+  let autoConnect = $state(initial?.autoConnect ?? false);
   let identityId = $state(initial?.identityId ?? '');
   // The name chosen for an identity when it was created, if any
   const identityName = (id: string) => store.identityNames[identities.byId(id || undefined)?.id ?? ''] ?? '';
@@ -68,7 +69,7 @@
     let h = host.trim(), p = Number(port);
     const m = /^(.+):(\d+)$/.exec(h);
     if (m && !h.includes(']')) { h = m[1]; p = Number(m[2]); }
-    return { id: initial?.id ?? crypto.randomUUID(), label: label.trim() || h, host: h, port: p, username: username.trim(), password, autoReconnect, identityId: identityId || undefined, icon: icon || undefined };
+    return { id: initial?.id ?? crypto.randomUUID(), label: label.trim() || h, host: h, port: p, username: username.trim(), password, autoReconnect, autoConnect, identityId: identityId || undefined, icon: icon || undefined };
   }
 
   function saveAndConnect(e: SubmitEvent) {
@@ -110,6 +111,7 @@
     <input id="c-user" bind:value={username} autocomplete="username" required />
     <label for="c-pass">Password <span class="opt">(optional)</span></label>
     <input id="c-pass" type="password" bind:value={password} autocomplete="current-password" />
+    <label class="check"><input type="checkbox" bind:checked={autoConnect} /> Connect when mumh5 starts</label>
     <label class="check"><input type="checkbox" bind:checked={autoReconnect} /> Automatically reconnect</label>
     <p class="note">Retry connection loss and kicks after 5 seconds, backing off to 30 seconds. Disconnecting yourself, bans, login rejections and certificate changes stop retries.</p>
     {#if identities.list.length > 1}
