@@ -226,11 +226,33 @@ export class Session {
     this.expanded[id] = !this.isExpanded(id);
   }
 
-  // Collapsing goes back to the default: channels with people in them stay open
+  // Empty channels keep the default when collapsing, so they still open once someone joins
   setAllExpanded(open: boolean): void {
     const all: Record<number, boolean> = {};
-    if (open) for (const id of this.client?.channels.keys() ?? []) all[id] = true;
+    for (const id of this.client?.channels.keys() ?? []) {
+      if (open) all[id] = true;
+      else if (id !== 0 && this.subtreeUserCount(id) > 0) all[id] = false;
+    }
     this.expanded = all;
+  }
+
+  // Whether every channel that has something to show is open (root always is)
+  get allExpanded(): boolean {
+    void this.tick;
+    const client = this.client;
+    if (!client) return false;
+    const withPeople = new Set<number>();
+    for (const u of client.users.values()) {
+      let id: number | null | undefined = u.channelId;
+      while (id != null && !withPeople.has(id)) {
+        withPeople.add(id);
+        id = client.channels.get(id)?.parent;
+      }
+    }
+    const collapsible = new Set(withPeople);
+    for (const c of client.channels.values()) if (c.parent != null) collapsible.add(c.parent);
+    collapsible.delete(0);
+    return [...collapsible].every(id => this.expanded[id] ?? withPeople.has(id));
   }
 
   // What the server told us about itself, for the server information dialog

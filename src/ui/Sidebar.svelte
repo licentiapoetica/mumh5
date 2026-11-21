@@ -26,6 +26,8 @@
   const self = $derived(session.self);
   const cert = $derived(session.serverCert);
   const trusted = $derived(!!cert?.authorized);
+  // The lock and the status dot share a column, so the name and the status start at the same x
+  const marked = $derived(!!cert || session.status === 'connected');
 
   // Right-click on free space in the channel list (rows open their own menus and stop the event)
   function listMenu(e: MouseEvent) {
@@ -62,17 +64,21 @@
   <header class:trusted class:with-server={serverButton}>
     {#if serverButton}<ServerButton />{/if}
     <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
-      <strong>{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={14} />{/if}{session.server?.label ?? 'mumh5'}</strong>
+      <strong>
+        {#if marked}<span class="mark">{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={12} />{/if}</span>{/if}
+        <span class="server-name">{session.server?.label ?? 'mumh5'}</span>
+      </strong>
       <span class="status">
+        {#if marked}<span class="mark">{#if session.status === 'connected'}<span class="dot"></span>{/if}</span>{/if}
         {#if session.status === 'connected'}
-          <span class="dot"></span>Connected{#if session.rtt} , {session.rtt} ms{/if}
+          Connected{#if session.rtt} , {session.rtt} ms{/if}
         {:else if session.status === 'connecting'}Connecting...
         {:else if session.reconnectDelay != null}Waiting to reconnect
         {:else}Not connected{/if}
       </span>
     </button>
     {#if session.status !== 'idle' || session.reconnectDelay != null}
-      <button class="icon-btn" title="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
+      <button class="icon-btn power" title="Disconnect" aria-label="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
     {/if}
   </header>
 
@@ -122,10 +128,16 @@
   header.trusted { background: #1d5c38; border-bottom-color: #2a7a4c; }
   header.trusted .status, header.trusted .icon-btn { color: #cfeedd; }
   header.trusted .dot { background: #fff; }
+  /* No box on the colored bar; the icon brightens instead */
+  .power:hover, .power:active { background: transparent; }
+  header.trusted .power:hover { color: #fff; }
   .title { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding-left: 16px; text-align: left; transition: background 120ms var(--ease); }
   .title:disabled { opacity: 1; }
   .title:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); }
-  .title strong { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title strong { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .server-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mark { flex: none; width: 7px; display: flex; justify-content: center; }
+  .mark :global(svg) { flex: none; }
   .status { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
   .dot { width: 7px; height: 7px; background: var(--speaking); }
   .scroll { flex: 1; overflow-y: auto; padding: 8px; }

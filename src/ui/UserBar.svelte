@@ -35,11 +35,10 @@
     else share.start(sessions.active);
   }
 
-  // One button for the whole tree: open everything, then close everything
-  let allOpen = $state(false);
+  // One button for the whole tree. It follows the tree, which single channels can change too
+  const allOpen = $derived(session.allExpanded);
   function toggleAll() {
-    allOpen = !allOpen;
-    session.setAllExpanded(allOpen);
+    session.setAllExpanded(!allOpen);
   }
 
   function openQuick(e: MouseEvent, kind: 'input' | 'output') {

@@ -7,6 +7,7 @@
   import Icon from './Icon.svelte';
   import FormatToolbar from './FormatToolbar.svelte';
   import CodeDialog from './CodeDialog.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { toMumbleHtml } from '../lib/html.ts';
@@ -130,8 +131,47 @@
     };
   }
 
+  // The picker's search field takes the focus, so the caret is kept for the insert
+  let emojiButton = $state<HTMLButtonElement>();
+  let emojiOpen = $state(false);
+  let caret: Range | null = null;
+
+  function toggleEmoji() {
+    if (emojiOpen) return closeEmoji(true);
+    const sel = window.getSelection();
+    caret = sel?.rangeCount && input.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+    emojiOpen = true;
+  }
+
+  function restoreCaret() {
+    input.focus();
+    const sel = window.getSelection();
+    if (!sel) return;
+    if (caret && input.contains(caret.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(caret);
+    } else {
+      sel.selectAllChildren(input);
+      sel.collapseToEnd();
+    }
+  }
+
+  function closeEmoji(refocus: boolean) {
+    emojiOpen = false;
+    if (refocus) restoreCaret();
+  }
+
+  function insertEmoji(emoji: string, keepOpen: boolean) {
+    restoreCaret();
+    exec('insertText', emoji);
+    const sel = window.getSelection();
+    caret = sel?.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    if (!keepOpen) emojiOpen = false;
+  }
+
   $effect(() => {
     void target;
+    emojiOpen = false;
     if (autofocus && !disabled && matchMedia('(pointer: fine)').matches) input.focus();
   });
 </script>
@@ -162,6 +202,8 @@
       <div class="input" class:blank={empty} bind:this={input} contenteditable={!disabled}
         role="textbox" aria-multiline="true" aria-label="Message" tabindex="0" data-placeholder={placeholder}
         oninput={sync} {onkeydown} {onpaste}></div>
+      <button class="icon-btn" class:emoji-on={emojiOpen} title="Emoji (Shift+click in the list keeps it open)" aria-label="Emoji" aria-haspopup="dialog" aria-expanded={emojiOpen}
+        {disabled} bind:this={emojiButton} onmousedown={e => e.preventDefault()} onclick={toggleEmoji}><Icon name="smile" size={18} /></button>
       <button class="icon-btn fmt" class:on={formatting} title="Text formatting" aria-label="Text formatting" aria-pressed={formatting}
         {disabled} onmousedown={e => e.preventDefault()} onclick={toggleFormatting}>Aa</button>
       <button class="icon-btn send" title="Send" disabled={disabled || empty} onclick={submit}><Icon name="send" size={18} /></button>
@@ -170,6 +212,7 @@
 </div>
 
 {#if snippet}<CodeDialog {target} onclose={() => { snippet = false; input.focus(); }} />{/if}
+{#if emojiOpen && !disabled && emojiButton}<EmojiPicker anchor={emojiButton} onpick={insertEmoji} onclose={closeEmoji} />{/if}
 
 <style>
   /* A framed field set in from the edges; grows for longer messages */
@@ -187,7 +230,7 @@
   .input :global(ul), .input :global(ol) { margin: 0; padding-left: 20px; }
   .input[contenteditable='false'] { color: var(--text-faint); }
   .fmt { font-weight: 700; font-size: 13px; }
-  .fmt.on { color: var(--accent-hover); }
+  .fmt.on, .emoji-on { color: var(--accent-hover); }
   .send:not(:disabled) { color: var(--accent-hover); }
   .preparing { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   .preparing li { display: flex; align-items: center; gap: 8px; background: var(--bg-1); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
