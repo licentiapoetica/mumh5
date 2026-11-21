@@ -225,6 +225,12 @@ ipcMain.on('window:show', e => {
   win.focus();
 });
 
+const isShown = (win: BrowserWindow) => win.isVisible() && !win.isMinimized();
+ipcMain.handle('window:isShown', e => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  return !!win && isShown(win);
+});
+
 ipcMain.handle('platform:info', () => ({ os: process.platform, osVersion: os.release() }));
 
 // ─── Window ────────────────────────────────────────────────────────────────────
@@ -289,6 +295,10 @@ function createWindow() {
   });
   win.on('show', () => tray.onWindowVisibility());
   win.on('hide', () => tray.onWindowVisibility());
+  // With background throttling off the page cannot tell by itself; ambient animation stops on this
+  for (const ev of ['show', 'hide', 'minimize', 'restore'] as const) {
+    win.on(ev as 'show', () => { if (!win.isDestroyed()) win.webContents.send('window:shown', isShown(win)); });
+  }
   win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
 
   if (devUrl) win.loadURL(devUrl);

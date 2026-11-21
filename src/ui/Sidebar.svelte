@@ -6,10 +6,12 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { PERM } from '../core/client.ts';
+  import { describeLink } from '../core/link-quality.ts';
   import ResizeHandle from './ResizeHandle.svelte';
   import UserBar from './UserBar.svelte';
   import ServerButton from './ServerButton.svelte';
   import UserSelection from './UserSelection.svelte';
+  import ConnectionWave from './ConnectionWave.svelte';
 
   // resizable: false in the phone drawer, which keeps a fixed width
   // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
@@ -61,14 +63,15 @@
 
 <aside class="sidebar" class:fill style:width={resizable && !fill ? `${width}px` : undefined}>
   {#if resizable && !fill}<ResizeHandle bind:width edge={handleEdge} min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
-  <header class:trusted class:with-server={serverButton}>
+  <header class:with-server={serverButton}>
+    {#if session.status === 'connected'}<ConnectionWave />{/if}
     {#if serverButton}<ServerButton />{/if}
     <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <strong>
         {#if marked}<span class="mark">{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={12} />{/if}</span>{/if}
         <span class="server-name">{session.server?.label ?? 'mumh5'}</span>
       </strong>
-      <span class="status">
+      <span class="status" role="status" onpointerenter={e => (e.currentTarget.title = describeLink(session.client?.link.read(Date.now())))}>
         {#if marked}<span class="mark">{#if session.status === 'connected'}<span class="dot"></span>{/if}</span>{/if}
         {#if session.status === 'connected'}
           Connected{#if session.rtt} , {session.rtt} ms{/if}
@@ -78,7 +81,7 @@
       </span>
     </button>
     {#if session.status !== 'idle' || session.reconnectDelay != null}
-      <button class="icon-btn power" title="Disconnect" aria-label="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
+      <button class="icon-btn" title="Disconnect" aria-label="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
     {/if}
   </header>
 
@@ -121,16 +124,10 @@
 <style>
   .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
   .sidebar.fill { width: 100%; height: 100%; }
-  header { height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
+  header { position: relative; isolation: isolate; height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
   header.with-server { padding-left: 8px; }
   header.with-server .title { padding-left: 2px; }
   header.with-server > :global(.server-btn) { margin-top: 1px; }
-  header.trusted { background: #1d5c38; border-bottom-color: #2a7a4c; }
-  header.trusted .status, header.trusted .icon-btn { color: #cfeedd; }
-  header.trusted .dot { background: #fff; }
-  /* No box on the colored bar; the icon brightens instead */
-  .power:hover, .power:active { background: transparent; }
-  header.trusted .power:hover { color: #fff; }
   .title { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding-left: 16px; text-align: left; transition: background 120ms var(--ease); }
   .title:disabled { opacity: 1; }
   .title:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); }

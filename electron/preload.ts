@@ -22,6 +22,13 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
   attention: () => ipcRenderer.send('window:attention'),
   showWindow: () => ipcRenderer.send('window:show'),
+  // Calls fn with the current state, then on every change; returns the unsubscribe
+  onWindowShown: (fn: (shown: boolean) => void) => {
+    const listener = (_e: unknown, shown: boolean) => fn(shown);
+    ipcRenderer.on('window:shown', listener);
+    ipcRenderer.invoke('window:isShown').then(fn);
+    return () => { ipcRenderer.removeListener('window:shown', listener); };
+  },
   linkPreview: (url: string) => ipcRenderer.invoke('preview:fetch', url),
   publicServers: (url: string) => ipcRenderer.invoke('publist:fetch', url),
   pingServer: (host: string, port: number) => ipcRenderer.invoke('publist:ping', host, port),
