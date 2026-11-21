@@ -1,4 +1,4 @@
-import { load, loadList, save } from './storage.ts';
+import { freshList, load, loadList, save } from './storage.ts';
 import { GENERATED_THEMES } from './themes-generated.ts';
 
 export interface SavedServer {
@@ -117,7 +117,14 @@ class SettingsStore {
 
   saveSettings() { save('mumh5.settings', $state.snapshot(this.settings)); }
 
+  // A dev and a packaged copy can be open together; don't save over the other's changes
+  private refreshServers() {
+    const fresh = freshList<SavedServer>('mumh5.servers', this.servers);
+    if (JSON.stringify(fresh) !== JSON.stringify(this.servers)) this.servers = fresh;
+  }
+
   upsertServer(s: SavedServer) {
+    this.refreshServers();
     const i = this.servers.findIndex(x => x.id === s.id);
     if (i === -1) this.servers.push(s);
     else this.servers[i] = s;
@@ -126,6 +133,7 @@ class SettingsStore {
 
   // Reorder the server list (drag and drop in the rail)
   moveServer(id: string, toIndex: number) {
+    this.refreshServers();
     const from = this.servers.findIndex(s => s.id === id);
     if (from < 0) return;
     const list = [...this.servers];
@@ -136,6 +144,7 @@ class SettingsStore {
   }
 
   setServerIcon(id: string, icon: string | undefined) {
+    this.refreshServers();
     const s = this.servers.find(x => x.id === id);
     if (!s) return;
     if (icon) s.icon = icon;
@@ -144,6 +153,7 @@ class SettingsStore {
   }
 
   removeServer(id: string) {
+    this.refreshServers();
     this.servers = this.servers.filter(s => s.id !== id);
     save('mumh5.servers', $state.snapshot(this.servers));
   }

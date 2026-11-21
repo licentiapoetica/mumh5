@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { IdentityStore } from './identity-store.ts';
+import { SavedState, isSavedKey, isSavedValue } from './saved-state.ts';
 import { describeCert } from './certs.ts';
 import * as tray from './tray.ts';
 import { fetchLinkPreview } from './link-preview.ts';
@@ -13,6 +14,10 @@ import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } fr
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 
+// A second copy on one profile gets empty browser storage and loses what it saves there.
+// The lock is per profile. Dev runs stay exempt so they can be open beside an installed build.
+if (app.isPackaged && !app.requestSingleInstanceLock()) app.exit(0);
+
 // Screen sharing connects mumh5 users directly. Chromium would hide this computer's addresses
 // behind names that only resolve on the local network, so two people on IPv6 could not reach
 // each other without a helper server. Only this app's own page runs here.
@@ -20,6 +25,27 @@ app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 let identityStore: IdentityStore | null = null;
 const identities = () => (identityStore ??= new IdentityStore(app.getPath('userData')));
+
+let savedStateStore: SavedState | null = null;
+const savedState = () => (savedStateStore ??= new SavedState(app.getPath('userData')));
+
+// Answers null or false on failure, and the renderer keeps using localStorage
+ipcMain.on('state:sync', (e, key: unknown, local: unknown, merge: unknown) => {
+  try {
+    e.returnValue = isSavedKey(key) && (local === null || isSavedValue(local)) ? savedState().sync(key, local, merge === true) : null;
+  } catch {
+    e.returnValue = null;
+  }
+});
+ipcMain.on('state:write', (e, key: unknown, raw: unknown) => {
+  try {
+    if (!isSavedKey(key) || !isSavedValue(raw)) throw new Error('Invalid saved state');
+    savedState().write(key, raw);
+    e.returnValue = true;
+  } catch {
+    e.returnValue = false;
+  }
+});
 
 // ─── Mumble TLS connections, one per renderer request ─────────────────────────
 
@@ -268,6 +294,14 @@ function createWindow() {
   if (devUrl) win.loadURL(devUrl);
   else win.loadFile(path.join(__dirname, '../dist/index.html'));
 }
+
+app.on('second-instance', () => {
+  if (!app.isReady()) return;
+  if (!mainWindow) return createWindow();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 app.whenReady().then(async () => {
   // macOS asks once per app for microphone access

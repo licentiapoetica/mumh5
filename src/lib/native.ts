@@ -24,6 +24,11 @@ export interface PlatformApi {
 
 // The desktop app's preload API
 interface NativeApi extends PlatformApi {
+  // Saved servers and the like, in a file in the profile (used by storage.ts)
+  savedState: {
+    sync(key: string, local: string | null, merge: boolean): string | null;
+    write(key: string, raw: string): boolean;
+  };
   updateTray(state: { icon: string; alertIcon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
   onTrayAction(fn: (action: string) => void): void;
   // Flash the taskbar entry and blink the tray icon until the window is focused

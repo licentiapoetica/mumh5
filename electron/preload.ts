@@ -14,6 +14,11 @@ for (const key of Object.keys(listeners) as (keyof typeof listeners)[]) {
 // The only native surface the renderer gets
 contextBridge.exposeInMainWorld('mumh5Native', {
   platformInfo: () => ipcRenderer.invoke('platform:info'),
+  // Synchronous: the settings store reads these while the page loads
+  savedState: {
+    sync: (key: string, local: string | null, merge: boolean) => ipcRenderer.sendSync('state:sync', key, local, merge),
+    write: (key: string, raw: string) => ipcRenderer.sendSync('state:write', key, raw)
+  },
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
   attention: () => ipcRenderer.send('window:attention'),
   showWindow: () => ipcRenderer.send('window:show'),
