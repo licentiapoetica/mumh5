@@ -763,6 +763,8 @@ try {
   await within((async () => { while (!(await winVisible())) await new Promise(r => setTimeout(r, 100)); })(), 'tray click shows the window');
   console.log('ok: tray icon click toggles the window');
   await page.locator('.channel + .users, .users').getByTitle('Muted', { exact: true }).first().waitFor();
+  const mutedRow = page.locator('.users .row.user', { has: page.getByTitle('Muted', { exact: true }) }).first();
+  assert.equal(await mutedRow.locator('.orb').count(), 0, 'the mute icon takes the place of the sphere');
   console.log('ok: self mute propagated and shown');
   assert.ok((await soundLog()).includes('mute'), 'mute sound');
 
@@ -1501,10 +1503,12 @@ try {
     await page.locator('.sidebar .user', { hasText: 'carol' }).locator('.orb .ball').waitFor();
     assert.equal(await page.locator('.chat .msg .orb').count(), 0, 'chat keeps pictures and letters');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
+    // The panel may be closed or showing a channel; one click brings up the members either way
     const panelWasOpen = await page.locator('aside.panel').count() > 0;
-    if (!panelWasOpen) await page.getByTitle('Members').click();
-    await page.locator('aside.panel .avatar').first().waitFor();
-    assert.equal(await page.locator('aside.panel .orb').count(), 0, 'the member list keeps pictures and letters');
+    const membersPanel = page.locator('aside.panel', { has: page.locator('h2', { hasText: /^Members$/ }) });
+    if (!(await membersPanel.count())) await page.getByTitle('Members').click();
+    await membersPanel.locator('.avatar').first().waitFor();
+    assert.equal(await membersPanel.locator('.orb').count(), 0, 'the member list keeps pictures and letters');
     if (!panelWasOpen) {
       await page.getByTitle('Members').click();
       await page.locator('aside.panel').waitFor({ state: 'detached' });

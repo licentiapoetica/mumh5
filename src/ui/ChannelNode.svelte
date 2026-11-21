@@ -6,7 +6,7 @@
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { channelMenu, userMenu, openProfile } from '../lib/actions.ts';
+  import { channelMenu, userMenu, openProfile, voiceMark } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
@@ -262,6 +262,7 @@
       ondragover={e => onDragOver(e, 'into')} ondragleave={onDragLeave} ondrop={e => onDrop(e, 'into')}>
       {#each users as u (u.session)}
         {@const isSelf = u.session === session.self?.session}
+        {@const mark = voiceMark(u)}
         {@const clicks = clickOrDouble(
           el => openProfile(u.session, el),
           () => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }
@@ -273,13 +274,13 @@
             aria-pressed={session.selectedUsers.includes(u.session)}
             title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
-            <!-- In the indent, so names stay aligned whether or not someone is muted -->
-            {#if u.deaf || u.selfDeaf}
-              <span class="state voice" style:left="{6 + depth * 14}px" class:admin={u.deaf} title={u.deaf ? 'Deafened by server' : 'Deafened'}><Icon name="headphones-off" size={14} /></span>
-            {:else if u.mute || u.selfMute || u.suppress}
-              <span class="state voice" style:left="{6 + depth * 14}px" class:admin={u.mute || u.suppress} title={u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted'}><Icon name="mic-off" size={14} /></span>
+            <!-- The icon takes a sphere's place; beside a picture it sits in the indent. Names stay aligned either way -->
+            {#if mark && store.settings.avatars === 'spheres'}
+              <span class="state face" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={18} /></span>
+            {:else}
+              {#if mark}<span class="state voice" style:left="{6 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
+              <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             {/if}
-            <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
             <RoleBadges user={u} />{#if !session.isAdmin(u) && u.userId != null && !session.rolesFor(u).length}<span class="reg" title="Registered">R</span>{/if}
             {#if session.sharing[u.session]}
@@ -294,7 +295,7 @@
                   onkeydown={e => { if (e.key === 'Enter') { e.stopPropagation(); share.watch(sessions.active, u.session); } }}><Icon name={kind} size={14} /></span>
               {/if}
             {/if}
-            {#if u.comment || u.commentHash}<span class="state" title="Has a description"><Icon name="message" size={12} /></span>{/if}
+            {#if u.comment || u.commentHash}<span class="state slot" title="Has a description"><Icon name="message" size={12} /></span>{/if}
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
           </button>
@@ -337,8 +338,10 @@
   .caret.collapsed svg { transform: rotate(-90deg); }
   .name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 5px 0; text-align: left; color: inherit; font-weight: 500; user-select: none; }
   .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .desc { flex: none; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
-  .desc span { width: 7px; height: 7px; background: var(--warn); }
+  /* The same 14px column as the icons in the rows below; an even square stays on whole pixels */
+  .desc { position: relative; flex: none; width: 14px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
+  .desc::after { content: ''; position: absolute; inset: 0 -3px; }
+  .desc span { width: 8px; height: 8px; background: var(--warn); }
   .desc:hover span { outline: 2px solid var(--warn); outline-offset: 1px; }
   .desc-pop { position: fixed; z-index: 40; width: 340px; max-width: calc(100vw - 16px); max-height: 320px; overflow: auto; padding: 12px 14px;
     background: var(--bg-1); border: 1px solid var(--line-strong); color: var(--text); font-size: 14px; }
@@ -352,10 +355,14 @@
   .state.voice { position: absolute; top: 50%; transform: translateY(-50%); }
   .user.self .label { color: var(--text); }
   .label.talking { color: var(--speaking); }
-  .reg { font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); padding: 0 3px; line-height: 14px; }
+  .reg { flex: none; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); }
   .state { color: var(--text-faint); display: inline-flex; }
   .state.admin { color: var(--danger); }
-  .state.sharing { color: var(--speaking); padding: 3px; }
+  .state.face { flex: none; width: 22px; height: 22px; align-items: center; justify-content: center; }
+  .state.face:not(.admin) { color: var(--text); }
+  .state.slot { flex: none; width: 14px; justify-content: center; }
+  /* The padding is its hover area; the margin keeps the icon itself in the column */
+  .state.sharing { color: var(--speaking); padding: 3px; margin: 0 -3px; }
   .state.sharing[role=button]:hover { background: var(--bg-active); }
   .rec { font-size: 10px; font-weight: 700; color: var(--danger); border: 1px solid var(--danger); padding: 0 3px; }
 </style>

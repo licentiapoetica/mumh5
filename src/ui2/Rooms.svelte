@@ -6,7 +6,7 @@
   import { serverInitials as initials, store, type SavedServer } from '../lib/settings.svelte.ts';
   import { menu, type MenuItem } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { channelMenu, userMenu, openProfile } from '../lib/actions.ts';
+  import { channelMenu, userMenu, openProfile, voiceMark } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
   import { makeServerIcon } from '../lib/images.ts';
@@ -243,15 +243,20 @@
                   <ul class="people">
                     {#each users as u (u.session)}
                       {@const me = u.session === self?.session}
+                      {@const mark = voiceMark(u)}
+                      {@const onSphere = !!mark && store.settings.avatars === 'spheres'}
                       <li>
                         <button class="person" data-menu-row use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
-                          <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
+                          {#if mark && onSphere}
+                            <span class="mark face" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={22} /></span>
+                          {:else}
+                            <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
+                          {/if}
                           <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                           <RoleBadges user={u} />
                           {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
                           {#if u.recording}<span class="rec">REC</span>{/if}
-                          {#if u.deaf || u.selfDeaf}<span class="mark" class:bad={u.deaf} title={u.deaf ? 'Deafened by server' : 'Deafened'}><Icon name="headphones-off" size={14} /></span>
-                          {:else if u.mute || u.selfMute || u.suppress}<span class="mark" class:bad={u.mute || u.suppress} title={u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted'}><Icon name="mic-off" size={14} /></span>{/if}
+                          {#if mark && !onSphere}<span class="mark" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
                         </button>
                       </li>
                     {/each}
@@ -392,6 +397,8 @@
   .pname em { margin-left: 6px; font-style: normal; font-size: 12px; color: var(--text-faint); }
   .mark { flex: none; display: inline-flex; color: var(--text-faint); }
   .mark.bad { color: var(--danger); }
+  .mark.face { width: 32px; height: 32px; align-items: center; justify-content: center; }
+  .mark.face:not(.bad) { color: var(--text); }
   .mark.live { color: var(--speaking); }
   .rec { flex: none; font-size: 10px; font-weight: 700; color: var(--danger); border: 1px solid var(--danger); padding: 0 3px; }
   .acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 8px 0; }
