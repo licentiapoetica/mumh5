@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
 import { readAudioPack, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
-import { PACK_PATHS, QUIET_EVENTS, normalizeSoundSettings } from '../src/core/sound-events.ts';
+import { PACK_PATHS, QUIET_EVENTS, SOUND_EVENTS, normalizeSoundSettings, upgradeSoundSettings } from '../src/core/sound-events.ts';
 
 const standard = new URL('../src/assets/default-audio-pack.zip', import.meta.url);
 const clip = 'AudioNotification/SelfMute.wav';
@@ -57,4 +57,16 @@ test('quiet defaults have three events, and saved explicit choices and volume su
   assert.equal(settings.clips?.mute, clip);
   assert.equal(settings.pack?.name, 'my-pack.zip');
   assert.deepEqual(normalizeSoundSettings(null).on, {});
+});
+
+test('upgrading keeps what older versions played; new installs and current settings stay as they are', () => {
+  const old = upgradeSoundSettings({ enabled: true, volume: 0.4, on: { unmute: false }, custom: { userJoined: { name: 'join.wav' } } }, true);
+  assert.equal(old.on.userJoined, true, 'a missing choice meant on');
+  assert.equal(old.on.unmute, false, 'explicit choices stay');
+  assert.equal(old.on.messageSent, false, 'this one was off by default');
+  assert.equal(Object.keys(old.on).length, SOUND_EVENTS.length);
+  assert.equal(upgradeSoundSettings(null, true).on.userJoined, true, 'never opened Sounds on an earlier version');
+  assert.deepEqual(upgradeSoundSettings(null, false).on, {}, 'new install');
+  assert.deepEqual(upgradeSoundSettings({ on: { mute: true }, custom: {}, clips: {}, packs: [] }, true).on, { mute: true });
+  assert.equal(normalizeSoundSettings({ custom: { mute: { name: 'a.wav', parked: true } } }).custom.mute?.parked, true);
 });

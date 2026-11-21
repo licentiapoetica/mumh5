@@ -98,11 +98,37 @@ try {
   assert.deepEqual(await readFile(path.join(directory, 'sounds/mute.audio')), Buffer.from(mute));
   assert.deepEqual(await readFile(path.join(directory, 'sounds/unmute.audio')), Buffer.from(unmute));
   const migrated = JSON.parse(await readFile(path.join(directory, 'sounds.json'), 'utf8'));
-  assert.deepEqual(migrated.on, { unmute: false, mute: true });
+  assert.equal(migrated.on.mute, true);
+  assert.equal(migrated.on.unmute, false);
+  assert.equal(migrated.on.userJoined, true, 'a missing choice meant on in older versions');
+  assert.equal(migrated.on.messageSent, false);
   assert.equal(migrated.custom.mute.data, undefined);
   await preview.click();
   await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('mute'));
   assert.equal(await page.locator('.error').count(), 0);
+
+  // Importing a known pack again restores its archive if the file went missing.
+  const standardZip = path.join(root, 'src/assets/default-audio-pack.zip');
+  const zipInput = page.locator('input[accept=".zip,application/zip"]');
+  await zipInput.setInputFiles(standardZip);
+  await page.locator('.help strong').getByText('default-audio-pack.zip', { exact: true }).waitFor();
+  await page.waitForFunction(() => !!document.querySelector('fieldset:not([disabled])'));
+  const library2 = JSON.parse(await readFile(path.join(directory, 'sounds.json'), 'utf8'));
+  const archive = path.join(directory, 'sounds/packs', `${library2.packs[0].id}.zip`);
+  await rm(archive);
+  await zipInput.setInputFiles(standardZip);
+  for (let i = 0; i < 100 && !(await readFile(archive).catch(() => null)); i++) await page.waitForTimeout(100);
+  assert.deepEqual(await readFile(archive), await readFile(standardZip));
+  await page.waitForFunction(() => !!document.querySelector('fieldset:not([disabled])'));
+
+  // A damaged settings file does not lose the library.
+  await writeFile(path.join(directory, 'sounds.json'), '{"packs":[');
+  await page.reload();
+  await open();
+  await page.getByText('Sound settings were damaged', { exact: false }).waitFor();
+  assert.equal(await page.getByLabel('Audio pack', { exact: true }).locator('option').count(), 2);
+  assert.equal(JSON.parse(await readFile(path.join(directory, 'sounds.json'), 'utf8')).packs.length, 1);
+  assert.equal(await readFile(path.join(directory, 'sounds.json.damaged'), 'utf8'), '{"packs":[');
   assert.deepEqual(failures, []);
   console.log('DESKTOP SOUND E2E PASSED: bundled playback, native ZIP storage, config source, reload, preview and legacy migration');
 } finally {

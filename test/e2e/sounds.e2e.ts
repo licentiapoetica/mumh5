@@ -12,7 +12,7 @@ import { readAudioPack } from '../../src/core/audio-pack.ts';
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
 await server.listen();
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/usr/bin/chromium',
-  headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--mute-audio'] });
+  headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
 try {
   const page = await browser.newPage();
   const failures: string[] = [];
@@ -54,10 +54,35 @@ try {
   assert.equal((await log()).length, 0, 'optional event is silent');
   await play('privateMessage');
   assert.deepEqual(await log(), ['privateMessage'], 'standard WAV really starts playing');
+  await page.getByRole('checkbox', { name: 'Someone joined your channel', exact: true }).check();
+  await play('userJoined');
+  assert.deepEqual(await log(), ['privateMessage'], 'routine events wait for no one and do not overlap');
   await play('poke');
-  assert.deepEqual(await log(), ['privateMessage'], 'spoken clips do not overlap');
-  await page.getByRole('button', { name: 'Stop preview' }).click();
+  assert.deepEqual(await log(), ['privateMessage', 'poke'], 'an alert replaces the clip playing');
   await page.getByRole('checkbox', { name: 'You muted', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'You unmuted', exact: true }).check();
+  await play('mute');
+  await play('unmute');
+  await play('mute');
+  assert.deepEqual((await log()).slice(-3), ['mute', 'unmute', 'mute'], 'the last mic sound always matches the state');
+  // A clip that is paused by the system or fails while playing frees the slot
+  for (const type of ['pause', 'error']) {
+    const busy = await page.evaluate(async type => {
+      const module = '/src/lib/audio/sounds.svelte.ts';
+      const { sounds } = await import(module);
+      sounds.active.dispatchEvent(new Event(type));
+      return sounds.playing || !!sounds.active;
+    }, type);
+    assert.equal(busy, false, `${type} frees the playback slot`);
+    if (type === 'pause') {
+      await play('userJoined');
+      assert.equal((await log()).at(-1), 'userJoined', 'a routine event plays again');
+    }
+    await play('unmute');
+  }
+  await page.getByRole('button', { name: 'Stop preview' }).click();
+  await page.getByRole('checkbox', { name: 'Someone joined your channel', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: 'You unmuted', exact: true }).uncheck();
 
   const clips = readAudioPack(await readFile(new URL('../../src/assets/default-audio-pack.zip', import.meta.url)));
   const custom = zipSync({ 'AudioNotification/SelfMute.wav': clips.get('AudioNotification/SelfMute.wav')! });
@@ -94,6 +119,17 @@ try {
   await play('mute', true);
   assert.deepEqual(await log(), ['mute']);
   await page.getByRole('button', { name: 'Stop preview' }).click();
+
+  // Switching packs sets the file aside without deleting it.
+  await page.getByLabel('Audio pack', { exact: true }).selectOption('');
+  await page.getByRole('button', { name: 'Use my file', exact: true }).waitFor();
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!), 'the pack plays while the file is set aside');
+  await page.reload();
+  await open();
+  await page.getByRole('button', { name: 'Use my file', exact: true }).click();
+  await page.getByText('my-mute.wav', { exact: true }).waitFor();
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfUnmute.wav')!), 'the file is back');
+
   await page.getByRole('button', { name: 'Reset all to built-in' }).click();
   await page.locator('.help strong').getByText('Chatterbox female (standard)', { exact: true }).waitFor();
   assert.equal(await page.locator('.events input:checked').count(), 4);
@@ -168,6 +204,46 @@ try {
   assert.equal(await library.locator('option').count(), count - 1);
   assert.equal(await library.inputValue(), '', 'removing active pack selects vanilla');
   assert.equal(await page.locator('.events input:checked').count(), 3);
+  assert.equal(await page.locator('.error').count(), 0);
+
+  // A clip choice the active pack lacks uses the automatic clip and returns with its pack.
+  const extra = zipSync({ 'AudioNotification/Extra.wav': clips.get('AudioNotification/SelfUnmute.wav')! });
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'extra.zip', mimeType: 'application/zip', buffer: Buffer.from(extra) });
+  await page.locator('.help strong').getByText('extra.zip', { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  const muteClip = page.getByLabel('Clip for You muted', { exact: true });
+  await muteClip.selectOption('AudioNotification/Extra.wav');
+  await library.selectOption('');
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await muteClip.inputValue(), '', 'selector shows Automatic');
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!), 'not a synthesized tone');
+  await library.selectOption({ label: 'extra.zip' });
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await muteClip.inputValue(), 'AudioNotification/Extra.wav');
+
+  // Without the standard pack, the user's own pack still loads.
+  // Only the download: Vite serves the module that names the asset from the same path
+  await page.route('**/default-audio-pack*', route => route.request().resourceType() === 'fetch' ? route.abort() : route.continue());
+  await page.reload();
+  await open();
+  await page.locator('.error').getByText('Could not load the standard pack', { exact: false }).waitFor();
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfUnmute.wav')!), 'imported clip plays');
+  await page.unroute('**/default-audio-pack*');
+  await page.reload();
+  await open();
+  await muteClip.selectOption('');
+  await library.selectOption('');
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+
+  // One unusable file in a loose import is reported; the others still apply.
+  await page.locator('input[accept="audio/*,.wav,.mp3,.ogg,.opus,.flac,.m4a,.ini"]').setInputFiles([
+    { name: 'deafen.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(4 * 1024 * 1024 + 1) },
+    { name: 'undeafen.wav', mimeType: 'audio/wav', buffer: Buffer.from(clips.get('AudioNotification/SelfUndeaf.wav')!) }
+  ]);
+  await page.locator('.report').getByText('deafen.wav is larger than 4 MB', { exact: false }).waitFor();
+  await page.getByText('undeafen.wav', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Reset all to built-in' }).click();
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
   assert.equal(await page.locator('.error').count(), 0);
   assert.deepEqual(failures, []);
   console.log('SOUND E2E PASSED: default playback, event toggles, ZIP import, clip selection, custom files, reload, invalid ZIP, reset');

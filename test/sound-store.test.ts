@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { SoundStore } from '../electron/sound-store.ts';
@@ -43,6 +43,27 @@ test('sound storage accepts only known event keys, bounded data and valid settin
     assert.equal((await store.load())?.volume, 0);
     assert.deepEqual((await store.load())?.on, {});
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('a damaged sounds.json is kept aside and the saved packs and files are listed again', async () => {
+  for (const damaged of ['{"packs":[{"id":"', '[]']) {
+    const directory = await mkdtemp(path.join(tmpdir(), 'mumh5-sound-recover-'));
+    try {
+      const id = 'c'.repeat(64);
+      const store = new SoundStore(directory);
+      await store.write(`pack:${id}`, new Uint8Array([1]));
+      await store.write('sound:mute', new Uint8Array([2]));
+      await writeFile(path.join(directory, 'sounds.json'), damaged);
+      const loaded = await store.load();
+      assert.equal(loaded?.recovered, true);
+      assert.deepEqual(loaded?.packs.map(p => p.id), [id]);
+      assert.equal(loaded?.custom.mute?.name, 'mute.audio');
+      assert.equal(await readFile(path.join(directory, 'sounds.json.damaged'), 'utf8'), damaged);
+      const again = await new SoundStore(directory).load();
+      assert.equal(again?.recovered, undefined, 'rebuilt once, then an ordinary file');
+      assert.deepEqual(again?.packs.map(p => p.id), [id]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  }
 });
 
 test('library archives persist independently and removing one leaves the others intact', async () => {

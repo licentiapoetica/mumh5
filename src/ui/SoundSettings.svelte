@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { sounds, SOUND_EVENTS, type SoundEvent } from '../lib/audio/sounds.svelte.ts';
+  import { sounds, SOUND_EVENTS, type PackReport, type SoundEvent } from '../lib/audio/sounds.svelte.ts';
   import { PACK_PATHS } from '../core/sound-events.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { notifyPermission, askNotifyPermission } from '../lib/notify.ts';
@@ -12,9 +12,10 @@
   let zipPicker: HTMLInputElement;
   const groups = [...new Set(SOUND_EVENTS.map(e => e.group))];
   let target: SoundEvent | null = null;
-  let report = $state<{ assigned: string[]; unmatched: string[] } | null>(null);
+  let report = $state<PackReport | null>(null);
   let error = $state('');
   let permission = $state(notifyPermission());
+  const parked = $derived(SOUND_EVENTS.filter(e => s.custom[e.id]?.parked).length);
 
   async function pokeNotify(on: boolean) {
     store.settings.pokeNotify = on;
@@ -85,6 +86,7 @@
   <button class="btn" onclick={() => packPicker.click()}>Load sound pack...</button>
   <button class="btn" onclick={() => working(async () => { await sounds.resetAll(); report = null; })}>Reset all to built-in</button>
   <button class="btn" onclick={() => sounds.quietDefaults()}>Use quiet defaults</button>
+  {#if parked}<button class="btn" title="Your files override the pack again" onclick={() => sounds.useCustom()}>Use my files ({parked})</button>{/if}
   <button class="btn" onclick={() => sounds.stop()}>Stop preview</button>
   <input bind:this={zipPicker} type="file" accept=".zip,application/zip" multiple hidden onchange={zip} />
   <input bind:this={folderPicker} type="file" webkitdirectory multiple hidden onchange={() => pack(folderPicker)} />
@@ -92,18 +94,19 @@
 </div>
 <p class="help">Audio pack: <strong>{s.pack?.name ?? 'Chatterbox female (standard)'}</strong>. {sounds.packClips.length} clips available.</p>
 <p class="help">Each ZIP or notification folder adds a pack to your library. Select a saved pack above, or switch back to the standard pack at any time. Importing the same pack again keeps one copy.</p>
-<p class="help">ZIP packs use notification folders at the root, for example <code>AudioNotification/SelfMute.wav</code>. Missing clips use the standard pack. Selecting a pack clears individual file overrides and keeps your event choices and clip selections. TeamSpeak 3 folders with <code>settings.ini</code> are also supported.</p>
-<p class="help">Quiet defaults play only connection loss, direct messages and pokes. Enable other events below. Importing a pack keeps your event choices. Sounds play one at a time without a queue.</p>
+<p class="help">ZIP packs use notification folders at the root, for example <code>AudioNotification/SelfMute.wav</code>. Missing clips use the standard pack. Selecting a pack sets your individual files aside without deleting them, and keeps your event choices and clip selections. TeamSpeak 3 folders with <code>settings.ini</code> are also supported.</p>
+<p class="help">Quiet defaults play only connection loss, direct messages and pokes. Enable other events below. Importing a pack keeps your event choices. Sounds play one at a time without a queue. Those three and mic changes replace the clip playing, other events are skipped while one plays.</p>
 {#if !sounds.loaded}<p class="help" role="status">Loading audio pack...</p>{/if}
 {#if sounds.busy}<p class="help" role="status">Saving sounds...</p>{/if}
 {#if report}
   <div class="report">
     {#if report.assigned.length}<p>Assigned: {report.assigned.join('; ')}</p>{/if}
     {#if report.unmatched.length}<p class="warn">Not matched (set these by hand): {report.unmatched.join(', ')}</p>{/if}
+    {#if report.failed.length}<p class="warn">Skipped: {report.failed.join('; ')}</p>{/if}
   </div>
 {/if}
 {#if error}<p class="error">{error}</p>{/if}
-{#each sounds.errors as err (err)}<p class="error">Could not play {err}</p>{/each}
+{#each sounds.errors as err (err)}<p class="error">{err}</p>{/each}
 
 <input bind:this={picker} type="file" accept="audio/*,.wav,.mp3,.ogg,.opus,.flac,.m4a" hidden onchange={picked} />
 {#each groups as g (g)}
@@ -113,16 +116,17 @@
     {@const custom = s.custom[e.id]}
     <li>
       <label class="check ev"><input type="checkbox" checked={sounds.isOn(e.id)} onchange={x => sounds.setOn(e.id, x.currentTarget.checked)} /> {e.name}</label>
-      {#if custom}
+      {#if custom && !custom.parked}
         <span class="file" title={custom.name}>{custom.name}</span>
       {:else}
-        <select class="clip" aria-label="Clip for {e.name}" title={sounds.clipFor(e.id) ?? 'Short tone'} value={s.clips?.[e.id] ?? ''}
+        <select class="clip" aria-label="Clip for {e.name}" title={sounds.clipFor(e.id) ?? 'Short tone'} value={sounds.selectedClip(e.id)}
           onchange={x => sounds.selectClip(e.id, x.currentTarget.value)}>
           <option value="">Automatic: {PACK_PATHS[e.id]?.split('/').at(-1) ?? 'short tone'}</option>
           {#each sounds.packClips as clip (clip)}<option value={clip}>{clip}</option>{/each}
         </select>
       {/if}
       <button class="icon-btn" title="Play" aria-label="Play {e.name}" onclick={() => sounds.play(e.id, true)}><Icon name="channel" size={16} /></button>
+      {#if custom?.parked}<button class="link" title="Use {custom.name} again" onclick={() => sounds.useCustom(e.id)}>Use my file</button>{/if}
       <button class="link" onclick={() => choose(e.id)}>Choose file</button>
       {#if custom || s.clips?.[e.id]}<button class="link" onclick={() => working(() => sounds.reset(e.id))}>Reset</button>{/if}
     </li>

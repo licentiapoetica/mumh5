@@ -1,5 +1,5 @@
 import type { Transport, ServerCertInfo, CertDetails, UdpChannel } from '../core/transport.ts';
-import type { SoundSettings } from '../core/sound-events.ts';
+import type { LoadedSoundSettings, SoundSettings } from '../core/sound-events.ts';
 import { webApi, openWebTransport } from './web.svelte.ts';
 
 // What both the desktop app and the browser build (through the web proxy) provide
@@ -31,7 +31,7 @@ interface NativeApi extends PlatformApi {
     write(key: string, raw: string): boolean;
   };
   sounds: {
-    load(): Promise<SoundSettings | null>;
+    load(): Promise<LoadedSoundSettings | null>;
     save(settings: SoundSettings): Promise<void>;
     read(key: string): Promise<Uint8Array | null>;
     write(key: string, bytes: Uint8Array): Promise<void>;

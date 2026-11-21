@@ -47,6 +47,9 @@ export type SoundEvent = (typeof SOUND_EVENTS)[number]['id'];
 
 export const QUIET_EVENTS: ReadonlySet<SoundEvent> = new Set(['connectionLost', 'privateMessage', 'poke']);
 
+// The last one heard must match the real mic state, so these are never dropped or throttled.
+export const STATE_EVENTS: ReadonlySet<SoundEvent> = new Set(['mute', 'unmute', 'deafen', 'undeafen', 'pttDown', 'pttUp']);
+
 // Exact, case-sensitive paths in the Mumble voice pack format. App-specific events
 // without a counterpart keep their short tone unless the user assigns a clip.
 export const PACK_PATHS: Partial<Record<SoundEvent, string>> = {
@@ -111,9 +114,19 @@ export function normalizeSoundSettings(value: unknown): SoundSettings {
     if (typeof v.custom?.[id]?.name === 'string') {
       out.custom[id] = { name: v.custom[id]!.name.slice(0, 255) };
       if (typeof v.custom[id]!.data === 'string') out.custom[id]!.data = v.custom[id]!.data;
+      if (v.custom[id]!.parked === true) out.custom[id]!.parked = true;
     }
     if (typeof v.clips?.[id] === 'string') out.clips![id] = v.clips[id];
   }
+  return out;
+}
+
+// Before quiet defaults a missing choice meant on. Settings from then have neither clips
+// nor packs; people who never opened Sounds have none at all but did hear every event.
+export function upgradeSoundSettings(saved: unknown, earlierInstall: boolean): SoundSettings {
+  const out = normalizeSoundSettings(saved);
+  const legacy = saved && typeof saved === 'object' ? !('packs' in saved) && !('clips' in saved) : earlierInstall;
+  if (legacy) for (const e of SOUND_EVENTS) out.on[e.id] ??= !(e as { off?: boolean }).off;
   return out;
 }
 
@@ -125,7 +138,10 @@ export interface SoundSettings {
   packs: SoundPack[];
   pack?: { id?: string; name: string }; // no id: legacy single-pack storage
   clips?: Partial<Record<SoundEvent, string>>;
-  // File names only; audio is stored separately.
-  custom: Partial<Record<SoundEvent, { name: string; data?: string }>>;
+  // File names only; audio is stored separately. parked: kept, but set aside by a pack switch.
+  custom: Partial<Record<SoundEvent, { name: string; data?: string; parked?: boolean }>>;
 }
+
+// recovered: sounds.json was damaged and this was rebuilt from the saved files.
+export type LoadedSoundSettings = SoundSettings & { recovered?: boolean };
 
