@@ -271,6 +271,13 @@ try {
   assert.equal(html, 'hello &lt;from&gt; alice<br/>second line <a href="https://example.com/x">https://example.com/x</a>');
   console.log('ok: bob received channel text');
 
+  // Up brings back the last sent message, Down returns to an empty field
+  await page.getByLabel('Message').press('ArrowUp');
+  assert.match(await page.getByLabel('Message').innerText(), /^hello <from> alice\nsecond line/);
+  await page.getByLabel('Message').press('ArrowDown');
+  assert.equal((await page.getByLabel('Message').innerText()).trim(), '');
+  console.log('ok: Up recalls the last sent message');
+
   // Bob -> channel, rendered sanitized
   bob.sendText({ channels: [0] }, 'hi alice <b>bold</b><script>window.pwned=1</script><img src="https://evil.example/t.png">');
   await page.locator('.msg', { hasText: 'hi alice' }).waitFor();
