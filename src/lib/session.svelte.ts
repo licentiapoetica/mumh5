@@ -181,10 +181,17 @@ export class Session {
     return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
   }
 
-  // Shift or Ctrl/Cmd adds or removes one person; a plain click opens the profile instead
-  toggleUser(id: number): void {
+  beginUserSelection(): void {
     if (this.movingUsers) return;
     this.userMove = null;
+    this.selectingUsers = true;
+    ui.profile = null;
+  }
+
+  // Every entry point uses the same mode, including modifier-click and person menus.
+  toggleUser(id: number): void {
+    if (this.movingUsers) return;
+    this.beginUserSelection();
     this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
   }
 
@@ -197,8 +204,7 @@ export class Session {
 
   selectChannelUsers(channelId: number): void {
     if (this.movingUsers) return;
-    this.selectingUsers = true;
-    this.userMove = null;
+    this.beginUserSelection();
     this.selectedUsers = [...new Set([...this.selectedUsers, ...this.usersIn(channelId).map(u => u.session)])];
   }
 

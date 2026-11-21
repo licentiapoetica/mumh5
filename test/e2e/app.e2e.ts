@@ -1748,8 +1748,10 @@ try {
       await mover('f').waitFor();
       // Shift and Ctrl/Cmd both add or remove one person; Shift does not select a range
       await mover('a').click({ modifiers: ['Shift'] });
-      await mover('f').click({ modifiers: ['Shift'] });
-      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'Shift-click picks one person at a time');
+      await page.locator('.sidebar').getByRole('button', { name: 'Cancel selection', exact: true }).waitFor();
+      assert.ok(await page.locator('.sidebar .user .user-check').count() > 0, 'modifier-click shows the same selection controls');
+      await mover('f').click();
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'a plain click continues the selection started with Shift');
       for (const suffix of ['b', 'c']) await mover(suffix).click({ modifiers: ['Control'] });
       for (const suffix of ['d', 'e']) await mover(suffix).click({ modifiers: ['Shift'] });
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6);
@@ -1803,9 +1805,10 @@ try {
       movers[2].disconnect();
       await mover('c').waitFor({ state: 'detached' });
       assert.equal(await selected(), 2, 'disconnected clients leave the selection');
-      await mover('f').click();
+      await mover('f').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'View profile', exact: true }).click();
       await page.getByRole('dialog', { name: 'Profile of move-f' }).waitFor();
-      assert.equal(await selected(), 2, 'a plain click opens the profile and keeps the selection');
+      assert.equal(await selected(), 2, 'the profile menu keeps the selection');
       await page.keyboard.press('Escape');
       await page.getByRole('dialog', { name: /Profile of move-/ }).waitFor({ state: 'detached' });
       assert.equal(await selected(), 2, 'Escape that closes a profile keeps the selection');

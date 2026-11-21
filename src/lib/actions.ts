@@ -109,7 +109,7 @@ export function userMenu(u: User): MenuItem[] {
       ? { label: 'Edit profile', action: () => { ui.profile = null; ui.profileEdit = true; } }
       : { label: 'View profile', action: () => openProfile(u.session, menu.last, menu.lastRow) },
     { label: session.selectedUsers.includes(u.session) ? 'Remove from selection' : 'Select person', disabled: session.movingUsers,
-      action: () => { session.selectingUsers = true; session.toggleUser(u.session); ui.profile = null; } }
+      action: () => session.toggleUser(u.session) }
   ];
   if (isSelf) {
     items.push(

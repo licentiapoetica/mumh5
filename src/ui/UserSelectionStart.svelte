@@ -8,7 +8,7 @@
   aria-pressed={session.selectingUsers} onclick={() => {
     userLists.last = list;
     if (session.selectingUsers) session.clearUserSelection();
-    else { session.userMove = null; session.selectingUsers = true; }
+    else session.beginUserSelection();
   }}>{session.selectingUsers ? 'Cancel selection' : 'Select people'}</button>
 
 <style>

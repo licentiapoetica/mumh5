@@ -449,3 +449,26 @@ test('bulk move password submission resumes confirmation tracking', async t => {
   assert.equal(s.userMove!.people[0].status, 'moved');
   assert.deepEqual(s.selectedUsers, []);
 });
+
+test('modifier selection, explicit selection and channel selection share one mode', async t => {
+  const s = setup(t);
+  assert.equal(s.selectingUsers, false);
+  s.toggleUser(8); // Used by the modifier-click shortcut and person menu.
+  assert.equal(s.selectingUsers, true);
+  assert.deepEqual(s.selectedUsers, [8]);
+  s.beginUserSelection(); // Used by the Select people button.
+  assert.deepEqual(s.selectedUsers, [8], 'entering the same mode preserves the existing selection');
+  s.toggleUser(9); // Subsequent plain row clicks use the same toggle.
+  assert.deepEqual(s.selectedUsers, [8, 9]);
+  s.toggleUser(8);
+  s.toggleUser(9);
+  assert.equal(s.selectingUsers, true, 'deselecting the last person stays in selection mode');
+  assert.deepEqual(s.selectedUsers, []);
+  s.clearUserSelection();
+  assert.equal(s.selectingUsers, false, 'Cancel and Escape leave the shared mode');
+  s.beginUserSelection();
+  s.toggleUser(8);
+  assert.deepEqual(s.selectedUsers, [8]);
+  s.clearUserSelection();
+  assert.deepEqual(s.selectedUsers, []);
+});
