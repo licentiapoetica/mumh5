@@ -9,6 +9,7 @@
   import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { isTextChannel, markText, stripMark } from '../core/text-signal.ts';
   import { parseAdmins, withAdmins } from '../core/admins.ts';
+  import { parseRoles, withRoles } from '../core/roles.ts';
   import { channelPassword, passwordProblem, withPassword } from '../core/channel-password.ts';
   import { textChannels } from '../lib/text-channels.ts';
   import { sessions } from '../lib/session.svelte.ts';
@@ -151,8 +152,9 @@
 
   const AUDIENCES: Record<string, string> = { all: 'Everyone', auth: 'Registered', admin: 'Admin', in: 'In this channel', out: 'Outside this channel' };
   const audience = (g: string | null) => {
+    if (g?.startsWith('#mk.')) return 'Access key';
     if (g?.startsWith('#')) return 'Password or access token';
-    return AUDIENCES[g ?? ''] ?? groupLabel(g);
+    return session.roleName(g ?? '') ?? AUDIENCES[g ?? ''] ?? groupLabel(g);
   };
   const targetLabel = (t: AccessTarget) => t.userId != null ? userName(t.userId) : audience(t.group);
   const checkLabel = (r: AclEntry) => r.userId != null ? userName(r.userId) : audience(r.group);
@@ -320,7 +322,7 @@
     if (!isRoot && name.trim() && name.trim() !== ch.name) fields.name = name.trim();
     // An untouched description may not start with the marker; that alone is no change
     const changed = description !== stripMark(ch.description) || textChannel !== isTextChannel(ch.description);
-    if (descLoaded && changed) fields.description = withAdmins(markText(description, textChannel), parseAdmins(ch.description));
+    if (descLoaded && changed) fields.description = withRoles(withAdmins(markText(description, textChannel), parseAdmins(ch.description)), parseRoles(ch.description));
     if (position !== ch.position) fields.position = Number(position) || 0;
     if (maxUsers !== ch.maxUsers) fields.maxUsers = Number(maxUsers) || 0;
     if (Object.keys(fields).length) client.updateChannel(channelId, fields);

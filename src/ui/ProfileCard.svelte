@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import AdminBadge from './AdminBadge.svelte';
+  import RoleIcon from './RoleIcon.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -12,6 +13,7 @@
   import { renderIncoming } from '../lib/html.ts';
   import { makeAvatar } from '../lib/images.ts';
   import { ownAvatar } from '../lib/avatar.svelte.ts';
+  import { roleTint } from '../core/roles.ts';
 
   // A person's card, next to what was clicked (a sheet at the bottom on phones)
   const open = $derived(ui.profile);
@@ -159,12 +161,20 @@
       {/if}
     </div>
     <div class="body">
-      <h3>{name}</h3>
+      <h3 style:color={session.roleColor(user)}>{name}</h3>
       <p class="sub">
         {#if name !== user.name}<span>{user.name}</span>{/if}
-        <span>{#if session.isAdmin(user)}<AdminBadge size={13} /> Admin{:else}{user.userId != null ? 'Registered' : 'Guest'}{/if}</span>
+        <span>{#if session.isAdmin(user)}<AdminBadge size={13} /> {session.roleName('admin') ?? 'Admin'}{:else}{user.userId != null ? 'Registered' : 'Guest'}{/if}</span>
         {#if isSelf}<span>You</span>{/if}
       </p>
+      <!-- Admin is already named on the line above -->
+      {#if session.rolesFor(user).some(r => r.g !== 'admin')}
+        <ul class="roles" aria-label="Roles">
+          {#each session.rolesFor(user).filter(r => r.g !== 'admin') as r (r.g)}
+            <li style:color={roleTint(r.c)}><RoleIcon role={r} size={13} /> {r.n}</li>
+          {/each}
+        </ul>
+      {/if}
       {#if user.selfMute || user.mute || user.selfDeaf || user.deaf || user.prioritySpeaker || user.recording}
         <p class="flags">
           {#if user.selfDeaf || user.deaf}<span>{user.deaf ? 'Server deafened' : 'Deafened'}</span>
@@ -234,6 +244,8 @@
   h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; overflow-wrap: anywhere; }
   .sub { display: flex; flex-wrap: wrap; gap: 0 10px; margin: 2px 0 0; font-size: 13px; color: var(--text-dim); }
   .sub span + span::before { content: ''; display: inline-block; width: 3px; height: 3px; margin: 0 10px 3px 0; background: var(--text-faint); }
+  .roles { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; padding: 0; }
+  .roles li { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 7px; background: var(--bg-3); color: var(--text-dim); font-size: 12px; font-weight: 600; }
   .flags { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; }
   .flags span { font-size: 11px; font-weight: 500; padding: 0 6px; line-height: 20px; background: var(--bg-3); color: var(--text-dim); }
   .flags .bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }

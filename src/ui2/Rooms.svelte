@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
-  import AdminBadge from '../ui/AdminBadge.svelte';
+  import RoleBadges from '../ui/RoleBadges.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { serverInitials as initials, store, type SavedServer } from '../lib/settings.svelte.ts';
   import { menu, type MenuItem } from '../lib/menu.svelte.ts';
@@ -246,8 +246,8 @@
                       <li>
                         <button class="person" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
                           <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
-                          <span class="pname" class:talking={talking(u.session)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
-                          {#if session.isAdmin(u)}<AdminBadge />{/if}
+                          <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
+                          <RoleBadges user={u} />
                           {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
                           {#if u.recording}<span class="rec">REC</span>{/if}
                           {#if u.deaf || u.selfDeaf}<span class="mark" class:bad={u.deaf} title={u.deaf ? 'Deafened by server' : 'Deafened'}><Icon name="headphones-off" size={14} /></span>

@@ -17,6 +17,7 @@
   import ChannelDialog from './ui/ChannelDialog.svelte';
   import PublicServers from './ui/PublicServers.svelte';
   import ServerInfoDialog from './ui/ServerInfoDialog.svelte';
+  import RolesDialog from './ui/RolesDialog.svelte';
   import ImageViewer from './ui/ImageViewer.svelte';
   import ShareDialog from './ui/ShareDialog.svelte';
   import ProfileCard from './ui/ProfileCard.svelte';
@@ -229,6 +230,9 @@
 {:else if ui.wizard}<IdentityWizard mode={ui.wizard} onclose={() => (ui.wizard = null)} />{/if}
 {#if ui.channelDialog && session.status === 'connected'}
   {#key ui.channelDialog}<ChannelDialog {...ui.channelDialog} onclose={() => (ui.channelDialog = null)} />{/key}
+{/if}
+{#if ui.rolesDialog && session.status === 'connected'}
+  {#key ui.rolesDialog}<RolesDialog {...ui.rolesDialog} onclose={() => (ui.rolesDialog = null)} />{/key}
 {/if}
 {#if share.dialog}<ShareDialog onclose={() => (share.dialog = null)} />{/if}
 {#if ui.pokes.length}<PokeDialog />{/if}

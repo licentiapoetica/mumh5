@@ -18,6 +18,9 @@ const RATE_LIMITED = new Set<MessageName>(['TextMessage', 'ChannelState', 'ACL',
 // messages always go out at once
 const BULK_CAP = RATE_BURST - 2;
 
+const sameBytes = (a: Uint8Array, b: Uint8Array | null) =>
+  !!b && a.length === b.length && a.every((v, i) => v === b[i]);
+
 export interface Channel {
   id: number;
   parent: number | null;
@@ -162,6 +165,7 @@ type ClientEvents = {
   udp: (ok: boolean, rtt: number) => void;
   acl: (acl: ChannelAcl) => void;
   userNames: (names: Map<number, string>) => void;
+  userList: (users: { id: number; name: string }[]) => void;
   permissions: (channelId: number | null, bits: number) => void;
   ping: (rttMs: number) => void;
   close: (reason: string) => void;
@@ -452,6 +456,11 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.send('QueryUsers', { ids: q.ids ?? [], names: q.names ?? [] });
   }
 
+  // Every registered user; the server answers people who may register others
+  queryUserList(): void {
+    this.send('UserList', {});
+  }
+
   // Connection details of a user; the server decides how much we may see
   requestUserStats(session: number, statsOnly = false): void {
     this.send('UserStats', { session, stats_only: statsOnly });
@@ -646,6 +655,12 @@ export class MumbleClient extends Emitter<ClientEvents> {
         this.emit('userNames', this.registeredNames);
         break;
       }
+      case 'UserList': {
+        const users = (msg.users ?? []).filter((u: any) => u.name).map((u: any) => ({ id: u.user_id as number, name: u.name as string }));
+        for (const u of users) this.registeredNames.set(u.id, u.name);
+        this.emit('userList', users);
+        break;
+      }
       case 'PermissionQuery':
         if (msg.flush) this.permissions.clear();
         if (msg.channel_id != null && msg.permissions != null) this.permissions.set(msg.channel_id, msg.permissions);
@@ -672,7 +687,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
     }
     if (msg.parent != null) ch.parent = msg.parent;
     if (msg.name != null) ch.name = msg.name;
-    if (msg.description_hash != null && msg.description == null) ch.description = '';
+    // Only a different hash makes the text we have stale
+    if (msg.description_hash != null && msg.description == null && !sameBytes(msg.description_hash, ch.descriptionHash)) ch.description = '';
     if (msg.description != null) ch.description = msg.description;
     if (msg.description_hash != null) ch.descriptionHash = msg.description_hash;
     // An emptied description comes without a hash; the old one would mean text is still to fetch

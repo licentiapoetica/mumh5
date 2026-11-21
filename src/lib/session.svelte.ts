@@ -1,10 +1,11 @@
 import { createCodec } from '../core/proto.ts';
-import { MumbleClient, PERM, describeDenial, type Channel, type User, type TextMessage } from '../core/client.ts';
+import { MumbleClient, PERM, describeDenial, type Channel, type ChannelAcl, type User, type TextMessage } from '../core/client.ts';
 import { native, desktop, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
+import { parseRoles, refreshDoc, rolesOf, roleTint, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
 import { withPassword } from '../core/channel-password.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
@@ -20,6 +21,7 @@ import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 
 const codec = createCodec();
+const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
 
 // A chat view is a channel ("ch:<id>") or a direct conversation with a user ("dm:<session>").
 export type ViewKey = `ch:${number}` | `dm:${number}`;
@@ -113,6 +115,12 @@ export class Session {
   private passwordTry: { id: number; password: string } | null = null;
   // Admins according to the root ACL, until the description they are published in has loaded
   private adminList: number[] | null = null;
+  // The root rules behind adminList, to bring the published role members up to date
+  private rootAcl: ChannelAcl | null = null;
+  // Our own new role data is on its way: nothing may rewrite the description from the old text
+  private rolesSending = false;
+  private rolesTimer: ReturnType<typeof setTimeout> | undefined;
+  private roleCache: { text: string; doc: RoleDoc | null } = { text: '', doc: null };
   // The root rules were saved, so the published admin list may be out of date
   private adminsStale = false;
   // Mute and deafen the app set by itself (your choice from before connecting, or restored when
@@ -258,6 +266,31 @@ export class Session {
     void this.tick;
     if (user.userId == null) return false;
     return user.userId === 0 || parseAdmins(this.client?.channels.get(0)?.description ?? '').includes(user.userId);
+  }
+
+  get roleDoc(): RoleDoc | null {
+    void this.tick;
+    const text = this.client?.channels.get(0)?.description ?? '';
+    if (text !== this.roleCache.text) this.roleCache = { text, doc: parseRoles(text) };
+    return this.roleCache.doc;
+  }
+
+  // Highest role first
+  rolesFor(user: { userId: number | null }): RoleInfo[] {
+    return rolesOf(this.roleDoc, user.userId);
+  }
+
+  roleColor(user: { userId: number | null }): string | undefined {
+    if (store.settings.roleColors === false) return undefined;
+    return roleTint(this.rolesFor(user).find(r => r.c)?.c ?? '');
+  }
+
+  roleLabel(user: { userId: number | null }): string {
+    return this.rolesFor(user)[0]?.n ?? (this.isAdmin(user) ? 'Admin' : user.userId != null ? 'Registered' : 'Guest');
+  }
+
+  roleName(group: string): string | undefined {
+    return this.roleDoc?.roles.find(r => r.g === group)?.n;
   }
 
   isInside(channelId: number, ancestor: number): boolean {
@@ -487,9 +520,13 @@ export class Session {
       files.receive(this, sender, dataId, data);
     });
     client.on('channel', ch => {
+      // A description can return to earlier text, and so to a hash that must be fetchable again
+      if (ch.description && ch.descriptionHash) this.requested.delete(descriptionTag(ch.id, ch.descriptionHash));
       if (live() && client.synced && !client.permissions.has(ch.id)) client.requestPermissions(ch.id);
       if (live() && client.synced) textChannels.channelChanged(this, ch.id);
       if (live() && client.synced && ch.id === 0) {
+        this.rolesSending = false;
+        clearTimeout(this.rolesTimer);
         this.loadDescription(0);
         this.publishAdmins(client);
       }
@@ -498,6 +535,7 @@ export class Session {
     client.on('acl', acl => {
       if (!live() || acl.channelId !== 0) return;
       this.adminList = rootAdmins(acl);
+      this.rootAcl = acl;
       this.publishAdmins(client);
     });
     client.on('permissions', () => {
@@ -726,10 +764,29 @@ export class Session {
   loadDescription(id: number): void {
     const c = this.client?.channels.get(id);
     if (!c?.descriptionHash || c.description) return;
-    const tag = `d:${id}:${[...c.descriptionHash].join(',')}`;
+    const tag = descriptionTag(id, c.descriptionHash);
     if (this.requested.has(tag)) return;
     this.requested.add(tag);
     this.client!.requestBlob({ descriptions: [id] });
+  }
+
+  // For changes that rewrite the root description: false if its text does not arrive
+  whenRootLoaded(ms = 5000): Promise<boolean> {
+    const client = this.client;
+    const root = client?.channels.get(0);
+    if (!client || !root) return Promise.resolve(false);
+    if (!root.descriptionHash || root.description) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { off(); resolve(false); }, ms);
+      const off = client.on('channel', ch => {
+        if (ch.id !== 0 || !ch.description) return;
+        clearTimeout(timer);
+        off();
+        resolve(true);
+      });
+      this.requested.delete(descriptionTag(0, root.descriptionHash!));
+      this.loadDescription(0);
+    });
   }
 
   loadComment(session: number): void {
@@ -1024,16 +1081,50 @@ export class Session {
   private publishAdmins(client: MumbleClient): void {
     const ids = this.adminList;
     const root = client.channels.get(0);
-    if (!ids || !root || client.config.allowHtml === false) return;
+    if (!ids || !root || client.config.allowHtml === false || this.rolesSending) return;
     // Rewriting a description we have not read yet would erase it
     if (root.descriptionHash && !root.description) {
       this.loadDescription(0);
       return;
     }
     this.adminList = null;
-    const next = withAdmins(root.description, ids);
+    const acl = this.rootAcl;
+    this.rootAcl = null;
+    const doc = parseRoles(root.description);
+    const next = withRoles(withAdmins(root.description, ids), doc && acl ? refreshDoc(doc, acl) : doc);
     const limit = /<img/i.test(next) ? client.config.imageMessageLength : client.config.messageLength;
     if (next !== root.description && (!limit || next.length <= limit)) client.updateChannel(0, { description: next });
+  }
+
+  // Rules first, then the names and members everyone can read. A problem comes back as text.
+  saveRoles(acl: ChannelAcl, doc: RoleDoc): string | null {
+    const client = this.client;
+    const root = client?.channels.get(0);
+    if (!client || !root) return 'Not connected.';
+    if (root.descriptionHash && !root.description) {
+      this.loadDescription(0);
+      return 'The server description is still loading. Try again in a moment.';
+    }
+    if (client.config.allowHtml === false) {
+      client.saveAcl(acl);
+      this.system(this.view, 'Roles saved. This server does not allow HTML, so their names and icons are not kept.');
+      return null;
+    }
+    const next = withRoles(withAdmins(root.description, parseAdmins(root.description)), doc);
+    const limit = client.config.imageMessageLength;
+    if (limit && next.length > limit) return `Too much role data for this server (${next.length} / ${limit} characters). Remove some uploaded icons.`;
+    this.adminList = null;
+    this.rootAcl = null;
+    client.saveAcl(acl);
+    if (next !== root.description) {
+      this.rolesSending = true;
+      clearTimeout(this.rolesTimer);
+      // If the server refuses it no answer comes
+      this.rolesTimer = setTimeout(() => { this.rolesSending = false; }, 8000);
+      client.updateChannel(0, { description: next });
+    }
+    this.refreshAdmins();
+    return null;
   }
 
   private target(key: string): { channels?: number[]; users?: number[] } {
