@@ -30,7 +30,7 @@
   }
   .modal {
     width: 100%; max-height: calc(100vh - 32px); display: flex; flex-direction: column;
-    background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-modal);
+    background: var(--bg-1); border: 1px solid var(--line-strong);
     animation: rise 160ms var(--ease);
   }
   header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 14px 0 24px; }

@@ -26,7 +26,8 @@ export interface Settings {
   theme: ThemeId;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
-  railHidden: boolean;    // the server list is closed; the current server's button brings it back
+  classicSide: 'left' | 'right'; // the side of the chat the channel list is on in the Classic layout
+  railHidden: boolean;   // the server list is closed; the current server's button brings it back
   // standard: the channel tree in one of the layouts above. rooms: one screen at a time, made for phones.
   interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
@@ -40,6 +41,7 @@ export interface Settings {
   pokeNotify: boolean;    // a system notification for a poke while the window is not focused
   roleIcons: 'all' | 'top' | 'off'; // role icons next to names
   roleColors: boolean;   // names in the color of their top role
+  avatars: 'pictures' | 'spheres'; // spheres replace pictures and letters, except in chat, members, profiles and voice tiles
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -78,6 +80,7 @@ const defaults: Settings = {
   theme: 'dark',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'stacked',
+  classicSide: 'right',
   railHidden: true,
   interface: 'standard',
   shareQuality: 'medium',
@@ -90,7 +93,8 @@ const defaults: Settings = {
   updateCheck: true,
   pokeNotify: true,
   roleIcons: 'all',
-  roleColors: true
+  roleColors: true,
+  avatars: 'spheres'
 };
 
 class SettingsStore {

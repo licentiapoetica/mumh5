@@ -16,6 +16,7 @@
   type Tab = typeof ui.settingsTab;
   const SETTINGS: { tab: Tab; name: string; note: string }[] = [
     { tab: 'voice', name: 'Voice', note: 'Microphone, speakers, how you transmit' },
+    { tab: 'sharing', name: 'Screen sharing', note: 'STUN server and relay' },
     { tab: 'sounds', name: 'Sounds', note: 'Notification sounds' },
     { tab: 'appearance', name: 'Appearance', note: 'Colors and interface' },
     { tab: 'accessibility', name: 'Accessibility', note: '' },
@@ -23,19 +24,13 @@
     { tab: 'identities', name: 'Identities', note: 'Your certificates' }
   ];
   const openSettings = (tab: Tab) => { ui.settingsTab = tab; ui.settingsOpen = true; };
-  function profile(edit: boolean) {
-    if (!self) return;
-    session.showUser(self.session);
-    if (edit) ui.editDescription = true;
-    ui.panelOpen = true;
-  }
 </script>
 
 <section class="you" aria-label="You">
   <div class="scroll">
     <div class="card">
       {#if self}
-        <Avatar name={self.name} size={64} speaking={voice.transmitting} src={session.avatar(self.session)} />
+        <Avatar name={self.name} size={64} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         <div class="who">
           <h1>{self.name}</h1>
           <span>{self.userId != null ? 'Registered' : 'Guest'} on {session.server?.label}, in {session.channel(self.channelId)?.name || 'Root'}</span>
@@ -50,7 +45,7 @@
     {#if self}
       <div class="acts">
         <button class="btn" onclick={e => openProfile(self.session, e.currentTarget)}>Your profile</button>
-        <button class="btn" onclick={() => profile(true)}>Change your description</button>
+        <button class="btn" onclick={() => (ui.profileEdit = true)}>Edit profile</button>
         <button class="btn" onclick={() => changeNamePrompt(self)}>Change name</button>
         {#if self.userId == null}<button class="btn" onclick={() => session.register(self.session)}>Register on this server</button>{/if}
         <button class="btn" onclick={() => (ui.userInfo = self.session)}>Connection information</button>

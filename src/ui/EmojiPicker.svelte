@@ -175,7 +175,7 @@
 </div>
 
 <style>
-  .emoji-pop { position: fixed; z-index: 50; width: min(352px, calc(100vw - 16px)); display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); outline: none; }
+  .emoji-pop { position: fixed; z-index: 50; width: min(352px, calc(100vw - 16px)); display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line-strong); outline: none; }
   .emoji-head { flex: none; display: flex; gap: 4px; padding: 8px 8px 6px; }
   .emoji-head input { flex: 1; min-width: 0; }
   .emoji-tone { flex: none; width: var(--control-h); height: var(--control-h); display: grid; place-items: center; font-size: 18px; line-height: 1; border: 1px solid var(--line-strong); background: var(--bg-0); transition: background 120ms var(--ease); }

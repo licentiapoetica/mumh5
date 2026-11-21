@@ -20,13 +20,6 @@
   const muted = $derived(self ? self.selfMute : sessions.mute);
   const deafened = $derived(self ? self.selfDeaf : sessions.deaf);
 
-  function editDescription() {
-    if (!self) return;
-    session.showUser(self.session);
-    ui.editDescription = true;
-    ui.panelOpen = true;
-  }
-
   // Sharing runs on one server at a time; the button stops it from anywhere
   const sharingHere = $derived(!!share.stream);
   const canShare = $derived(session.status === 'connected' && share.supported(sessions.active));
@@ -87,7 +80,7 @@
       <Icon name={sharingHere ? share.kind : 'screen'} size={18} />
     </button>
     <span class="sep"></span>
-    <button class="icon-btn" title="Change your description" aria-label="Change your description" disabled={!self} onclick={editDescription}>
+    <button class="icon-btn" title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>
       <Icon name="message" size={18} />
     </button>
     <span class="sep"></span>

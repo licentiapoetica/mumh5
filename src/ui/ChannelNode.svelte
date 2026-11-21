@@ -273,6 +273,12 @@
             aria-pressed={session.selectedUsers.includes(u.session)}
             title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
+            <!-- In the indent, so names stay aligned whether or not someone is muted -->
+            {#if u.deaf || u.selfDeaf}
+              <span class="state voice" style:left="{6 + depth * 14}px" class:admin={u.deaf} title={u.deaf ? 'Deafened by server' : 'Deafened'}><Icon name="headphones-off" size={14} /></span>
+            {:else if u.mute || u.selfMute || u.suppress}
+              <span class="state voice" style:left="{6 + depth * 14}px" class:admin={u.mute || u.suppress} title={u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted'}><Icon name="mic-off" size={14} /></span>
+            {/if}
             <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
             <RoleBadges user={u} />{#if !session.isAdmin(u) && u.userId != null && !session.rolesFor(u).length}<span class="reg" title="Registered">R</span>{/if}
@@ -291,11 +297,6 @@
             {#if u.comment || u.commentHash}<span class="state" title="Has a description"><Icon name="message" size={12} /></span>{/if}
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
-            {#if u.deaf || u.selfDeaf}
-              <span class="state" class:admin={u.deaf} title={u.deaf ? 'Deafened by server' : 'Deafened'}><Icon name="headphones-off" size={14} /></span>
-            {:else if u.mute || u.selfMute || u.suppress}
-              <span class="state" class:admin={u.mute || u.suppress} title={u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted'}><Icon name="mic-off" size={14} /></span>
-            {/if}
           </button>
         </li>
       {/each}
@@ -340,14 +341,15 @@
   .desc span { width: 7px; height: 7px; background: var(--warn); }
   .desc:hover span { outline: 2px solid var(--warn); outline-offset: 1px; }
   .desc-pop { position: fixed; z-index: 40; width: 340px; max-width: calc(100vw - 16px); max-height: 320px; overflow: auto; padding: 12px 14px;
-    background: var(--bg-1); border: 1px solid var(--line-strong); color: var(--text); font-size: 14px; box-shadow: var(--shadow-pop); }
+    background: var(--bg-1); border: 1px solid var(--line-strong); color: var(--text); font-size: 14px; }
   .desc-pop strong { display: block; margin-bottom: 6px; }
   .desc-pop p { margin: 0; color: var(--text-dim); }
   .desc-pop .html { overflow-wrap: anywhere; user-select: text; }
   .desc-pop .html :global(img) { max-width: 100%; }
   .count { flex: none; font-size: 11px; font-weight: 600; color: var(--text-dim); background: var(--bg-3); padding: 0 6px; line-height: 18px; }
   .badge { flex: none; min-width: 18px; text-align: center; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 18px; }
-  .user { gap: 8px; min-height: 28px; text-align: left; user-select: none; }
+  .user { position: relative; gap: 8px; min-height: 28px; text-align: left; user-select: none; }
+  .state.voice { position: absolute; top: 50%; transform: translateY(-50%); }
   .user.self .label { color: var(--text); }
   .label.talking { color: var(--speaking); }
   .reg { font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); padding: 0 3px; line-height: 14px; }

@@ -385,6 +385,7 @@ try {
   await new Promise<void>((res, rej) => { relay.stdout.on('data', d => { if (String(d).includes('listening')) res(); }); relay.on('exit', c => rej(new Error(`proxy exited with ${c}`))); });
   for (const p of [alice.page, bob.page]) {
     await p.getByTitle('Settings').click();
+    await p.getByRole('tab', { name: 'Screen sharing' }).click();
     await p.getByLabel('Relay').fill(`http://127.0.0.1:${relayPort}`);
     await p.getByLabel('Relay').blur();
     await p.getByRole('button', { name: 'Done', exact: true }).click();

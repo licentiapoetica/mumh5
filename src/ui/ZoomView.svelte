@@ -175,7 +175,7 @@
   .main.dragging { cursor: grabbing; }
   /* Over the picture, so its colours are fixed dark ones */
   .zoom { position: absolute; right: 8px; bottom: 8px; z-index: 1; width: min(220px, 45%); padding: 6px; display: flex; flex-direction: column; gap: 4px;
-    background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15); box-shadow: var(--shadow-pop);
+    background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15);
     opacity: 0; pointer-events: none; transition: opacity 0.15s var(--ease); }
   /* Opacity, not visibility, so the keyboard can still reach it. A drag that leaves the picture keeps it.
      div:hover because the separate window is in quirks mode, where a bare :hover matches nothing */

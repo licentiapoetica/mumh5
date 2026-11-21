@@ -275,9 +275,9 @@ async function client(name: string, colors?: [number[], number[]], stageHeight?:
   if (colors) {
     const file = path.join(work, `${name}.png`);
     writeFileSync(file, neon(256, colors[0], colors[1]));
-    await p.locator('.me .profile').click();
-    await p.getByRole('dialog', { name: /^Profile of / }).locator('input[type=file]').setInputFiles(file);
-    await p.locator('.me .profile .avatar img').waitFor();
+    await p.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+    await p.getByRole('dialog', { name: 'Edit profile' }).getByLabel('Picture file').setInputFiles(file);
+    await p.getByRole('dialog', { name: 'Edit profile' }).locator('.avatar img').waitFor();
     await p.keyboard.press('Escape');
   }
   return { instance, page: p };

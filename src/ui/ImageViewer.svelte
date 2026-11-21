@@ -20,6 +20,6 @@
 <style>
   .viewer { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 16px; }
   .shade { position: absolute; inset: 0; background: rgb(0 0 0 / 0.85); cursor: zoom-out; }
-  img { position: relative; max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; box-shadow: 0 16px 48px rgb(0 0 0 / 0.6); }
+  img { position: relative; max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
   .open { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 4px 10px; font-size: 13px; color: #fff; background: rgb(0 0 0 / 0.7); }
 </style>

@@ -341,7 +341,7 @@
               <!-- svelte-ignore a11y_media_has_caption -->
               <video class:mirror={isSelf && share.mirror} use:media={cam} autoplay playsinline muted></video>
             {:else}
-              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} src={session.avatar(u.session)} />
+              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
             {/if}
             <span class="who">{store.displayName(u)}</span>
             {#if w && w.state !== 'live'}

@@ -13,7 +13,6 @@
   import { userMenu, changeNamePrompt } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
-  import RichEditor from './RichEditor.svelte';
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
 
@@ -39,27 +38,6 @@
   const maxW = () => Math.max(MIN_W, Math.min(900, window.innerWidth - 420));
   let width = $state(Math.max(MIN_W, Number(localStorage.getItem('mumh5.panelWidth')) || DEFAULT_W));
 
-
-  let editing = $state(false);
-  let draft = $state('');
-  $effect(() => { void panel; editing = false; });
-
-  function startEdit() {
-    draft = user?.comment ?? '';
-    editing = true;
-  }
-
-  // After the reset above, so a request from the toolbar survives the panel switching to the profile
-  $effect(() => {
-    if (!ui.editDescription || !isSelf) return;
-    ui.editDescription = false;
-    startEdit();
-  });
-
-  function saveComment() {
-    session.setComment(draft);
-    editing = false;
-  }
 
 </script>
 
@@ -115,7 +93,7 @@
     </header>
     <div class="body">
       <div class="who" role="presentation" oncontextmenu={e => menu.show(e, userMenu(user))}>
-        <Avatar name={user.name} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} src={session.avatar(user.session)} />
+        <Avatar name={user.name} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} src={session.avatar(user.session)} keep />
         <div class="who-text">
           <h3>{store.displayName(user)}</h3>
           <p class="where" title="Current channel"><Icon name="channel" size={14} /><span>{session.channel(user.channelId)?.name || 'Root'}</span></p>
@@ -144,22 +122,14 @@
       {/if}
 
       <h4>Description</h4>
-      {#if editing}
-        <RichEditor value={draft} limit={session.htmlLimit} placeholder="Tell people about yourself" onchange={h => (draft = h)} />
-        <div class="actions">
-          <button class="btn primary" onclick={saveComment}>Save</button>
-          <button class="btn" onclick={() => (editing = false)}>Cancel</button>
-        </div>
+      {#if comment}
+        <div class="html">{@html comment}</div>
+      {:else if pendingComment}
+        <p class="dim">Loading description...</p>
       {:else}
-        {#if comment}
-          <div class="html">{@html comment}</div>
-        {:else if pendingComment}
-          <p class="dim">Loading description...</p>
-        {:else}
-          <p class="dim">{isSelf ? 'You have no description yet.' : 'No description.'}</p>
-        {/if}
-        {#if isSelf}<div class="actions"><button class="btn" onclick={startEdit}>Edit description</button></div>{/if}
+        <p class="dim">{isSelf ? 'You have no description yet.' : 'No description.'}</p>
       {/if}
+      {#if isSelf}<div class="actions"><button class="btn" onclick={() => (ui.profileEdit = true)}>Edit profile</button></div>{/if}
 
 
       {#if !isSelf}
