@@ -10,6 +10,9 @@
   let { onadd, onsettings, onbrowse, canHide = true }:
     { onadd: () => void; onsettings: () => void; onbrowse: () => void; canHide?: boolean } = $props();
 
+  // The home screen over a connected server takes the marker from that server's tile
+  const homeOver = $derived(sessions.homeShown && sessions.active.status !== 'idle');
+
   function hide() {
     store.settings.railHidden = true;
     store.saveSettings();
@@ -43,7 +46,7 @@
     {@const state = stateOf(s.id)}
     {@const unread = unreadOf(s.id)}
     {#if dropIndex === i && dragging}<div class="drop-line"></div>{/if}
-    <button class="tile" class:active={sessions.activeId === s.id} class:live={state === 'connected'}
+    <button class="tile" class:active={sessions.activeId === s.id && !homeOver} class:live={state === 'connected'}
       class:connecting={state === 'connecting'} class:voice={sessions.voiceId === s.id && state === 'connected'}
       class:dragged={dragging === s.id}
       title="{s.label} ({s.host}){state === 'connected' ? (sessions.voiceId === s.id ? ', voice' : ', connected') : ''}"
@@ -64,7 +67,7 @@
   <div class="spacer"></div>
   {#if sessions.active.status !== 'idle'}
     {@const label = sessions.homeShown ? 'Back to server' : 'Go to home screen'}
-    <button class="tile ghost" title={label} aria-label={label} onclick={() => (sessions.homeShown = !sessions.homeShown)}><Icon name="home" size={18} /></button>
+    <button class="tile ghost" class:active={homeOver} title={label} aria-label={label} aria-pressed={homeOver} onclick={() => (sessions.homeShown = !sessions.homeShown)}><Icon name="home" size={18} /></button>
   {/if}
   {#if canHide}<button class="tile ghost" title="Hide server list" aria-label="Hide server list" onclick={hide}><Icon name="sidebar" size={18} /></button>{/if}
   <button class="tile ghost" title="Settings" onclick={onsettings}><Icon name="settings" size={18} /></button>
@@ -105,5 +108,6 @@
   .add:hover { background: var(--speaking); color: var(--bg-0); }
   .ghost { background: transparent; color: var(--text-dim); }
   .ghost:hover { background: var(--bg-3); color: var(--text); }
+  .tile.ghost.active:hover { background: var(--accent); color: var(--accent-text); }
   .spacer { flex: 1; }
 </style>

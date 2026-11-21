@@ -1637,7 +1637,7 @@ try {
   await page.getByRole('menuitem', { name: 'Go to home screen', exact: true }).click();
   const homeOver = page.locator('.home-over section.home');
   await homeOver.getByRole('heading', { name: 'Servers' }).waitFor();
-  assert.equal(await page.getByLabel('Message').count(), 0, 'the view behind is out of reach');
+  assert.ok(await page.getByLabel('Message').evaluate(el => !!el.closest('[inert]')), 'the view behind is out of reach');
   await homeOver.locator('.server-btn').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Back to server', exact: true }).click();
   await homeOver.waitFor({ state: 'detached' });
@@ -1656,8 +1656,13 @@ try {
   await page.getByRole('button', { name: 'Go to home screen' }).click();
   await homeOver.waitFor();
   assert.ok((await homeOver.boundingBox())!.x >= (await page.locator('.rail').boundingBox())!.width, 'the server list stays beside it');
+  // Home carries the active marker while it is open, the server gets it back afterwards
+  assert.equal(await page.locator('.rail .tile.active').count(), 1);
+  assert.equal(await page.locator('.rail .tile.active').getAttribute('aria-label'), 'Back to server');
   await page.getByRole('button', { name: 'Back to server' }).click();
   await homeOver.waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.rail .tile.active').count(), 1);
+  assert.match(await page.locator('.rail .tile.active').getAttribute('title') ?? '', /^Second/);
   console.log('ok: right-click on the current server button');
 
   // Reorder by dragging Second above Test Server
