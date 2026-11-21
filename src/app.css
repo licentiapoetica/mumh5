@@ -183,3 +183,5 @@ label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; fo
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
 button[data-select-user][aria-pressed='true'] { background: var(--bg-active); box-shadow: inset 3px 0 0 var(--accent); }
+/* The row an open context menu belongs to looks hovered while the pointer is on the menu */
+[data-menu-row][data-menu-on] { background: var(--bg-hover) !important; color: var(--text); }

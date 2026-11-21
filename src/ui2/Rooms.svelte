@@ -188,7 +188,7 @@
           {#each textRooms as r (r.channel.id)}
             {@const c = r.channel}
             {@const key = `ch:${c.id}` as const}
-            <li class="entry" class:viewing={session.view === key}>
+            <li class="entry" data-menu-row class:viewing={session.view === key}>
               <button class="main" onclick={() => openChat(key)} oncontextmenu={e => menu.show(e, channelMenu(c))}>
                 <span class="glyph"><Icon name="hash" size={18} /></span>
                 <span class="text">
@@ -212,7 +212,7 @@
           {@const open = isOpen(c.id)}
           {@const key = `ch:${c.id}` as const}
           <li class="room" class:here class:open class:empty={!users.length}>
-            <div class="entry" class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
+            <div class="entry" data-menu-row class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
               ondragover={e => { if (canDrop(c.id)) { e.preventDefault(); dropRoom = c.id; } }}
               ondragleave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropRoom = null; }}
               ondrop={e => dropUsers(e, c.id)}>
@@ -244,7 +244,7 @@
                     {#each users as u (u.session)}
                       {@const me = u.session === self?.session}
                       <li>
-                        <button class="person" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
+                        <button class="person" data-menu-row use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
                           <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                           <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                           <RoleBadges user={u} />
@@ -275,7 +275,7 @@
         <h2>Direct messages</h2>
         <ul>
           {#each dms as dm (dm.key)}
-            <li class="entry" class:viewing={session.view === dm.key}
+            <li class="entry" data-menu-row class:viewing={session.view === dm.key}
               oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
               <button class="main" onclick={() => openChat(dm.key)}>
                 <Avatar name={dm.user?.name ?? '?'} size={32} src={session.avatar(dm.user?.session)} />

@@ -5,7 +5,8 @@ import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
-import { parseRoles, refreshDoc, rolesOf, roleTint, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
+import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, roleMembers, rolesFromAcl, rolesOf, roleTint, setMember, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
+import { effectivePermissions } from '../core/access.ts';
 import { withPassword } from '../core/channel-password.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
@@ -1125,6 +1126,54 @@ export class Session {
     }
     this.refreshAdmins();
     return null;
+  }
+
+  // The root rules as they are now. The ping comes first: the answer to an earlier query could
+  // still be on its way and would hide a change just saved.
+  async readRootAcl(ms = 5000): Promise<ChannelAcl | null> {
+    const client = this.client;
+    if (!client) return null;
+    await Promise.race([client.flushed(), new Promise(r => setTimeout(r, ms))]);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { off(); resolve(null); }, ms);
+      const off = client.on('acl', a => {
+        if (a.channelId !== 0) return;
+        clearTimeout(timer);
+        off();
+        resolve(a);
+      });
+      client.queryAcl(0);
+    });
+  }
+
+  keepsRootWrite(acl: ChannelAcl): boolean {
+    const me = this.client?.self;
+    if (!me || me.userId === 0) return true;
+    const level = { channelId: 0, name: 'Root', inheritAcls: acl.inheritAcls, rules: acl.acls, groups: acl.groups };
+    const who = { userId: me.userId, hash: me.hash, channelId: me.channelId, tokens: this.ownTokens(), strong: false };
+    return !!(effectivePermissions([level], who, () => null) & PERM.Write);
+  }
+
+  // Applied to the newest rules, so what another admin saved meanwhile stays
+  async changeMembers(changes: { group: string; userId: number; on: boolean }[]): Promise<ChannelAcl | null> {
+    const fresh = await this.readRootAcl();
+    if (!fresh || !(await this.whenRootLoaded())) {
+      this.system(this.view, 'Could not read the roles. Nothing was changed.');
+      return null;
+    }
+    const next = changes.reduce((acl, c) => setMember(acl, c.group, c.userId, c.on), fresh);
+    const roles = rolesFromAcl(next, this.roleDoc);
+    const ready = prepareRoles(next, roles);
+    if (this.keepsRootWrite(fresh) && !this.keepsRootWrite(ready)) {
+      this.system(this.view, 'That would remove your own admin access. Nothing was changed.');
+      return null;
+    }
+    const problem = this.saveRoles(ready, docFromRoles(roles.map(r => ({ ...r, m: isBuiltinRole(r.g) ? [] : roleMembers(ready, r.g) }))));
+    if (problem) {
+      this.system(this.view, escapeHtml(problem));
+      return null;
+    }
+    return ready;
   }
 
   private target(key: string): { channels?: number[]; users?: number[] } {

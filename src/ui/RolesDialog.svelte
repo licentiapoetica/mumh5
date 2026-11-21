@@ -5,7 +5,7 @@
   import { session } from '../lib/session.svelte.ts';
   import { makeRoleIcon } from '../lib/images.ts';
   import { PERM, type ChannelAcl } from '../core/client.ts';
-  import { PERMISSION_GROUPS, VOICE_BITS, adminsSilenced, cellValue, effectivePermissions, keepAdminVoice, setCell, type Cell } from '../core/access.ts';
+  import { PERMISSION_GROUPS, VOICE_BITS, adminsSilenced, cellValue, keepAdminVoice, setCell, type Cell } from '../core/access.ts';
   import { MAX_ROLES, MAX_ROLE_NAME, ROLE_COLORS, ROLE_ICONS, accessKeys, addKey, canHaveKeys, createRole, deleteRole, docFromRoles, isBuiltinRole, isFixedRole, newKeyCode, prepareRoles, removeKey, roleMembers, rolesFromAcl, roleTarget, roleTint, setMember, type RoleInfo } from '../core/roles.ts';
 
   type Tab = 'roles' | 'members' | 'keys';
@@ -158,10 +158,7 @@
   const losesAdmin = $derived.by(() => {
     const me = client?.self;
     if (!dirty || !acl || !me || me.userId === 0 || !client?.can(0, PERM.Write)) return false;
-    const ready = prepareRoles(acl, roles);
-    const level = { channelId: 0, name: 'Root', inheritAcls: ready.inheritAcls, rules: ready.acls, groups: ready.groups };
-    const who = { userId: me.userId, hash: me.hash, channelId: me.channelId, tokens: session.ownTokens(), strong: false };
-    return !(effectivePermissions([level], who, () => null) & PERM.Write);
+    return !session.keepsRootWrite(prepareRoles(acl, roles));
   });
 
   async function save() {

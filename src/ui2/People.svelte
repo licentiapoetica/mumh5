@@ -47,7 +47,7 @@
         <ul>
           {#each g.users as u (u.session)}
             {@const me = u.session === self?.session}
-            <li class="entry" role="presentation" oncontextmenu={e => menu.show(e, userMenu(u))}>
+            <li class="entry" data-menu-row role="presentation" oncontextmenu={e => menu.show(e, userMenu(u))}>
               <button class="main" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)}>
                 <Avatar name={u.name} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} />
                 <span class="text">

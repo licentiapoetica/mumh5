@@ -85,7 +85,7 @@
         <h3>Direct messages</h3>
         <ul class="tree">
           {#each dms as dm (dm.key)}
-            <li class="dm-row" class:viewing={session.view === dm.key}
+            <li class="dm-row" data-menu-row class:viewing={session.view === dm.key}
               oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
               <button class="dm"
                 onclick={() => { session.selectView(dm.key); onnavigate(); }}>

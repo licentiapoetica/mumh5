@@ -1381,6 +1381,56 @@ try {
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     // The published role data is never drawn
     assert.equal(await page.locator('img[src^="data:,mumh5roles"]').count(), 0);
+    // The user menu switches roles directly and stays open for the next one
+    const carolRow = page.locator('.sidebar .user', { hasText: 'carol' });
+    const quickRole = async () => {
+      await carolRow.click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Roles', exact: true }).hover();
+      const item = page.getByRole('menuitemcheckbox', { name: 'Moderator' });
+      await item.waitFor();
+      return item;
+    };
+    const quick = await quickRole();
+    assert.equal(await quick.getAttribute('aria-checked'), 'true');
+    await quick.click();
+    await page.locator('.menu.side [role=menuitemcheckbox][aria-checked=false]', { hasText: 'Moderator' }).waitFor();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await aclSaved(0, a => !a.groups.find(g => g.name === roleGroup.name)!.add.includes(carolId), 'role removed from the menu');
+    await carolRow.getByLabel('Moderator').waitFor({ state: 'detached' });
+    await (await quickRole()).click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await aclSaved(0, a => a.groups.find(g => g.name === roleGroup.name)!.add.includes(carolId), 'role added from the menu');
+    await carolRow.getByLabel('Moderator').waitFor();
+    // The row a menu belongs to stays marked until the menu closes
+    const menuRow = page.locator('[data-menu-on]');
+    await carolRow.click({ button: 'right' });
+    assert.equal(await menuRow.count(), 1);
+    assert.match((await menuRow.textContent())!, /carol/);
+    if (shots) await page.screenshot({ path: path.join(shots, 'menu-row.png') });
+    await page.keyboard.press('Escape');
+    await menuRow.waitFor({ state: 'detached' });
+    await page.locator('.row.channel', { hasText: 'Team Room' }).click({ button: 'right' });
+    assert.match((await menuRow.textContent())!, /Team Room/);
+    assert.equal(await menuRow.count(), 1);
+    await page.keyboard.press('Escape');
+    await menuRow.waitFor({ state: 'detached' });
+    // On a phone the side menu stays on screen
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.getByRole('button', { name: 'Open channels' }).click();
+    await carolRow.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Roles', exact: true }).click();
+    const phoneSide = page.locator('.menu.side');
+    await phoneSide.getByRole('menuitemcheckbox', { name: 'Moderator' }).waitFor();
+    assert.ok(await phoneSide.evaluate(m => {
+      const box = m.getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight;
+    }), 'the side menu fits a phone');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    console.log('ok: roles switched from the user menu');
     // Deleting the role removes its group, its rules and its key
     const rolesAgain = await openRoles();
     await rolesAgain.getByRole('list', { name: 'Roles' }).getByRole('button', { name: /^Moderator/ }).click();
