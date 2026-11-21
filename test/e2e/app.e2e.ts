@@ -921,6 +921,11 @@ try {
   assert.ok(pokeHtml.includes('Poked you: Hey wake up!'), 'readable in other clients');
   // System notification: the desktop app may show them; the page records them here, as if in the background
   assert.equal(await page.evaluate(() => Notification.permission), 'granted', 'notifications allowed');
+  // Full screen, which the controls of videos in the chat use, must be granted too
+  assert.ok(await page.evaluate(async () => {
+    const v = document.body.appendChild(document.createElement('video'));
+    try { await v.requestFullscreen(); return document.fullscreenElement === v; } catch { return false; } finally { await document.exitFullscreen().catch(() => {}); v.remove(); }
+  }), 'full screen allowed');
   await page.evaluate(() => {
     const w = window as any;
     w.__notes = [];
