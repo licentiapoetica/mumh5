@@ -2,8 +2,8 @@
   import Icon from './Icon.svelte';
 
   // A stream picture that zooms: the wheel zooms toward the pointer, dragging pans, two
-  // fingers pinch, and while zoomed a panel (bottom right; a magnifier button before) shows the whole
-  // picture with the part in view framed. Used on the stage and in the separate stream
+  // fingers pinch, and while zoomed and hovered a panel (bottom right; a magnifier button before) shows
+  // the whole picture with the part in view framed. Used on the stage and in the separate stream
   // window, so it measures with its own window's observers and has no app-wide menus.
   let { stream, zoom = $bindable(1), video = $bindable(), ondblclick }: {
     stream: MediaStream | null;
@@ -175,7 +175,12 @@
   .main.dragging { cursor: grabbing; }
   /* Over the picture, so its colours are fixed dark ones */
   .zoom { position: absolute; right: 8px; bottom: 8px; z-index: 1; width: min(220px, 45%); padding: 6px; display: flex; flex-direction: column; gap: 4px;
-    background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15); box-shadow: var(--shadow-pop); }
+    background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15); box-shadow: var(--shadow-pop);
+    opacity: 0; pointer-events: none; transition: opacity 0.15s var(--ease); }
+  /* Opacity, not visibility, so the keyboard can still reach it. A drag that leaves the picture keeps it.
+     div:hover because the separate window is in quirks mode, where a bare :hover matches nothing */
+  :global(div:hover) > .zoom, .zoom:active, .zoom:has(:focus-visible), .main.dragging ~ .zoom { opacity: 1; pointer-events: auto; }
+  @media (hover: none) { .zoom { opacity: 1; pointer-events: auto; } }
   .map { position: relative; width: 100%; overflow: hidden; background: #000; cursor: pointer; touch-action: none; }
   .map video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
   .seen { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); pointer-events: none; }
@@ -183,7 +188,7 @@
   .zoom-btn { position: absolute; right: 8px; bottom: 8px; z-index: 1; color: #ddd; background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15);
     opacity: 0; visibility: hidden; transition: opacity 0.15s var(--ease), visibility 0.15s; }
   .zoom-btn:hover { color: #fff; background: rgb(0 0 0 / 0.9); }
-  :global(:hover) > .zoom-btn, .zoom-btn:focus-visible { opacity: 1; visibility: visible; }
+  :global(div:hover) > .zoom-btn, .zoom-btn:focus-visible { opacity: 1; visibility: visible; }
   @media (hover: none) { .zoom-btn { opacity: 1; visibility: visible; } }
   .zoom-row { display: flex; align-items: center; gap: 4px; }
   .zoom-row input { flex: 1; min-width: 0; padding: 0; }
