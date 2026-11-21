@@ -88,6 +88,8 @@ class SettingsStore {
   servers = $state<SavedServer[]>(loadList('mumh5.servers'));
   // Pinned sha256 fingerprints of server certificates, keyed by host:port (trust on first use)
   pins = $state<Record<string, string>>(load('mumh5.pins', {}));
+  // Channel passwords that worked (Mumble access tokens), keyed by host:port
+  tokens = $state<Record<string, string[]>>(load('mumh5.tokens', {}));
   // Username to suggest when connecting with an identity, keyed by identity id
   identityNames = $state<Record<string, string>>(load('mumh5.identityNames', {}));
   // Local nicknames for other users, only visible to us; keyed by certificate hash (or name)
@@ -146,6 +148,23 @@ class SettingsStore {
   pin(hostPort: string, fingerprint: string) {
     this.pins[hostPort] = fingerprint;
     save('mumh5.pins', $state.snapshot(this.pins));
+  }
+
+  tokensFor(hostPort: string): string[] {
+    return [...(this.tokens[hostPort] ?? [])];
+  }
+
+  // Murmur compares tokens without regard to case
+  addToken(hostPort: string, token: string) {
+    const have = this.tokensFor(hostPort);
+    if (have.some(t => t.toLowerCase() === token.toLowerCase())) return;
+    this.tokens[hostPort] = [...have, token];
+    save('mumh5.tokens', $state.snapshot(this.tokens));
+  }
+
+  removeToken(hostPort: string, token: string) {
+    this.tokens[hostPort] = this.tokensFor(hostPort).filter(t => t.toLowerCase() !== token.toLowerCase());
+    save('mumh5.tokens', $state.snapshot(this.tokens));
   }
 
   // Hosts whose media links are embedded, as the user listed them.

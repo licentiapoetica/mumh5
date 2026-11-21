@@ -94,8 +94,8 @@
           {:else if session.self?.channelId === channel.id}
             <span class="here">You are in this channel</span>
           {:else}
-            <button class="btn primary" disabled={!channel.canEnter} onclick={() => { session.joinChannel(channel.id); onnavigate(); }}>
-              {channel.canEnter ? 'Join channel' : 'No access'}
+            <button class="btn primary" onclick={() => { session.joinChannel(channel.id); onnavigate(); }}>
+              {channel.canEnter ? 'Join channel' : 'Enter password'}
             </button>
           {/if}
           <button class="btn" onclick={() => session.showChannel(channel.id, 'chat')}>Open chat</button>

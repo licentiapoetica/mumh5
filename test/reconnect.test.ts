@@ -20,7 +20,7 @@ const stubs = `
     return { secure: Promise.resolve({ fingerprint: control.fingerprint, authorized: false }),
       send() {}, close() {}, onData: null, onClose: null };
   }
-  export const store = { pins: {}, pin(key, value) { this.pins[key] = value; } };
+  export const store = { pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
   const service = { closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
   export const share = service, textChannels = service, files = service;
   export const voice = { settings: { forceTcp: false }, attach(c) { control.attached = c; }, detach() { control.attached = null; } };

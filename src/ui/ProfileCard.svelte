@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
+  import AdminBadge from './AdminBadge.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -161,7 +162,7 @@
       <h3>{name}</h3>
       <p class="sub">
         {#if name !== user.name}<span>{user.name}</span>{/if}
-        <span>{user.userId != null ? 'Registered' : 'Guest'}</span>
+        <span>{#if session.isAdmin(user)}<AdminBadge size={13} /> Admin{:else}{user.userId != null ? 'Registered' : 'Guest'}{/if}</span>
         {#if isSelf}<span>You</span>{/if}
       </p>
       {#if user.selfMute || user.mute || user.selfDeaf || user.deaf || user.prioritySpeaker || user.recording}

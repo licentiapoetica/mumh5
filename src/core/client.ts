@@ -349,6 +349,11 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.send('UserState', { session: this.session, channel_id: channelId });
   }
 
+  // Replaces our access tokens (channel passwords); the server answers with new can_enter states
+  setTokens(tokens: string[]): void {
+    this.send('Authenticate', { tokens });
+  }
+
   setSelfMute(mute: boolean): void {
     // Unmuting also undeafens, matching the desktop client
     this.send('UserState', mute ? { self_mute: true } : { self_mute: false, self_deaf: false });
@@ -670,6 +675,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
     if (msg.description_hash != null && msg.description == null) ch.description = '';
     if (msg.description != null) ch.description = msg.description;
     if (msg.description_hash != null) ch.descriptionHash = msg.description_hash;
+    // An emptied description comes without a hash; the old one would mean text is still to fetch
+    else if (msg.description === '') ch.descriptionHash = null;
     if (msg.position != null) ch.position = msg.position;
     if (msg.temporary != null) ch.temporary = msg.temporary;
     if (msg.max_users != null) ch.maxUsers = msg.max_users;

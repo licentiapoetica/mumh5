@@ -5,6 +5,7 @@
 // clients ignore. The server stores nothing: clients keep the messages and hand the recent
 // ones to whoever connects later.
 import { encodeSignal, SignalAssembler } from './share-signal.ts';
+import { stripAdmins } from './admins.ts';
 
 export const TEXT_DATA_ID = 'mumh5.text';
 
@@ -20,7 +21,8 @@ export type TextType = typeof TEXT[keyof typeof TEXT];
 // An HTML comment: invisible in every client, and Murmur keeps it
 export const TEXT_MARK = '<!--mumh5:text-->';
 export const isTextChannel = (description: string) => description.includes(TEXT_MARK);
-export const stripMark = (description: string) => description.split(TEXT_MARK).join('');
+// What people read: without this marker or the admin list on the root channel
+export const stripMark = (description: string) => stripAdmins(description).split(TEXT_MARK).join('');
 export const markText = (description: string, on: boolean) => (on ? TEXT_MARK : '') + stripMark(description);
 
 // Kept per channel, and handed to a newcomer
