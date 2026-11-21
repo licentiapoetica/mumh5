@@ -42,6 +42,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify, highlight.js and
 others) are distributed under their own licenses, found in each package under `node_modules/`.
 
+## Standard notification voice pack
+
+`src/assets/default-audio-pack.zip` is the supplied `mumble-en-chatterbox-female.zip`:
+134 locally generated Chatterbox Turbo female voice clips (mono, 24 kHz, 16-bit PCM WAV).
+The original `README.md` and `manifest.json` remain inside the archive, including the model
+revision, generation settings, reference voice provenance and audio hashes. Model watermarking
+remains enabled. ZIP import uses the MIT-licensed `fflate` package (license in
+`node_modules/fflate/LICENSE`).
+
 ## Inter
 
 The Inter typeface (`@fontsource-variable/inter`), bundled with the app as its interface font.

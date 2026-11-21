@@ -1,4 +1,5 @@
 import type { Transport, ServerCertInfo, CertDetails, UdpChannel } from '../core/transport.ts';
+import type { SoundSettings } from '../core/sound-events.ts';
 import { webApi, openWebTransport } from './web.svelte.ts';
 
 // What both the desktop app and the browser build (through the web proxy) provide
@@ -28,6 +29,13 @@ interface NativeApi extends PlatformApi {
   savedState: {
     sync(key: string, local: string | null, merge: boolean): string | null;
     write(key: string, raw: string): boolean;
+  };
+  sounds: {
+    load(): Promise<SoundSettings | null>;
+    save(settings: SoundSettings): Promise<void>;
+    read(key: string): Promise<Uint8Array | null>;
+    write(key: string, bytes: Uint8Array): Promise<void>;
+    remove(key: string): Promise<void>;
   };
   updateTray(state: { icon: string; alertIcon: string; tooltip: string; connected: boolean; server: string; muted: boolean; deafened: boolean; mode: string }): void;
   onTrayAction(fn: (action: string) => void): void;

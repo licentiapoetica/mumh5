@@ -19,6 +19,13 @@ contextBridge.exposeInMainWorld('mumh5Native', {
     sync: (key: string, local: string | null, merge: boolean) => ipcRenderer.sendSync('state:sync', key, local, merge),
     write: (key: string, raw: string) => ipcRenderer.sendSync('state:write', key, raw)
   },
+  sounds: {
+    load: () => ipcRenderer.invoke('sounds:load'),
+    save: (settings: unknown) => ipcRenderer.invoke('sounds:save', settings),
+    read: (key: string) => ipcRenderer.invoke('sounds:read', key),
+    write: (key: string, bytes: Uint8Array) => ipcRenderer.invoke('sounds:write', key, bytes),
+    remove: (key: string) => ipcRenderer.invoke('sounds:remove', key)
+  },
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
   attention: () => ipcRenderer.send('window:attention'),
   showWindow: () => ipcRenderer.send('window:show'),

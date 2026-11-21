@@ -128,6 +128,11 @@ try {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   await page.getByRole('radio', { name: 'Modern' }).click();
+  // These tests exercise optional sounds; fresh profiles use quiet defaults.
+  await page.getByRole('tab', { name: 'Sounds' }).click();
+  for (const name of ['You connected', 'Channel message', 'You muted', 'You unmuted', 'Someone connected into your channel']) {
+    await page.getByRole('checkbox', { name, exact: true }).check();
+  }
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.app.side').waitFor();
   console.log('ok: stacked by default');
