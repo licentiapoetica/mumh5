@@ -16,6 +16,8 @@ import { ownAvatar } from './avatar.svelte.ts';
 import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
 import { encodePoke, decodePoke } from '../core/poke.ts';
+import { messageRef, textRef, type Reaction } from '../core/reactions.ts';
+import { reactions } from './reactions.ts';
 import { ui } from './ui.svelte.ts';
 import { notifyPoke } from './notify.ts';
 import { voice } from './audio/voice.svelte.ts';
@@ -36,6 +38,9 @@ export interface ChatEntry {
   html: string;
   embeds: Embed[];
   time: number;
+  // Names the message for reactions (see core/reactions.ts); unset where it cannot have any
+  ref?: string;
+  reactions: Reaction[];
 }
 
 // A file being read before it is announced
@@ -455,6 +460,7 @@ export class Session {
     share.closed(this);
     textChannels.closed(this);
     files.closed(this);
+    reactions.closed(this);
     this.dropPictures();
     this.sharing = {};
     sessions.onClosed(this, keepVoice);
@@ -541,6 +547,7 @@ export class Session {
       share.receive(this, sender, dataId, data);
       textChannels.receive(this, sender, dataId, data);
       files.receive(this, sender, dataId, data);
+      reactions.receive(this, sender, dataId, data);
     });
     client.on('channel', ch => {
       // A description can return to earlier text, and so to a hash that must be fetchable again
@@ -734,6 +741,7 @@ export class Session {
       this.sharing = {};
       textChannels.closed(this);
       files.closed(this);
+      reactions.closed(this);
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
       const retry = !this.noRetry && this.scheduleReconnect();
@@ -901,14 +909,14 @@ export class Session {
   // ─── Chat ───────────────────────────────────────────────────────────────────
 
   // time: for messages from earlier, which go where they belong in the log. quiet: not counted as unread.
-  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time'>, opts: { time?: number; quiet?: boolean } = {}): void {
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean } = {}): void {
     // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
     if (!this.logs[key]) this.logs[key] = [];
     const log = this.logs[key];
     const time = opts.time ?? Date.now();
     let at = log.length;
     while (at > 0 && log[at - 1].time > time) at--;
-    log.splice(at, 0, { ...entry, id: nextId++, time });
+    log.splice(at, 0, { ...entry, reactions: [], id: nextId++, time });
     if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
     // Files announced just now; ones from earlier wait for a click
     if (!opts.quiet && !entry.self) for (const e of entry.embeds) if (e.file) files.offered(this, e.file, entry.authorSession);
@@ -920,7 +928,7 @@ export class Session {
     if (!client) return;
     const online = sender != null ? client.users.get(sender) : self ? client.self : m.k ? [...client.users.values()].find(u => u.hash === m.k) : undefined;
     this.push(`ch:${m.c}`, {
-      kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self,
+      kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self, ref: textRef(m.i),
       ...renderIncoming(m.h, store.trustedHosts)
     }, { time: m.t, quiet });
   }
@@ -942,7 +950,7 @@ export class Session {
     if (msg.actor == null) {
       this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
     } else {
-      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ...rendered });
+      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ref: messageRef(msg.html), ...rendered });
     }
   }
 
@@ -1225,8 +1233,19 @@ export class Session {
     client.sendText(this.target(key), html);
     sounds.play('messageSent');
     const rendered = renderIncoming(html, store.trustedHosts);
-    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ...rendered });
+    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
     return true;
+  }
+
+  // Reactions need plugin data, so a 1.4 server; only mumh5 clients see them
+  get canReact(): boolean {
+    void this.tick;
+    return reactions.supported(this);
+  }
+
+  // Adds or removes your reaction to a message; on left out toggles it
+  react(key: string, entryId: number, emoji: string, on?: boolean): void {
+    reactions.toggle(this, key, entryId, emoji, on);
   }
 
   // The longest text message (HTML, no pictures) the chat at `key` takes; 0 when not known

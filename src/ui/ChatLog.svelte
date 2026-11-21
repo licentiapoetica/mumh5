@@ -2,6 +2,7 @@
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import Message from './Message.svelte';
+  import EmojiPicker from './EmojiPicker.svelte';
   import { session } from '../lib/session.svelte.ts';
 
   // Message list for one chat (channel or DM), with drag and drop of files into that chat
@@ -30,6 +31,26 @@
     if (files.length && session.status === 'connected') session.sendFiles(files, key);
   }
 
+  // The message the emoji picker adds a reaction to, and the one last tapped on a touch screen
+  let reacting = $state<{ id: number; anchor: HTMLElement } | null>(null);
+  let touched = $state<number | null>(null);
+  $effect(() => {
+    void key;
+    reacting = null;
+    touched = null;
+  });
+  $effect(() => { if (!session.canReact) reacting = null; });
+
+  function openPicker(id: number, anchor: HTMLElement) {
+    reacting = reacting?.anchor === anchor ? null : { id, anchor };
+  }
+
+  function pick(emoji: string, keepOpen: boolean) {
+    if (!reacting) return;
+    session.react(key, reacting.id, emoji, true);
+    if (!keepOpen) reacting = null;
+  }
+
   const grouped = (i: number) => {
     const a = entries[i - 1], b = entries[i];
     return !!a && a.kind === 'text' && b.kind === 'text' && a.authorSession === b.authorSession && a.author === b.author && a.self === b.self && b.time - a.time < 5 * 60000;
@@ -44,10 +65,17 @@
     onloadcapture={onload} onloadedmetadatacapture={onload}>
     {#if !entries.length}{@render empty()}{/if}
     {#each entries as entry, i (entry.id)}
-      <Message {entry} grouped={grouped(i)} />
+      {@const reactable = session.canReact && entry.kind === 'text' && !!entry.ref}
+      <Message {entry} grouped={grouped(i)} active={reacting?.id === entry.id || touched === entry.id}
+        onreact={reactable ? a => openPicker(entry.id, a) : undefined}
+        ontoggle={reactable ? e => session.react(key, entry.id, e) : undefined}
+        ontouch={() => (touched = entry.id)} />
     {/each}
     <div class="end"></div>
   </div>
+  {#if reacting}
+    <EmojiPicker anchor={reacting.anchor} onpick={pick} onclose={refocus => { if (refocus) reacting?.anchor.focus(); reacting = null; }} />
+  {/if}
   {#if dragging}
     <div class="drop"><div><Icon name="download" size={40} /><p>Drop to send to {key.startsWith('dm:') ? '@' : '#'}{title}</p></div></div>
   {/if}
