@@ -47,7 +47,7 @@ const result = await build({
 });
 const { Session, sessions, control, store } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`) as {
   Session: new () => SessionType;
-  sessions: { voiceId: string | null; open(s: SavedServer): void; close(id: string): void; byServer(id: string): SessionType | undefined };
+  sessions: { voiceId: string | null; activeId: string | null; open(s: SavedServer): void; connectOnStart(list: SavedServer[]): void; close(id: string): void; byServer(id: string): SessionType | undefined };
   control: { opens: number; failure: boolean; fingerprint: string; hold: Promise<void> | null; attached: unknown };
   store: { pins: Record<string, string> };
 };
@@ -325,4 +325,17 @@ test('each server owns its retries and closing one preserves the other', async t
   await flush();
   assert.equal(control.opens, 3);
   assert.ok(other.client);
+});
+
+test('connect at start opens only the servers marked for it and shows the first', async t => {
+  setup(t);
+  const marked = { ...server(false, 'other'), autoConnect: true };
+  const second = { ...server(false, 'test'), autoConnect: true };
+  sessions.connectOnStart([{ ...server(false, 'unmarked') }, marked, second]);
+  await flush();
+  assert.equal(control.opens, 2);
+  assert.equal(sessions.byServer('unmarked'), undefined);
+  assert.equal(sessions.byServer('other')?.status, 'connecting');
+  assert.equal(sessions.byServer('test')?.status, 'connecting');
+  assert.equal(sessions.activeId, 'other');
 });
