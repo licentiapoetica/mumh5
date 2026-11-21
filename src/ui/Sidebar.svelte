@@ -4,6 +4,7 @@
   import ChannelNode from './ChannelNode.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
+  import { showServerCert } from '../lib/actions.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { PERM } from '../core/client.ts';
   import { describeLink } from '../core/link-quality.ts';
@@ -46,16 +47,6 @@
     ]);
   }
 
-  function showServerCert() {
-    if (!cert?.chain.length) return;
-    ui.cert = {
-      title: `Certificate of ${session.server?.host}`,
-      chain: cert.chain,
-      status: trusted
-        ? { ok: true, text: 'Valid certificate, signed by a trusted authority.' }
-        : { ok: false, text: `Not signed by a trusted authority (${cert.authError ?? 'unknown reason'}). mumh5 pinned this certificate the first time you connected and warns you if it changes.` }
-    };
-  }
   const dms = $derived(
     Object.keys(session.logs).filter(k => k.startsWith('dm:')).map(k => ({ key: k as `dm:${number}`, user: session.user(Number(k.slice(3))) }))
   );

@@ -372,9 +372,11 @@ On Linux the end-to-end test forces X11, so it can run on a virtual display: `Xv
 
 ```
 electron/   main process: window, TLS sockets, identities, tray
+server/     browser proxy: static files, WebSocket-to-TLS bridge, STUN and TURN
 src/core/   Mumble protocol: framing, codec, client state, voice packets
-src/lib/    app state, voice engine, sanitizing, file transfers
-src/ui/     Svelte components
+src/lib/    shared app state, actions and menus, voice engine, sanitizing, file transfers
+src/ui/     standard interface, shared components and dialogs
+src/ui2/    Rooms interface, using the same state, actions and dialogs
 proto/      Mumble.proto and MumbleUDP.proto from upstream
 test/       unit, server and end-to-end tests
 ```

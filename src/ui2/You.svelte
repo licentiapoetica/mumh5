@@ -7,12 +7,12 @@
   import { changeNamePrompt, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
+  import { serverState as stateOf } from '../lib/server-menu.ts';
 
   // Yourself, your servers and the settings, in one place
   let { onadd, onedit, onbrowse }: { onadd: () => void; onedit: (s: SavedServer) => void; onbrowse: () => void } = $props();
 
   const self = $derived(session.self);
-  const stateOf = (id: string) => sessions.byServer(id)?.status ?? 'idle';
   type Tab = typeof ui.settingsTab;
   const SETTINGS: { tab: Tab; name: string; note: string }[] = [
     { tab: 'voice', name: 'Voice', note: 'Microphone, speakers, how you transmit' },

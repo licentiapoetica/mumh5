@@ -5,7 +5,7 @@
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { channelMenu, userMenu } from '../lib/actions.ts';
-  import { stripMark } from '../core/text-signal.ts';
+  import { channelTopic } from '../core/text-signal.ts';
 
   // back: shown where the rooms are a screen of their own
   let { back, onback }: { back: boolean; onback: () => void } = $props();
@@ -16,7 +16,7 @@
   const isText = $derived(!isDm && session.isText(id));
   const mine = $derived(!isDm && session.self?.channelId === id);
   const title = $derived(connected ? session.viewTitle() : 'Chat');
-  const topic = $derived(isDm || !connected ? '' : stripMark(session.channel(id)?.description ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  const topic = $derived(isDm || !connected ? '' : channelTopic(session.channel(id)?.description ?? ''));
   const kind = $derived(isDm ? 'Direct message' : isText ? 'Text channel' : mine ? 'Your room' : 'Room you are not in');
 
   function more(e: MouseEvent) {
