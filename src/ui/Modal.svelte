@@ -2,19 +2,22 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { title, onclose, children, footer, width = 460 }:
-    { title: string; onclose: () => void; children: Snippet; footer?: Snippet; width?: number } = $props();
+  // height: a fixed size for dialogs whose content changes (sections, tabs), so it does not jump
+  // body: the scrolling element, for dialogs that move between sections
+  let { title, onclose, children, footer, width = 460, height, body = $bindable() }:
+    { title: string; onclose: () => void; children: Snippet; footer?: Snippet; width?: number; height?: number; body?: HTMLDivElement } = $props();
 </script>
 
 <svelte:window onkeydown={e => { if (e.key === 'Escape') onclose(); }} />
 
 <div class="backdrop" role="presentation" onmousedown={e => { if (e.target === e.currentTarget) onclose(); }}>
-  <div class="modal" role="dialog" aria-modal="true" aria-label={title} style:max-width="{width}px">
+  <div class="modal" role="dialog" aria-modal="true" aria-label={title} style:max-width="{width}px"
+    style:height={height ? `${height}px` : undefined} class:fixed={!!height}>
     <header>
       <h2>{title}</h2>
       <button class="icon-btn" onclick={onclose} aria-label="Close"><Icon name="x" /></button>
     </header>
-    <div class="body">{@render children()}</div>
+    <div class="body" bind:this={body}>{@render children()}</div>
     {#if footer}<footer>{@render footer()}</footer>{/if}
   </div>
 </div>
@@ -33,6 +36,8 @@
   header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 14px 0 24px; }
   h2 { margin: 0; font-size: 17px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
   .body { padding: 8px 24px 24px; overflow-y: auto; }
+  /* Fill the fixed height (max-height still caps it) and keep the scrollbar's room, so short content is not wider */
+  .modal.fixed .body { flex: 1; scrollbar-gutter: stable; }
   footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; background: var(--bg-0); border-top: 1px solid var(--line); }
   /* Steps without buttons leave no empty bar */
   footer:empty { display: none; }

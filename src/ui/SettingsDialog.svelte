@@ -37,6 +37,12 @@
     s.embedHosts = embedHosts.split(/[\s,]+/).map(h => h.trim()).filter(Boolean);
     store.saveSettings();
   }
+  // Each section opens at its top, not at the scroll position of the previous one
+  let body = $state<HTMLDivElement>();
+  function open(id: Tab) {
+    tab = id;
+    body?.scrollTo(0, 0);
+  }
   // How much the kept files take, once the tab is open
   $effect(() => { if (tab === 'files') files.measure(); });
 
@@ -53,11 +59,11 @@
   const checkedAt = $derived(updates.lastCheck ? new Date(updates.lastCheck).toLocaleString() : '');
 </script>
 
-<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880}>
+<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880} height={760} bind:body>
   <div class="layout">
   <div class="tabs" role="tablist">
     {#each tabs as t (t.id)}
-      <button role="tab" aria-selected={tab === t.id} class:active={tab === t.id} onclick={() => (tab = t.id)}>{t.label}</button>
+      <button role="tab" aria-selected={tab === t.id} class:active={tab === t.id} onclick={() => open(t.id)}>{t.label}</button>
     {/each}
   </div>
 
@@ -149,8 +155,8 @@
 
 <style>
   /* Sections listed on the left, the open one beside them; a row of tabs on narrow windows */
-  /* A steady size, so the dialog does not jump between sections */
-  .layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; min-height: min(600px, calc(100vh - 190px)); }
+  /* The dialog has a fixed height (Modal height), so it does not jump between sections */
+  .layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; }
   .tabs { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
   .tabs button { padding: 7px 10px; text-align: left; color: var(--text-dim); font-weight: 500; white-space: nowrap; transition: background 120ms var(--ease), color 120ms var(--ease); }
   .tabs button:hover { background: var(--bg-hover); color: var(--text); }
