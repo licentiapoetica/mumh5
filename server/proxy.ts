@@ -118,7 +118,8 @@ const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.jpg': 'image/jpeg',
   '.webp': 'image/webp', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav', '.map': 'application/json', '.txt': 'text/plain; charset=utf-8', '.wasm': 'application/wasm'
+  '.wav': 'audio/wav', '.map': 'application/json', '.txt': 'text/plain; charset=utf-8', '.wasm': 'application/wasm',
+  '.webmanifest': 'application/manifest+json'
 };
 
 const MAX_BODY = 256 * 1024;
@@ -249,12 +250,13 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     } catch {
       throw new HttpError(404, 'Not found');
     }
-    const html = file.endsWith('.html');
+    // Only files under assets/ carry a content hash in their name; the page, the service worker,
+    // the manifest and the icons keep theirs across deploys and must stay fresh
+    const hashed = path.relative(staticDir, file).startsWith('assets' + path.sep);
     res.writeHead(200, {
       'Content-Type': TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
       'Content-Length': data.length,
-      // Built assets carry a content hash in their name; the page itself must stay fresh
-      'Cache-Control': html ? 'no-cache' : 'public, max-age=31536000, immutable',
+      'Cache-Control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY'
     });
