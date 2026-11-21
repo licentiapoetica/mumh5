@@ -183,3 +183,4 @@ label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; fo
 button[data-select-user][aria-pressed='true'] { background: var(--bg-active); box-shadow: inset 3px 0 0 var(--accent); }
 /* The row an open context menu or profile card belongs to looks hovered while the pointer is elsewhere */
 [data-menu-row][data-menu-on], [data-menu-row][data-card-on] { background: var(--bg-hover) !important; color: var(--text); }
+button[data-select-user]:has(.user-check) { min-height: 44px; }

@@ -20,6 +20,7 @@ import { ui } from './ui.svelte.ts';
 import { notifyPoke } from './notify.ts';
 import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
+import { planUserMove, movePending, confirmUserMove, failUserMove, remainingSelection, type UserMove } from '../core/user-move.ts';
 
 const codec = createCodec();
 const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
@@ -96,6 +97,10 @@ export class Session {
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
   selectedUsers = $state<number[]>([]);
+  selectingUsers = $state(false);
+  userMove = $state<UserMove | null>(null);
+  private userMoveTimer: ReturnType<typeof setTimeout> | undefined;
+  get movingUsers(): boolean { return movePending(this.userMove); }
   // Channel highlighted by a single click in the tree (a double click joins)
   selectedChannel = $state<number | null>(null);
 
@@ -178,24 +183,70 @@ export class Session {
 
   // Shift or Ctrl/Cmd adds or removes one person; a plain click opens the profile instead
   toggleUser(id: number): void {
+    if (this.movingUsers) return;
+    this.userMove = null;
     this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
   }
 
   clearUserSelection(): void {
+    if (this.movingUsers) return;
     if (this.selectedUsers.length) this.selectedUsers = [];
+    this.selectingUsers = false;
+    this.userMove = null;
+  }
+
+  selectChannelUsers(channelId: number): void {
+    if (this.movingUsers) return;
+    this.selectingUsers = true;
+    this.userMove = null;
+    this.selectedUsers = [...new Set([...this.selectedUsers, ...this.usersIn(channelId).map(u => u.session)])];
+  }
+
+  private updateUserMove(): void {
+    if (!this.userMove) return;
+    this.selectedUsers = remainingSelection(this.userMove, this.selectedUsers);
+    if (!this.movingUsers) {
+      clearTimeout(this.userMoveTimer);
+      if (!this.selectedUsers.length) this.selectingUsers = false;
+    }
+  }
+
+  private resetUserMove(): void {
+    clearTimeout(this.userMoveTimer);
+    this.userMove = null;
+  }
+
+  private timeUserMove(): void {
+    clearTimeout(this.userMoveTimer);
+    const batch = this.userMove;
+    if (!batch || !this.movingUsers) return;
+    this.userMoveTimer = setTimeout(() => {
+      if (this.userMove !== batch) return;
+      // Waiting for a password is a user decision, not a network timeout.
+      for (const person of batch.people) {
+        if (person.status === 'pending') failUserMove(batch, 'No confirmation received. Check their channel before retrying.', person.id);
+      }
+      this.updateUserMove();
+    }, 15000);
   }
 
   moveUsers(ids: number[], channelId: number): void {
-    if (!this.channel(channelId) || this.isText(channelId)) return;
-    for (const id of new Set(ids)) {
-      const user = this.user(id);
-      if (!user || user.channelId === channelId) continue;
-      if (id === this.self?.session) this.joinChannel(channelId);
-      // Skip people we know we may not move rather than collect a denial for each
-      else if (this.can(user.channelId, PERM.Move) !== false) this.moveUser(id, channelId);
+    const channel = this.channel(channelId);
+    if (!this.client || !channel || this.isText(channelId) || this.movingUsers) return;
+    const people = [...new Set(ids)].flatMap(id => {
+      const u = this.user(id);
+      return u ? [{ id, name: store.displayName(u), channelId: u.channelId }] : [];
+    });
+    if (!people.length) return;
+    this.userMove = planUserMove(people, channelId, channel.name || 'Root', this.self?.session,
+      id => this.can(id, PERM.Move));
+    this.timeUserMove();
+    for (const person of this.userMove.people) {
+      if (person.status !== 'pending') continue;
+      if (person.id === this.self?.session) this.joinChannel(channelId);
+      else this.moveUser(person.id, channelId);
     }
-    // A moved selection is done with; a single person dragged from outside it leaves it alone
-    if (ids.some(id => this.selectedUsers.includes(id))) this.clearUserSelection();
+    this.updateUserMove();
   }
 
   // Users in a channel and all of its subchannels
@@ -444,6 +495,7 @@ export class Session {
 
   // keepVoice: an automatic reconnect follows, so voice is not handed to another server
   disconnect(keepVoice = false): void {
+    this.resetUserMove();
     this.clearUserSelection();
     this.clearRetry();
     this.reconnectAttempts = 0;
@@ -580,6 +632,10 @@ export class Session {
     });
     client.on('channelRemove', id => {
       if (!live()) return;
+      if (this.userMove?.channelId === id && this.movingUsers) {
+        failUserMove(this.userMove, 'The destination channel was removed.');
+        this.updateUserMove();
+      }
       if (this.panel.kind === 'channel' && this.panel.id === id) this.panel = { kind: 'members' };
       textChannels.channelRemoved(this, id);
       // The chat on screen is gone: back to the channel we are in
@@ -593,6 +649,10 @@ export class Session {
 
     client.on('user', (user, changed, actor, isNew) => {
       if (!live()) return;
+      if (this.movingUsers && this.userMove) {
+        confirmUserMove(this.userMove, user.session, user.channelId);
+        this.updateUserMove();
+      }
       const self = client.self;
       const before = this.lastChannel.get(user.session);
       this.lastChannel.set(user.session, user.channelId);
@@ -637,6 +697,10 @@ export class Session {
 
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
+      if (this.movingUsers && this.userMove) {
+        failUserMove(this.userMove, 'Disconnected before the move was confirmed.', user.session);
+        this.updateUserMove();
+      }
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
@@ -683,6 +747,15 @@ export class Session {
 
     client.on('permissionDenied', d => {
       if (!live()) return;
+      // Only attribute a refusal when the server names the person. Other denials
+      // remain in chat; an unconfirmed move times out without claiming success.
+      if (this.movingUsers && this.userMove && d.session != null
+        && !(d.session === client.session && d.permission === PERM.Enter && d.channelId === this.pendingJoin)
+        && (d.permission === PERM.Move || d.permission === PERM.Enter || d.type === 2 || d.type === 9)
+        && (d.channelId === this.userMove.channelId || this.userMove.people.some(p => p.id === d.session && p.channelId === d.channelId))) {
+        failUserMove(this.userMove, describeDenial(d, this.channel(d.channelId!)?.name), d.session);
+        this.updateUserMove();
+      }
       // A preview picture can exceed what the server accepts; the file alone still gets through
       const img = this.lastImageSend;
       if (d.type === 4 && img && Date.now() - img.at < 5000) {
@@ -720,6 +793,7 @@ export class Session {
 
     client.on('close', reason => {
       if (this.client !== client) return;
+      this.resetUserMove();
       this.clearUserSelection();
       if (this.removedBy) this.disconnectInfo = this.removedBy;
       else if (!this.disconnectInfo && reason !== 'Disconnected') this.disconnectInfo = { kind: 'lost', by: '', reason };
@@ -1032,11 +1106,27 @@ export class Session {
 
   // A client cannot tell a password from a channel that is simply closed to it
   private askPassword(id: number, wrong = false): void {
+    const client = this.client;
     const name = this.client?.channels.get(id)?.name || 'Root';
+    const batch = this.userMove?.channelId === id ? this.userMove : null;
+    const person = batch?.people.find(p => p.id === this.self?.session && (p.status === 'pending' || p.status === 'password'));
+    if (person) person.status = 'password';
+    let submitted = false;
     ui.prompt = {
       title: `Join ${name}`, label: 'Channel password', confirm: 'Join', input: 'password',
       text: wrong ? 'Wrong password, or this channel is closed to you.' : 'This channel is locked.',
-      onsubmit: password => this.enterWithPassword(id, password)
+      onsubmit: password => {
+        if (!password || this.client !== client || (person && this.userMove !== batch)) return;
+        submitted = true;
+        if (person && this.userMove === batch) { person.status = 'pending'; this.timeUserMove(); }
+        this.enterWithPassword(id, password);
+      },
+      oncancel: () => {
+        if (!submitted && person && this.userMove === batch) {
+          failUserMove(batch!, 'You cancelled joining the channel.', person.id);
+          this.updateUserMove();
+        }
+      }
     };
   }
 

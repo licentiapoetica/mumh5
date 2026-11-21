@@ -1,4 +1,6 @@
 <script lang="ts">
+  import UserSelectionStart from '../ui/UserSelectionStart.svelte';
+  import UserSelectMark from '../ui/UserSelectMark.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
   import RoleBadges from '../ui/RoleBadges.svelte';
@@ -8,7 +10,7 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
-  import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
+  import { selectUser, SELECT_HINT, userLists } from '../lib/user-selection.svelte.ts';
   import UserSelection from '../ui/UserSelection.svelte';
 
   // Everyone on the server, by room; yours first
@@ -42,6 +44,7 @@
       <input type="search" placeholder="Find a person" aria-label="Find a person" bind:value={query} />
     </label>
     <div class="scroll" data-user-list="people">
+      <UserSelectionStart list="people" />
       {#each groups as g (g.id)}
         <h2>{g.name}{#if g.id === self?.channelId} <em>your room</em>{/if} <span>{g.users.length}</span></h2>
         <ul>
@@ -49,6 +52,7 @@
             {@const me = u.session === self?.session}
             <li class="entry" data-menu-row role="presentation" oncontextmenu={e => menu.show(e, userMenu(u))}>
               <button class="main" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)}>
+                <UserSelectMark id={u.session} />
                 <Avatar name={u.name} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
                 <span class="text">
                   <span class="name" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
@@ -59,14 +63,14 @@
               {#if !me}
                 <button class="icon-btn" aria-label="Message {store.displayName(u)}" title="Send a message" onclick={() => { session.selectView(`dm:${u.session}`); onchat(); }}><Icon name="message" size={18} /></button>
               {/if}
-              <button class="icon-btn" aria-label="More for {store.displayName(u)}" onclick={e => menu.show(e, userMenu(u))}><Icon name="more" size={18} /></button>
+              <button class="icon-btn" aria-label="More for {store.displayName(u)}" onclick={e => { userLists.last = 'people'; menu.show(e, userMenu(u)); }}><Icon name="more" size={18} /></button>
             </li>
           {/each}
         </ul>
       {:else}
         <p class="none">Nobody matches "{query}".</p>
       {/each}
-      <UserSelection list="people" />
+      <UserSelection list="people" visibleIds={groups.flatMap(g => g.users.map(u => u.session))} />
     </div>
   {/if}
 </section>

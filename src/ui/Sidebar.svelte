@@ -1,4 +1,5 @@
 <script lang="ts">
+  import UserSelectionStart from './UserSelectionStart.svelte';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import ChannelNode from './ChannelNode.svelte';
@@ -26,6 +27,18 @@
 
   const roots = $derived(session.childrenOf(null));
   const self = $derived(session.self);
+  const visiblePeople = $derived.by(() => {
+    const ids: number[] = [];
+    const walk = (parent: number | null) => {
+      for (const c of session.childrenOf(parent)) {
+        if (!session.isExpanded(c.id)) continue;
+        ids.push(...session.usersIn(c.id).map(u => u.session));
+        walk(c.id);
+      }
+    };
+    walk(null);
+    return ids;
+  });
   const cert = $derived(session.serverCert);
   const trusted = $derived(!!cert?.authorized);
   // The lock and the status dot share a column, so the name and the status start at the same x
@@ -87,6 +100,7 @@
 
   <div class="scroll" data-user-list="tree" role="presentation" oncontextmenu={listMenu}>
     {#if session.status === 'connected'}
+      <UserSelectionStart list="tree" />
       <ul class="tree">
         {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
       </ul>
@@ -108,7 +122,7 @@
           {/each}
         </ul>
       {/if}
-      <UserSelection list="tree" />
+      <UserSelection list="tree" visibleIds={visiblePeople} />
     {/if}
   </div>
 

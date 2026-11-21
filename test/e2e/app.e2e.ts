@@ -1769,9 +1769,12 @@ try {
       await mover('a').dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
       await allMoved(lobby.id);
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'a move clears the selection');
-      assert.equal(await page.locator('.selection').count(), 0, 'and the bar goes');
+      await page.locator('.selection [role="status"]').filter({ hasText: 'Moved 6 of 6' }).waitFor();
+      await page.locator('.selection').getByRole('button', { name: 'Done', exact: true }).click();
       for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) await mover(suffix).click({ modifiers: ['Control'] });
-      await page.locator('.sidebar').getByLabel('Move selected clients to').selectOption('0');
+      await page.locator('.sidebar').getByLabel('Move selected people to').selectOption('0');
+      assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === lobby.id), 'choosing a destination does not submit');
+      await page.locator('.selection').getByRole('button', { name: 'Move 6 people', exact: true }).click();
       await allMoved(0);
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'Move to clears the selection');
       for (const suffix of ['a', 'b']) await mover(suffix).click({ modifiers: ['Shift'] });
@@ -1789,7 +1792,7 @@ try {
       }), 'bob back in Root');
       const selected = () => page.locator('.sidebar .user[aria-pressed="true"]').count();
       assert.equal(await page.locator('.selection').count(), 1, `one selection bar (members panel open: ${await page.locator('aside.members').count() > 0})`);
-      await page.locator('.sidebar').getByLabel('Move selected clients to').focus();
+      await page.locator('.sidebar').getByLabel('Move selected people to').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0);
       assert.equal(await page.locator('.selection').count(), 0, 'no bar without a selection');
@@ -1809,7 +1812,22 @@ try {
       await mover('a').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0, 'Escape on a selected row clears the selection');
-      console.log('ok: Shift and Ctrl/Cmd pick people one by one, group dragging, bulk move picker and clearing selection');
+      // Explicit selection works with plain clicks and keyboard activation.
+      await page.locator('.sidebar').getByRole('button', { name: 'Select people', exact: true }).click();
+      await mover('a').click();
+      await mover('b').focus();
+      await page.keyboard.press('Space');
+      assert.equal(await selected(), 2);
+      assert.equal(await page.getByRole('dialog', { name: /Profile of move-/ }).count(), 0);
+      await page.locator('.selection').getByText('Review selected people', { exact: true }).click();
+      await page.locator('.selection').getByLabel('Remove move-a from selection').click();
+      assert.equal(await selected(), 1);
+      await page.locator('.selection').getByLabel('Find a destination channel').fill('no-such-channel');
+      await page.locator('.selection').getByText('No matching channels.', { exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      assert.equal(await selected(), 0);
+      assert.equal(await page.locator('.sidebar').getByRole('button', { name: 'Select people', exact: true }).evaluate(el => el === document.activeElement), true);
+      console.log('ok: modifier and explicit selection, group moves, review, search and keyboard focus');
     } finally {
       for (const client of movers) client.disconnect();
     }
@@ -2223,17 +2241,20 @@ try {
     // People show in their room without opening it; the dock names the room you are in
     await rooms.locator('.room.here .person', { hasText: 'bob' }).waitFor();
     await page.locator('.dock', { hasText: 'Root' }).waitFor();
-    await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
-    await rooms.locator('.person', { hasText: newName }).click({ modifiers: ['Shift'] });
+    await rooms.getByRole('button', { name: 'Select people', exact: true }).click();
+    await rooms.locator('.person', { hasText: 'bob' }).click();
+    await rooms.locator('.person', { hasText: newName }).click();
     assert.ok(await rooms.locator('.person[aria-pressed="true"]').count() >= 2);
     if (admin) {
       const games = [...bob.channels.values()].find(c => c.name === 'Games')!;
-      await rooms.getByLabel('Move selected clients to').selectOption(String(games.id));
+      await rooms.getByLabel('Move selected people to').selectOption(String(games.id));
+      await rooms.getByRole('button', { name: 'Move 2 people', exact: true }).click();
       await until2('selected clients in Games', () => bob.self?.channelId === games.id && userState(newName)?.channelId === games.id);
       assert.equal(await rooms.locator('.person[aria-pressed="true"]').count(), 0, 'a move clears the selection');
       await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
       await rooms.locator('.person', { hasText: newName }).click({ modifiers: ['Shift'] });
-      await rooms.getByLabel('Move selected clients to').selectOption('0');
+      await rooms.getByLabel('Move selected people to').selectOption('0');
+      await rooms.getByRole('button', { name: 'Move 2 people', exact: true }).click();
       await until2('selected clients back in Root', () => bob.self?.channelId === 0 && userState(newName)?.channelId === 0);
     } else await rooms.getByRole('button', { name: 'Clear', exact: true }).click();
     assert.equal(await rooms.locator('.person[aria-pressed="true"]').count(), 0);
