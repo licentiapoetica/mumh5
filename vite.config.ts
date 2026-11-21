@@ -17,6 +17,8 @@ function buildInfo() {
 
 // Web build only: the manifest, the install icons and the service worker (build/web/), which
 // lists every file of the build so the page also opens offline. The desktop build has none of it.
+// The build id (a hash of the files) also goes into index.html, as the build the page runs, and
+// into version.json, as the build the site serves now; the update check compares the two.
 function pwa(): Plugin {
   const icons = [
     { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
@@ -39,9 +41,11 @@ function pwa(): Plugin {
     name: 'mumh5-pwa',
     apply: 'build',
     transformIndexHtml: () => [
-      { tag: 'link', attrs: { rel: 'manifest', href: './manifest.webmanifest' }, injectTo: 'head' }
+      { tag: 'link', attrs: { rel: 'manifest', href: './manifest.webmanifest' }, injectTo: 'head' },
+      { tag: 'meta', attrs: { name: 'mumh5-build', content: '__MUMH5_WEB_BUILD__' }, injectTo: 'head' }
     ],
-    generateBundle(_, bundle) {
+    // After the other plugins, so every asset and index.html are in the bundle
+    generateBundle: { order: 'post', handler(_, bundle) {
       const emitted = new Map<string, string | Uint8Array>([
         ...icons.map(i => [i.src, readFileSync(`build/web/${i.src}`)] as const),
         ['manifest.webmanifest', JSON.stringify(manifest, null, 2)]
@@ -58,7 +62,12 @@ function pwa(): Plugin {
         .replace('__VERSION__', version)
         .replace('__FILES__', JSON.stringify(files.map(f => `./${f}`)));
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: sw });
-    }
+      const { version: release, commit } = buildInfo();
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: version, version: release, commit }) + '\n' });
+      const html = bundle['index.html'];
+      if (html?.type !== 'asset' || !String(html.source).includes('__MUMH5_WEB_BUILD__')) throw new Error('index.html has no build id placeholder');
+      html.source = String(html.source).replace('__MUMH5_WEB_BUILD__', version);
+    } }
   };
 }
 

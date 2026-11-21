@@ -5,7 +5,7 @@ import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createCodec } from '../../src/core/proto.ts';
@@ -217,6 +217,43 @@ try {
   assert.ok(cached.includes('/') && cached.includes('/manifest.webmanifest') && cached.some(u => u.endsWith('.wasm')), 'the build is cached');
   assert.ok(!cached.some(u => u.startsWith('/api/')), 'nothing from the API is cached');
   console.log(`ok: installable, the service worker keeps ${cached.length} files`);
+
+  // Update check: the site now serves another build than the page runs (as after a redeploy).
+  // Written to disk because the service worker's requests bypass Playwright routes.
+  const versionFile = path.join(root, 'dist-web/version.json');
+  const deployed = readFileSync(versionFile, 'utf8');
+  const runs = await page.evaluate(() => document.querySelector<HTMLMetaElement>('meta[name="mumh5-build"]')!.content);
+  assert.equal(JSON.parse(deployed).build, runs, 'the page runs the build the site serves');
+  const redeploy = (build: string) => writeFileSync(versionFile, JSON.stringify({ ...JSON.parse(deployed), build }));
+  const checkNow = async (status: string) => {
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'About' }).click();
+    assert.ok(await page.getByLabel('Check for updates').isChecked());
+    await page.getByRole('button', { name: 'Check now' }).click();
+    await page.getByRole('status').filter({ hasText: status }).waitFor();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  };
+  const updateBar = page.locator('.update-bar');
+  try {
+    await checkNow('Up to date');
+    redeploy('feedfacecafe');
+    await checkNow('This site has a newer version.');
+    await updateBar.getByText('This site has a newer version of mumh5.').waitFor();
+    await updateBar.getByRole('button', { name: 'Not now' }).click();
+    await updateBar.waitFor({ state: 'detached' });
+    // Dismissed for that build only
+    redeploy('deadbeef0042');
+    await checkNow('This site has a newer version.');
+    await updateBar.waitFor();
+  } finally {
+    writeFileSync(versionFile, deployed);
+  }
+  // Reload loads the page again, which runs what the site serves, and reconnects
+  await Promise.all([page.waitForEvent('load'), updateBar.getByRole('button', { name: 'Reload' }).click()]);
+  await page.getByText(/Connected/).first().waitFor();
+  await checkNow('Up to date');
+  assert.equal(await updateBar.count(), 0);
+  console.log('ok: update check sees another build on the site, Reload loads it');
 
   // Screen sharing between two browsers: the proxy's own STUN is used without any setting
   assert.equal((await (await fetch(`http://127.0.0.1:${proxyPort}/api/config`)).json()).stun, proxyPort + 1000);

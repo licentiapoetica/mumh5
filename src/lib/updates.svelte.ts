@@ -1,11 +1,15 @@
-import { checkForUpdate, type UpdateInfo } from '../core/update-check.ts';
-import { desktop } from './native.ts';
+import { checkDeployed, checkForUpdate, WEB_VERSION_FILE, type UpdateInfo } from '../core/update-check.ts';
+import { desktop, isWeb } from './native.ts';
 import { store } from './settings.svelte.ts';
 import { load, save } from './storage.ts';
 
 export const build = __MUMH5_BUILD__;
 
-const EVERY = 6 * 3600 * 1000;
+// The build this page runs (web build only; written into index.html by vite.config.ts)
+const webBuild = isWeb ? document.querySelector<HTMLMetaElement>('meta[name="mumh5-build"]')?.content ?? '' : '';
+
+// Desktop asks GitHub, so rarely; the browser build asks its own site, which costs nothing
+const EVERY = isWeb ? 10 * 60 * 1000 : 6 * 3600 * 1000;
 const KEY = 'mumh5.updateCheck';
 
 interface Saved {
@@ -15,34 +19,43 @@ interface Saved {
   dismissed: number;  // the bar stays away until the release has more changes than this
 }
 
-// Desktop builds only: the browser build comes from whoever runs the proxy.
-// Asks GitHub at start (after a short wait) and every few hours, unless turned off in Settings > About.
+// Desktop: whether GitHub has a newer release (Download). Browser: whether the site now serves
+// another build than this page runs (Reload). Asks at start (after a short wait), now and then
+// and when the window comes back, unless turned off in Settings > About.
+// The browser state lives only as long as the page: a reload loads what the site serves.
 class Updates {
   info = $state<UpdateInfo | null>(null);
   checking = $state(false);
   error = $state('');
   lastCheck = $state(0);
   private dismissed = $state(0);
+  private dismissedBuild = $state('');
   private started = false;
 
-  readonly possible = !!desktop && !!build.commit;
+  readonly web = isWeb;
+  readonly possible = desktop ? !!build.commit : /^[0-9a-f]{6,64}$/.test(webBuild);
 
   get showBar(): boolean {
-    return !!this.info?.newer && this.info.changes > this.dismissed && store.settings.updateCheck;
+    if (!this.info?.newer || !store.settings.updateCheck) return false;
+    return this.web ? this.info.build !== this.dismissedBuild : this.info.changes > this.dismissed;
   }
 
   start(): void {
     if (this.started || !this.possible) return;
     this.started = true;
-    const saved = load<Saved>(KEY, { at: 0, commit: '', info: null, dismissed: 0 });
-    if (saved.commit === build.commit) {
-      this.info = saved.info;
-      this.lastCheck = saved.at;
-      this.dismissed = saved.dismissed;
+    if (!this.web) {
+      const saved = load<Saved>(KEY, { at: 0, commit: '', info: null, dismissed: 0 });
+      if (saved.commit === build.commit) {
+        this.info = saved.info;
+        this.lastCheck = saved.at;
+        this.dismissed = saved.dismissed;
+      }
     }
     const tick = () => { if (store.settings.updateCheck && Date.now() - this.lastCheck >= EVERY) void this.check(); };
     setTimeout(tick, 5000);
     setInterval(tick, 15 * 60 * 1000);
+    // Timers are held back in background tabs and on sleeping phones
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
   }
 
   async check(): Promise<void> {
@@ -50,7 +63,11 @@ class Updates {
     this.checking = true;
     this.error = '';
     try {
-      this.info = await checkForUpdate(build.repo, build.commit, (url, init) => fetch(url, { ...init, cache: 'no-store' }), AbortSignal.timeout(15000));
+      const get = (url: string, init?: RequestInit) => fetch(url, { ...init, cache: 'no-store' });
+      const signal = AbortSignal.timeout(15000);
+      this.info = this.web
+        ? await checkDeployed(new URL(WEB_VERSION_FILE, document.baseURI).href, webBuild, get, signal)
+        : await checkForUpdate(build.repo, build.commit, get, signal);
       this.lastCheck = Date.now();
       this.persist();
     } catch (e) {
@@ -61,11 +78,18 @@ class Updates {
   }
 
   dismiss(): void {
-    this.dismissed = this.info?.changes ?? 0;
+    if (this.web) this.dismissedBuild = this.info?.build ?? '';
+    else this.dismissed = this.info?.changes ?? 0;
     this.persist();
   }
 
+  // Browser: the page loads again, from the site (the service worker goes to the network first)
+  reload(): void {
+    location.reload();
+  }
+
   private persist(): void {
+    if (this.web) return;
     save(KEY, { at: this.lastCheck, commit: build.commit, info: $state.snapshot(this.info), dismissed: this.dismissed } satisfies Saved);
   }
 }
