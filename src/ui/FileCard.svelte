@@ -67,6 +67,8 @@
   .file { display: flex; flex-direction: column; background: var(--bg-1); border: 1px solid var(--line); max-width: 100%; }
   .file.failed .sub { color: var(--danger); }
   .file > img, .file > video, .poster img { display: block; max-width: 100%; max-height: 360px; background: var(--bg-0); }
+  /* A flex item stretches to the card's width; keep pictures at their own ratio */
+  .file > img { align-self: flex-start; object-fit: contain; }
   .file > audio { width: 100%; }
   .poster { position: relative; display: block; padding: 0; align-self: flex-start; max-width: 100%; }
   .poster:disabled { cursor: default; }

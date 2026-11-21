@@ -777,18 +777,20 @@ try {
     assert.equal((await within(have, 'have signal')).body.i, f.meta.i);
     console.log(`ok: a file goes from the app to another client through the server (${count} pieces)`);
 
-    // Someone else sends a picture: the app fetches it by itself and shows it
-    const png = testPng(700, 500);
+    // Someone else sends a portrait picture: the app fetches it by itself and shows it unstretched
+    const png = testPng(500, 700);
     const c = pieceBytes(bob.config);
     const pm = { s: png.length, c };
     const digests: Uint8Array[] = [];
     for (let k = 0; k < pieceCount(pm); k++) digests.push(await sha256(png.subarray(k * c, k * c + pieceSize(pm, k))));
     const meta = { i: 'e2enoise' + Date.now().toString(36), n: 'noise.png', s: png.length, m: 'image/png', c, h: await rootHash(digests) };
     served.set(meta.i, { meta, data: png });
-    bob.sendText({ channels: [0] }, announce(meta, `<b>noise.png</b> (${png.length} B, file shared with mumh5)<br/><img src="data:image/png;base64,${testPng(40, 30).toString('base64')}"/>`));
+    bob.sendText({ channels: [0] }, announce(meta, `<b>noise.png</b> (${png.length} B, file shared with mumh5)<br/><img src="data:image/png;base64,${testPng(30, 40).toString('base64')}"/>`));
     const shown = page.locator('.chat .msg .file img[alt="noise.png"]');
     await shown.waitFor({ timeout: 30000 });
-    await page.waitForFunction(() => (document.querySelector('.chat .msg .file img[alt="noise.png"]') as HTMLImageElement)?.naturalWidth === 700);
+    await page.waitForFunction(() => (document.querySelector('.chat .msg .file img[alt="noise.png"]') as HTMLImageElement)?.naturalWidth === 500);
+    const box = (await shown.boundingBox())!;
+    assert.ok(Math.abs(box.width / box.height - 500 / 700) < 0.02, `picture keeps its ratio (${box.width}x${box.height})`);
     assert.equal(await page.locator('.chat .msg', { hasText: 'file shared with mumh5' }).count(), 0, 'the text for other clients is not shown');
     console.log(`ok: the app fetches a file by itself and shows it (${pieceCount(pm)} pieces)`);
 
