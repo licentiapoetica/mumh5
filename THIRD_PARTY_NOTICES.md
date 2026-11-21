@@ -39,7 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## npm dependencies
 
-Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify and
+Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify, highlight.js and
 others) are distributed under their own licenses, found in each package under `node_modules/`.
 
 ## Inter

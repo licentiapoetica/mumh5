@@ -92,13 +92,26 @@
     ui.image = img.currentSrc || img.src;
   }
 
+  // The copy button on code blocks in rendered text (html.ts)
+  function codeCopy(e: MouseEvent) {
+    const button = e.target instanceof Element ? e.target.closest('.code > .copy') : null;
+    const code = button?.parentElement?.querySelector('pre')?.textContent;
+    if (!button || code == null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(code).then(() => {
+      button.classList.add('copied');
+      setTimeout(() => button.classList.remove('copied'), 1500);
+    }, () => {});
+  }
+
   const closeOverlays = () => {
     navOpen = false;
     if (!panelInline) ui.panelOpen = false;
   };
 </script>
 
-<svelte:window bind:innerWidth={width} onclickcapture={imageClick} />
+<svelte:window bind:innerWidth={width} onclickcapture={e => { imageClick(e); codeCopy(e); }} />
 
 {#snippet rail()}
   <ServerRail onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)}

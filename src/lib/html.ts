@@ -1,5 +1,7 @@
 import DOMPurify, { type Config } from 'dompurify';
 import { takeFiles, type FileMeta } from '../core/file-transfer.ts';
+import { highlightCode, languageName, splitFences, codeBlockHtml } from '../core/code.ts';
+import { ICON_PATHS } from './icons.ts';
 
 export type EmbedKind = 'image' | 'video' | 'audio' | 'youtube' | 'link' | 'file';
 // A file sent through the server: its details and the preview picture that came with it
@@ -120,6 +122,7 @@ export function renderIncoming(raw: string, trustedHosts: string[]): { html: str
       embeds.push({ kind: 'link', url: url.href, name: a.textContent ?? '' });
     }
   }
+  codeBlocks(frag);
   // The inline thumbnail is only there for vanilla clients; we show the real media instead
   if (embeds.some(e => e.kind === 'image' || e.kind === 'video' || e.kind === 'audio')) frag.querySelectorAll('img').forEach(img => img.remove());
   const div = document.createElement('div');
@@ -127,16 +130,45 @@ export function renderIncoming(raw: string, trustedHosts: string[]): { html: str
   return { html: div.innerHTML.replace(/^(<br\s*\/?>)+|(<br\s*\/?>)+$/g, ''), embeds };
 }
 
+const svg = (name: string, cls: string) =>
+  `<svg class="${cls}" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
+
+// Every <pre> becomes a highlighted block with its language over it (CSS, from data-lang) and a
+// copy button (App.svelte). Runs after sanitizing: these classes and the button cannot come from
+// a message. Nothing here adds text, so previews and "Copy message text" see only the code.
+function codeBlocks(frag: DocumentFragment): void {
+  for (const pre of frag.querySelectorAll('pre')) {
+    if (!frag.contains(pre)) continue;
+    // Qt and the desktop client's Markdown break lines with <br>
+    pre.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    const { html, lang } = highlightCode(pre.textContent ?? '', pre.getAttribute('title'));
+    const box = document.createElement('div');
+    box.className = 'code';
+    box.dataset.lang = lang ? languageName(lang) : 'Text';
+    box.innerHTML = `<button type="button" class="copy" title="Copy code" aria-label="Copy code">${svg('copy', 'idle')}${svg('check', 'done')}</button>`;
+    const out = document.createElement('pre');
+    out.className = 'hl';
+    out.innerHTML = html;
+    box.append(out);
+    pre.replaceWith(box);
+  }
+}
+
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Plain composer text to the HTML Mumble clients expect: escaped, links clickable, newlines as <br/>.
+// Plain composer text to the HTML Mumble clients expect: escaped, links clickable, newlines as <br/>,
+// ```fenced``` code as <pre> and `inline code` as <code>, like the desktop client's Markdown.
 // Output must stay well-formed XML: Murmur parses long messages as XML and denies them otherwise.
 export function textToHtml(text: string): string {
-  return escapeHtml(text)
+  return splitFences(text).map(p => 'code' in p ? codeBlockHtml(p.code, p.lang) : inlineToHtml(p.text)).join('');
+}
+
+function inlineToHtml(text: string): string {
+  return text.split(/`([^`\n]+)`/).map((s, i) => i % 2 ? `<code>${escapeHtml(s)}</code>` : escapeHtml(s)
     .replace(/https?:\/\/[^\s<]+[^\s<.,:;"')\]]/g, url => `<a href="${url}">${url}</a>`)
-    .replace(/\r?\n/g, '<br/>');
+    .replace(/\r?\n/g, '<br/>')).join('');
 }
 
 export function formatBytes(n: number): string {
