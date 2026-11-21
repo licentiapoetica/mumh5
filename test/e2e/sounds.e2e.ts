@@ -229,7 +229,7 @@ try {
     await mkdir(large, { recursive: true });
     for (let i = 0; i < 9; i++) await writeFile(path.join(large, `Clip${i}.wav`), Buffer.alloc(4 * 1024 * 1024));
     await page.locator('input[webkitdirectory]').setInputFiles(path.dirname(large));
-    await page.locator('.error').getByText('Sound pack folders must be at most 32 MB', { exact: false }).waitFor();
+    await page.locator('.error').getByText('Sound pack folders must be at most 32 MiB', { exact: false }).waitFor();
     assert.equal(await library.locator('option').count(), folders);
   } finally { await rm(fixtures, { recursive: true, force: true }); }
 
@@ -277,7 +277,7 @@ try {
     { name: 'deafen.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(4 * 1024 * 1024 + 1) },
     { name: 'undeafen.wav', mimeType: 'audio/wav', buffer: Buffer.from(clips.get('AudioNotification/SelfUndeaf.wav')!) }
   ]);
-  await page.locator('.report').getByText('deafen.wav is larger than 4 MB', { exact: false }).waitFor();
+  await page.locator('.report').getByText('deafen.wav is larger than 4 MiB', { exact: false }).waitFor();
   await page.getByText('undeafen.wav', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Reset all to built-in' }).click();
   await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));

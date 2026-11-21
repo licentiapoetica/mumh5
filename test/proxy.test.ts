@@ -44,13 +44,31 @@ test('private address detection', () => {
   for (const a of ['8.8.8.8', '172.32.0.1', '2001:4860:4860::8888', '::ffff:8.8.8.8']) assert.ok(!isPrivateAddress(a), a);
 });
 
+test('sound-pack environment settings reach the browser config as byte limits', async () => {
+  const config = configFromEnv({ MUMH5_SERVERS: 'voice.example.org', MUMH5_STUN_PORT: '0',
+    MUMH5_MAX_AUDIO_PACK_MB: '128', MUMH5_MAX_AUDIO_FILE_MB: '16', MUMH5_MAX_AUDIO_UNPACKED_MB: '256' });
+  const limits = { pack: 128 * 1024 ** 2, file: 16 * 1024 ** 2, unpacked: 256 * 1024 ** 2 };
+  assert.deepEqual(config.audioPackLimits, limits);
+  await withProxy(config, async base => {
+    const response = await fetch(`${base}/api/config`);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual((await response.json()).audioPackLimits, limits);
+  });
+  assert.deepEqual(configFromEnv({ MUMH5_MAX_AUDIO_PACK_MB: '', MUMH5_MAX_AUDIO_FILE_MB: '', MUMH5_MAX_AUDIO_UNPACKED_MB: '' }).audioPackLimits, defaults.audioPackLimits);
+  for (const key of ['MUMH5_MAX_AUDIO_PACK_MB', 'MUMH5_MAX_AUDIO_FILE_MB', 'MUMH5_MAX_AUDIO_UNPACKED_MB']) {
+    for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', 'abc', ' ', '9007199254740991']) {
+      assert.throws(() => configFromEnv({ [key]: value }), /positive whole number of MiB/);
+    }
+  }
+});
+
 test('refuses to start without allowed servers', async () => {
   await assert.rejects(startProxy({ ...defaults, port: 0 }), /No servers allowed/);
 });
 
 test('config lists the allowed servers', async () => {
   await withProxy({ servers: parseServers('voice.example.org=Friends') }, async base => {
-    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false, stun: null, turn: false });
+    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false, stun: null, turn: false, audioPackLimits: defaults.audioPackLimits });
   });
 });
 

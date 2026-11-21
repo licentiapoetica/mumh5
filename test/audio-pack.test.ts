@@ -4,9 +4,36 @@ import { readFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
 import { listAudioPack, readAudioPack, readPackClip, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
 import { PACK_PATHS, QUIET_EVENTS, SOUND_EVENTS, normalizeSoundSettings, upgradeSoundSettings } from '../src/core/sound-events.ts';
+import { DEFAULT_AUDIO_PACK_LIMITS, MIB, parseAudioPackLimits } from '../src/core/audio-pack-limits.ts';
 
 const standard = new URL('../src/assets/default-audio-pack.zip', import.meta.url);
 const clip = 'AudioNotification/SelfMute.wav';
+
+test('runtime sound limits fall back for older proxies and reject invalid byte limits', () => {
+  assert.deepEqual(parseAudioPackLimits(undefined), DEFAULT_AUDIO_PACK_LIMITS);
+  assert.deepEqual(parseAudioPackLimits({ pack: 128 * MIB }), { ...DEFAULT_AUDIO_PACK_LIMITS, pack: 128 * MIB });
+  for (const value of [0, -1, 1.5, Infinity, NaN, '128', Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => parseAudioPackLimits({ pack: value }), /Invalid sound pack pack limit/);
+  }
+});
+
+test('configured limits allow larger archives and clips through import, listing and playback', () => {
+  const wav = new Uint8Array(5 * MIB);
+  wav.set(new TextEncoder().encode('RIFF'), 0);
+  wav.set(new TextEncoder().encode('WAVE'), 8);
+  const bytes = zipSync({ [clip]: wav }, { level: 0 });
+  const limits = { file: 8 * MIB, pack: 16 * MIB, unpacked: 16 * MIB };
+  assert.throws(() => readAudioPack(bytes), /4 MiB/);
+  assert.deepEqual(readAudioPack(bytes, limits).get(clip), wav);
+  assert.deepEqual(listAudioPack(bytes, limits), [clip]);
+  assert.deepEqual(readPackClip(bytes, clip, limits), wav);
+  for (const parse of [readAudioPack, listAudioPack, (b: Uint8Array, l: typeof limits) => readPackClip(b, clip, l)]) {
+    assert.throws(() => parse(bytes, { ...limits, pack: MIB }), /at most 1 MiB/);
+    assert.throws(() => parse(bytes, { ...limits, unpacked: 4 * MIB }), /expands beyond 4 MiB/);
+    assert.throws(() => parse(bytes, { ...limits, file: MIB }), /larger than 1 MiB/);
+    assert.throws(() => parse(zipSync({ '../evil.wav': wav }), limits), /unsafe path/);
+  }
+});
 
 test('the supplied standard ZIP contains all automatic event mappings and 134 WAV clips', async () => {
   const clips = readAudioPack(await readFile(standard));
@@ -38,11 +65,11 @@ test('invalid ZIPs and unsafe, empty or misplaced packs are rejected', () => {
 });
 
 test('ZIP size, entry count and expanded file limits are enforced before inflation', () => {
-  assert.throws(() => readAudioPack(new Uint8Array(MAX_AUDIO_PACK + 1)), /32 MB/);
-  assert.throws(() => readAudioPack(zipSync({ [clip]: new Uint8Array(MAX_AUDIO_FILE + 1) })), /4 MB/);
+  assert.throws(() => readAudioPack(new Uint8Array(MAX_AUDIO_PACK + 1)), /32 MiB/);
+  assert.throws(() => readAudioPack(zipSync({ [clip]: new Uint8Array(MAX_AUDIO_FILE + 1) })), /4 MiB/);
   assert.throws(() => readAudioPack(zipSync(Object.fromEntries(Array.from({ length: 513 }, (_, i) => [`${i}.txt`, new Uint8Array()])))), /too many entries/);
   const large = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`AudioNotification/Sound${i}.wav`, new Uint8Array(MAX_AUDIO_FILE)]));
-  assert.throws(() => readAudioPack(zipSync(large)), /64 MB/);
+  assert.throws(() => readAudioPack(zipSync(large)), /64 MiB/);
 });
 
 test('a saved pack lists its clips and unpacks one at a time, with the same checks', async () => {

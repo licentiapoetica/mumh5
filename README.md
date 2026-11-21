@@ -216,6 +216,19 @@ For screen sharing, open these in the firewall (and forward them on a router in 
 | `MUMH5_TURN_IP` | found automatically | The server's public address, announced for relayed streams. Set it when the server sits behind a 1:1 NAT, as on many cloud hosts |
 | `MUMH5_STATIC` | `../dist-web` | Folder with the web build |
 | `MUMH5_MAX_CONNECTIONS`, `MUMH5_MAX_PER_ADDRESS` | `200`, `8` | Connection limits, in total and per client address |
+| `MUMH5_MAX_AUDIO_PACK_MB` | `32` | Maximum imported sound-pack ZIP size, in MiB |
+| `MUMH5_MAX_AUDIO_FILE_MB` | `4` | Maximum individual sound clip size, in MiB |
+| `MUMH5_MAX_AUDIO_UNPACKED_MB` | `64` | Maximum total unpacked WAV audio in a sound pack, in MiB |
+
+Sound-pack limits are runtime settings: for example, set `MUMH5_MAX_AUDIO_PACK_MB=128`,
+`MUMH5_MAX_AUDIO_FILE_MB=16` and `MUMH5_MAX_AUDIO_UNPACKED_MB=256` in the Docker
+container's environment, then recreate the container and reload the browser page.
+Values must be positive whole numbers of MiB; empty values use the defaults.
+The proxy sends the limits to the browser through `/api/config`. Imports and saved
+packs use these limits locally in the browser; sound packs are not uploaded to the
+proxy or the Mumble server. Nginx's request-body limit does not affect them.
+Desktop imports keep the defaults. The 512-entry archive limit and WAV/path checks
+still apply. Larger limits increase the browser memory needed to import a pack.
 
 Example for nginx. `Host` must be passed on unchanged, because the proxy only accepts requests whose origin matches it. `X-Forwarded-For` carries the visitor's address; start the proxy with `MUMH5_TRUST_PROXY=1` so its per-address limits use it.
 
