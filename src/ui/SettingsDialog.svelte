@@ -11,10 +11,11 @@
   import { formatBytes } from '../lib/html.ts';
   import { updates, build } from '../lib/updates.svelte.ts';
 
-  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about' } = $props();
+  type Tab = 'voice' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
+  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: Tab } = $props();
 
   // svelte-ignore state_referenced_locally
-  let tab = $state<'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about'>(initialTab);
+  let tab = $state<Tab>(initialTab);
   const s = store.settings;
   let embedHosts = $state(s.embedHosts.join('\n'));
 
@@ -46,9 +47,9 @@
   // How much the kept files take, once the tab is open
   $effect(() => { if (tab === 'files') files.measure(); });
 
-  type Tab = 'voice' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
   const tabs: { id: Tab; label: string }[] = [
     { id: 'voice', label: 'Voice' },
+    { id: 'sharing', label: 'Screen sharing' },
     { id: 'sounds', label: 'Sounds' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'accessibility', label: 'Accessibility' },
@@ -70,7 +71,7 @@
   <div class="pane" role="tabpanel">
   {#if tab === 'voice'}
     <VoiceSettings />
-    <h3>Screen sharing</h3>
+  {:else if tab === 'sharing'}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
       <option value="">{isWeb ? 'This site\'s own server' : 'None (same network only)'}</option>

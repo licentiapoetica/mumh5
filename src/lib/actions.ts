@@ -8,12 +8,28 @@ import { menu, type MenuItem } from './menu.svelte.ts';
 import { PERM, type Channel, type User } from '../core/client.ts';
 import { POKE_MAX } from '../core/poke.ts';
 import { roleSubmenu } from './quick-roles.svelte.ts';
+import { makeAvatar } from './images.ts';
+
+// Sets your picture from a file; returns what went wrong, if anything
+export async function setPictureFromFile(file: Blob): Promise<string | null> {
+  try {
+    const limit = session.htmlLimit > 0 ? Math.min(session.htmlLimit, 131072) : 131072;
+    const bytes = await makeAvatar(file, limit);
+    if (!bytes) return 'This picture does not get small enough for the server.';
+    await sessions.setAvatar(bytes);
+    return null;
+  } catch {
+    return 'This file could not be read as a picture.';
+  }
+}
 
 // A person's profile card, next to the element that was clicked (or at a point, from a menu)
-export function openProfile(user: number, at: Element | { x: number; y: number }): void {
+export function openProfile(user: number, at: Element | { x: number; y: number }, from?: Element | null): void {
+  // Stays lit while the card is open; from a menu, the row the menu belonged to
+  const row = from ?? (at instanceof Element ? at.closest('[data-menu-row]') : null) ?? undefined;
   const r = at instanceof Element ? at.getBoundingClientRect() : { left: at.x, right: at.x, top: at.y, bottom: at.y };
   session.loadComment(user);
-  ui.profile = { session: user, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, el: at instanceof Element ? at : undefined };
+  ui.profile = { session: user, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, el: at instanceof Element ? at : undefined, row };
 }
 
 // Right-click menu for a channel in the tree
@@ -79,7 +95,9 @@ export function userMenu(u: User): MenuItem[] {
   const isSelf = u.session === self?.session;
   const items: MenuItem[] = [
     { header: true, label: store.displayName(u) },
-    { label: 'View profile', action: () => openProfile(u.session, menu.last) }
+    isSelf
+      ? { label: 'Edit profile', action: () => { ui.profile = null; ui.profileEdit = true; } }
+      : { label: 'View profile', action: () => openProfile(u.session, menu.last, menu.lastRow) }
   ];
   if (isSelf) {
     items.push(

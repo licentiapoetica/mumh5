@@ -45,7 +45,7 @@
   <article class="msg" class:grouped>
     <time class="stamp" datetime={time.toISOString()}>{full}</time>
     <div class="gutter">
-      {#if !grouped}<button class="face" data-menu-row tabindex="-1" aria-hidden="true" onclick={authorCard} oncontextmenu={authorMenu}><Avatar name={entry.author} size={40} src={session.avatar(authorId)} /></button>{/if}
+      {#if !grouped}<button class="face" data-menu-row tabindex="-1" aria-hidden="true" onclick={authorCard} oncontextmenu={authorMenu}><Avatar name={entry.author} size={40} src={session.avatar(authorId)} keep /></button>{/if}
     </div>
     <div class="content">
       {#if !grouped}
@@ -73,7 +73,7 @@
 <style>
   .msg { position: relative; display: flex; gap: 14px; padding: 3px 16px; margin-top: 14px; font-size: var(--fs-chat); line-height: 1.5; }
   /* Over the end of the line, with its own background so it stays readable on long messages */
-  .stamp { position: absolute; top: 2px; right: 12px; padding: 1px 7px; line-height: 18px; background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); visibility: hidden; pointer-events: none; }
+  .stamp { position: absolute; top: 2px; right: 12px; padding: 1px 7px; line-height: 18px; background: var(--bg-1); border: 1px solid var(--line-strong); visibility: hidden; pointer-events: none; }
   .msg:hover .stamp { visibility: visible; }
   .msg.grouped { margin-top: 0; padding-top: 1px; padding-bottom: 1px; }
   .msg:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }

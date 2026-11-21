@@ -21,6 +21,7 @@
   import ImageViewer from './ui/ImageViewer.svelte';
   import ShareDialog from './ui/ShareDialog.svelte';
   import ProfileCard from './ui/ProfileCard.svelte';
+  import ProfileDialog from './ui/ProfileDialog.svelte';
   import Home from './ui/Home.svelte';
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
@@ -39,6 +40,7 @@
   // Arrangement (Appearance setting): side is the default, classic puts the channel list right
   // of the chat, stacked above it. Narrow windows use drawers, except stacked, which works at any width.
   const arrangement = $derived(store.settings.arrangement === 'stacked' ? 'stacked' : layout === 'narrow' ? 'side' : store.settings.arrangement ?? 'side');
+  const classicLeft = $derived(store.settings.classicSide === 'left');
   // The member panel sits inline only in the side arrangement on wide windows, otherwise it overlays
   const panelInline = $derived(layout === 'wide' && arrangement === 'side');
   let treeHeight = $state(Math.max(120, Number((() => { try { return localStorage.getItem('mumh5.treeHeight'); } catch { return null; } })()) || 280));
@@ -147,7 +149,7 @@
 {/snippet}
 {#snippet chat()}
   <Chat showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
-    serverButton={railHidden && arrangement === 'classic'} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
+    serverButton={railHidden && arrangement === 'classic' && !classicLeft} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
 <div class="frame">
@@ -173,8 +175,9 @@
     <Home top={arrangement === 'stacked'} onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
   {:else if arrangement === 'classic'}
     {#if !railHidden}{@render rail()}{/if}
+    {#if classicLeft}<Sidebar serverButton={railHidden} onnavigate={() => {}} />{/if}
     {@render chat()}
-    <Sidebar handleEdge="left" onnavigate={() => {}} />
+    {#if !classicLeft}<Sidebar handleEdge="left" onnavigate={() => {}} />{/if}
   {:else if arrangement === 'stacked'}
     {#if !railHidden}{@render rail()}{/if}
     <div class="stack" bind:this={stackEl}>
@@ -220,6 +223,10 @@
 {#if ui.publicServers}<PublicServers onclose={() => (ui.publicServers = false)} />{/if}
 {#if ui.serverInfo && session.status === 'connected'}<ServerInfoDialog onclose={() => (ui.serverInfo = false)} />{/if}
 {#if ui.settingsOpen}<SettingsDialog tab={ui.settingsTab} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
+{#if ui.profileEdit && session.status === 'connected'}
+  <!-- A draft belongs to one server; before the prompt dialog, which opens on top of it -->
+  {#key sessions.active}<ProfileDialog />{/key}
+{/if}
 {#if ui.quickAudio}<QuickAudio />{/if}
 {#if ui.userInfo != null && session.status === 'connected'}
   {#key ui.userInfo}<UserInfoDialog target={ui.userInfo} onclose={() => (ui.userInfo = null)} />{/key}
@@ -250,7 +257,7 @@
   .update-bar .btn { padding-block: 5px; text-decoration: none; }
   .app { position: relative; height: 100%; display: flex; overflow: hidden; }
   .nav { display: flex; flex: none; min-height: 0; }
-  .nav.drawer { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; max-width: calc(100% - 48px); box-shadow: 8px 0 32px rgb(0 0 0 / 0.4); }
+  .nav.drawer { position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; max-width: calc(100% - 48px); border-right: 1px solid var(--line); }
   .nav.drawer :global(.sidebar) { width: min(260px, calc(100vw - var(--rail-w) - 48px)); }
   .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   /* Its minimum (the shortest chat and the message box) comes from Chat.svelte; the list above gives way to it */
@@ -260,5 +267,5 @@
   .scrim { position: absolute; inset: 0; z-index: 15; background: rgb(0 0 0 / 0.5); }
   .home-over { position: absolute; z-index: 14; inset: 0; display: flex; }
   .home-over.after-rail { left: var(--rail-w); }
-  .panel-drawer { position: absolute; z-index: 20; top: 0; right: 0; bottom: 0; max-width: calc(100% - 48px); display: flex; box-shadow: -8px 0 32px rgb(0 0 0 / 0.4); }
+  .panel-drawer { position: absolute; z-index: 20; top: 0; right: 0; bottom: 0; max-width: calc(100% - 48px); display: flex; }
 </style>

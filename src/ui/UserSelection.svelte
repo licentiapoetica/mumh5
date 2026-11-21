@@ -52,7 +52,7 @@
 {/if}
 
 <style>
-  .selection { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 6px 8px; background: var(--bg-2); border: 1px solid var(--line); box-shadow: var(--shadow-pop); font-size: 12px; }
+  .selection { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 6px 8px; background: var(--bg-2); border: 1px solid var(--line); font-size: 12px; }
   .selection span { white-space: nowrap; }
   select { flex: 1; min-width: 64px; width: 0; height: var(--control-h); padding: 0 6px; font-size: 12px; }
   button { padding: 4px; color: var(--text-dim); }

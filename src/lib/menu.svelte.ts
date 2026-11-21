@@ -25,6 +25,7 @@ class MenuStore {
   open = $state<{ x: number; y: number; items: MenuItem[]; keepFocus?: boolean } | null>(null);
   // Where the last menu opened; items that open something next to it read this after the menu closed
   last = { x: 0, y: 0 };
+  lastRow: Element | null = null;
   // The row the menu belongs to, marked by an attribute so no list has to track it
   private row: Element | null = null;
 
@@ -32,11 +33,13 @@ class MenuStore {
     e.preventDefault();
     e.stopPropagation();
     this.showAt(e.clientX, e.clientY, items);
-    this.mark(e.target instanceof Element ? e.target.closest('[data-menu-row]') : null);
+    this.lastRow = e.target instanceof Element ? e.target.closest('[data-menu-row]') : null;
+    this.mark(this.lastRow);
   }
 
   showAt(x: number, y: number, items: MenuItem[], keepFocus = false): void {
     this.mark(null);
+    this.lastRow = null;
     this.last = { x, y };
     this.open = { x, y, items, keepFocus };
   }

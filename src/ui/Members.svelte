@@ -28,7 +28,7 @@
               onclick={e => openProfile(u.session, e.currentTarget)} title={isSelf ? `You. ${SELECT_HINT}` : `${u.name}. Double-click to message, ${SELECT_HINT.toLowerCase()}`}
               ondblclick={() => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }}
               oncontextmenu={e => menu.show(e, userMenu(u))}>
-              <Avatar name={u.name} size={32} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
+              <Avatar name={u.name} size={32} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} keep />
               <span class="who">
                 <span class="name" style:color={session.roleColor(u)}>{store.displayName(u)}</span>
                 <span class="sub">{session.roleLabel(u)}{title !== 'In channel' ? ` in ${session.channel(u.channelId)?.name || 'Root'}` : ''}</span>

@@ -118,8 +118,8 @@
   .side > :global(.rooms) { flex: 1; }
 
   .scrim { position: absolute; inset: 0; z-index: 15; background: rgb(0 0 0 / 0.55); }
-  .sheet { position: absolute; z-index: 20; left: 0; right: 0; bottom: 0; height: min(86%, 720px); display: flex; box-shadow: 0 -8px 32px rgb(0 0 0 / 0.4); border-top: 1px solid var(--line); }
+  .sheet { position: absolute; z-index: 20; left: 0; right: 0; bottom: 0; height: min(86%, 720px); display: flex; border-top: 1px solid var(--line); }
   .sheet :global(.panel) { width: 100% !important; border-left: 0; }
   .sheet :global(.panel > .resize) { display: none; }
-  .wide .sheet { left: auto; top: 0; height: auto; width: 400px; border-top: 0; box-shadow: -8px 0 32px rgb(0 0 0 / 0.4); }
+  .wide .sheet { left: auto; top: 0; height: auto; width: 400px; border-top: 0; border-left: 1px solid var(--line); }
 </style>

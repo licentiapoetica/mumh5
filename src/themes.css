@@ -328,7 +328,7 @@
 :root[data-theme="win95"] .pop {
   background: #c0c0c0;
   border: 0;
-  box-shadow: var(--raised), 2px 2px 0 rgb(0 0 0 / 0.35);
+  box-shadow: var(--raised);
 }
 :root[data-theme="win95"] .modal footer { background: #c0c0c0; border-top: 0; }
 :root[data-theme="win95"] .menu button:hover:not(:disabled),

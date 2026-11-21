@@ -21,6 +21,12 @@
     store.saveSettings();
   }
 
+  const classicLeft = $derived(store.settings.classicSide === 'left');
+  function placeList(side: 'left' | 'right') {
+    store.settings.classicSide = side;
+    store.saveSettings();
+  }
+
   // With this many schemes the list can be narrowed by name and by dark or light
   let find = $state('');
   let shade = $state<'all' | 'dark' | 'light'>('all');
@@ -99,15 +105,26 @@
     onchange={e => { store.settings.roleColors = e.currentTarget.checked; store.saveSettings(); }} /> Color names by top role</label>
 </div>
 
+<h3 class="gap">People</h3>
+<div class="role-opts">
+  <label for="avatars">Show people as</label>
+  <select id="avatars" value={store.settings.avatars}
+    onchange={e => { store.settings.avatars = e.currentTarget.value as 'pictures' | 'spheres'; store.saveSettings(); }}>
+    <option value="pictures">Pictures</option>
+    <option value="spheres">Spheres</option>
+  </select>
+</div>
+<p class="help">Chat, members, profiles and voice tiles keep the picture.</p>
+
 {#if (store.settings.interface ?? 'standard') === 'standard'}
 <h3 class="gap">Layout</h3>
 <div class="themes" role="radiogroup" aria-label="Layout">
   {#each ARRANGEMENTS as a (a.id)}
     {@const on = (store.settings.arrangement ?? 'side') === a.id}
     <button role="radio" aria-checked={on} class:active={on} onclick={() => arrange(a.id)} aria-label={a.name}>
-      <span class="mini lay {a.id}" aria-hidden="true">
+      <span class="mini lay {a.id}" class:flip={a.id === 'classic' && classicLeft} aria-hidden="true">
         <span class="m-rail"><span></span><span></span></span>
-        {#if a.id === 'side'}<span class="m-side"><i></i><i class="sel"></i><i></i></span>{/if}
+        {#if a.id === 'side' || (a.id === 'classic' && classicLeft)}<span class="m-side"><i></i><i class="sel"></i><i></i></span>{/if}
         {#if a.id === 'stacked'}
           <span class="m-col">
             <span class="m-side"><i></i><i class="sel"></i></span>
@@ -116,14 +133,22 @@
         {:else}
           <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><i class="short"></i><span class="m-box"></span></span>
         {/if}
-        {#if a.id === 'classic'}<span class="m-side"><i></i><i class="sel"></i><i></i></span>{/if}
+        {#if a.id === 'classic' && !classicLeft}<span class="m-side"><i></i><i class="sel"></i><i></i></span>{/if}
         {#if a.id === 'side'}<span class="m-members"><i></i><i></i></span>{/if}
       </span>
       <span class="name">{a.name}</span>
-      <span class="note">{a.note}</span>
+      <span class="note">{a.id === 'classic' && classicLeft ? 'Channels left, chat right' : a.note}</span>
     </button>
   {/each}
 </div>
+{#if store.settings.arrangement === 'classic'}
+  <span class="pick-label" id="classic-side">Channel list</span>
+  <div class="shades pick" role="group" aria-labelledby="classic-side">
+    {#each ['left', 'right'] as const as k (k)}
+      <button class:on={store.settings.classicSide === k} aria-pressed={store.settings.classicSide === k} onclick={() => placeList(k)}>{k === 'left' ? 'Left' : 'Right'}</button>
+    {/each}
+  </div>
+{/if}
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
 {/if}
 
@@ -144,7 +169,10 @@
   .m-col .m-side { width: auto; height: 34%; flex: none; padding: 5px; gap: 4px; border-bottom: 1px solid var(--line); }
   .m-members { width: 18%; background: var(--bg-1); display: flex; flex-direction: column; gap: 5px; padding: 8px 4px; border-left: 1px solid var(--line); }
   .m-members i { height: 4px; background: var(--text-faint); width: 80%; }
-  .lay.classic .m-side { border-left: 1px solid var(--line); }
+  .lay.classic:not(.flip) .m-side { border-left: 1px solid var(--line); }
+  .pick-label { display: block; margin: 16px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+  .shades.pick { display: inline-flex; }
+  .shades.pick button { min-width: 72px; min-height: var(--control-h); }
   h3 { margin: 8px 0 0; font-size: 15px; font-weight: 650; }
   .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
   .themes > button { display: flex; flex-direction: column; gap: 2px; padding: 8px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); }

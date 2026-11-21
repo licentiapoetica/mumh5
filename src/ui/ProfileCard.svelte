@@ -7,12 +7,10 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
-  import { userMenu, changeNamePrompt } from '../lib/actions.ts';
+  import { userMenu } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
   import { renderIncoming } from '../lib/html.ts';
-  import { makeAvatar } from '../lib/images.ts';
-  import { ownAvatar } from '../lib/avatar.svelte.ts';
   import { roleTint } from '../core/roles.ts';
 
   // A person's card, next to what was clicked (a sheet at the bottom on phones)
@@ -29,6 +27,13 @@
   $effect(() => { if (user?.commentHash && !user.comment) session.loadComment(user.session); });
   const comment = $derived(user?.comment ? renderIncoming(user.comment, store.trustedHosts).html : '');
   const pending = $derived(!!user?.commentHash && !user.comment);
+
+  // Its own attribute: a context menu opening or closing must not clear this one
+  $effect(() => {
+    const row = open?.row;
+    row?.setAttribute('data-card-on', '');
+    return () => row?.removeAttribute('data-card-on');
+  });
 
   // Gone when the person left or the connection ended
   $effect(() => { if (open && (!user || session.status !== 'connected')) close(); });
@@ -96,10 +101,6 @@
     return () => { ro.disconnect(); document.removeEventListener('scroll', scrolled, true); window.removeEventListener('resize', place); };
   });
 
-  let error = $state('');
-  let busy = $state(false);
-  $effect(() => { void open?.session; error = ''; });
-
   function close() {
     ui.profile = null;
   }
@@ -110,36 +111,9 @@
     if (open && el && !el.contains(e.target as Node) && !(e.target as Element).closest?.('.menu.side')) close();
   }
 
-  let picker = $state<HTMLInputElement>();
-  async function pickPicture() {
-    const file = picker?.files?.[0];
-    if (picker) picker.value = '';
-    if (!file) return;
-    busy = true;
-    error = '';
-    try {
-      const limit = session.htmlLimit > 0 ? Math.min(session.htmlLimit, 131072) : 131072;
-      const bytes = await makeAvatar(file, limit);
-      if (bytes) await sessions.setAvatar(bytes);
-      else error = 'This picture does not get small enough for the server.';
-    } catch {
-      error = 'This file could not be read as a picture.';
-    } finally {
-      busy = false;
-    }
-  }
-
   function message() {
     if (!user) return;
     session.selectView(`dm:${user.session}`);
-    close();
-  }
-
-  function editDescription() {
-    if (!user) return;
-    session.showUser(user.session);
-    ui.editDescription = true;
-    ui.panelOpen = true;
     close();
   }
 </script>
@@ -153,13 +127,7 @@
     oncontextmenu={e => menu.show(e, userMenu(user))}>
     <div class="banner" style:background="hsl({hue} 38% 30%)"></div>
     <div class="top">
-      <span class="pic"><Avatar name={user.name} size={80} speaking={talking} src={session.avatar(user.session)} /></span>
-      {#if isSelf}
-        <button class="pic-edit" title="Change your picture" aria-label="Change your picture" disabled={busy} onclick={() => picker?.click()}>
-          <Icon name="image" size={14} />
-        </button>
-        <input bind:this={picker} type="file" accept="image/*" hidden onchange={pickPicture} />
-      {/if}
+      <span class="pic"><Avatar name={user.name} size={80} speaking={talking} src={session.avatar(user.session)} keep /></span>
     </div>
     <div class="body">
       <h3 style:color={session.roleColor(user)}>{name}</h3>
@@ -201,23 +169,16 @@
         {/if}
       </div>
 
-      {#if error}<p class="error">{error}</p>{/if}
-
-      <div class="actions">
-        {#if isSelf}
-          <button class="btn" onclick={editDescription}>Edit description</button>
-          <button class="btn" disabled={busy} onclick={() => picker?.click()}>{busy ? 'Preparing...' : ownAvatar.url ? 'Change picture' : 'Add picture'}</button>
-          {#if ownAvatar.url}<button class="btn" disabled={busy} onclick={() => sessions.setAvatar(null)}>Remove picture</button>{/if}
-          <button class="btn" onclick={() => { const u = user; close(); changeNamePrompt(u); }}>Change name</button>
-        {:else}
+      {#if !isSelf}
+        <div class="actions">
           <button class="btn primary" onclick={message}>Send message</button>
           {#if sharing}
             {#if share.watchOf(user.session)}<button class="btn" onclick={() => share.unwatch(user.session)}>Stop watching</button>
             {:else}<button class="btn" onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
           {/if}
           <button class="btn icon" title="More" aria-label="More" onclick={e => menu.show(e, userMenu(user))}><Icon name="more" size={16} /></button>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -226,7 +187,7 @@
   .scrim { position: fixed; inset: 0; z-index: 90; background: rgb(0 0 0 / 0.5); }
   .card {
     position: fixed; z-index: 91; width: 320px; max-height: calc(100vh - 16px); overflow-y: auto;
-    background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-modal);
+    background: var(--bg-1); border: 1px solid var(--line-strong);
     animation: pop 130ms var(--ease);
   }
   /* Slides in from the side of what was clicked */
@@ -238,9 +199,6 @@
   .top { position: relative; height: 48px; padding: 0 16px; }
   /* The picture sits over the edge of the banner, framed in the card's color */
   .pic { position: absolute; left: 14px; top: -44px; display: flex; border: 4px solid var(--bg-1); background: var(--bg-1); }
-  .pic-edit { position: absolute; left: 76px; top: 18px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-    background: var(--bg-3); color: var(--text); border: 2px solid var(--bg-1); transition: background 120ms var(--ease); }
-  .pic-edit:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); }
   .body { padding: 2px 16px 16px; }
   h3 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; overflow-wrap: anywhere; }
   .sub { display: flex; flex-wrap: wrap; gap: 0 10px; margin: 2px 0 0; font-size: 13px; color: var(--text-dim); }
@@ -261,7 +219,6 @@
   .html :global(p) { margin: 0 0 6px; }
   .html :global(img) { max-width: 100%; }
   .dim { margin: 0; font-size: 14px; color: var(--text-dim); }
-  .error { margin: 10px 0 0; font-size: 13px; color: var(--danger); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
   .actions .primary { flex: 1; }
   .btn.icon { padding: 8px 10px; }

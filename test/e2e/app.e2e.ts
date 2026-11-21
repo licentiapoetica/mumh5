@@ -535,6 +535,7 @@ try {
 
   // STUN server for screen sharing: none by default, presets, or a typed address
   await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Screen sharing' }).click();
   const stun = page.getByLabel('STUN server', { exact: true });
   assert.equal(await stun.inputValue(), '');
   await stun.selectOption({ label: 'Cloudflare (stun.cloudflare.com:3478)' });
@@ -653,7 +654,16 @@ try {
   assert.ok((await box('.sidebar')).x > (await box('.chat')).x, 'classic: channel list right of chat');
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
+  // Classic can have the channel list on either side
+  const listSide = page.getByRole('group', { name: 'Channel list' });
+  await listSide.getByRole('button', { name: 'Left' }).click();
+  await page.waitForFunction(() => document.querySelector('.sidebar')!.getBoundingClientRect().x < document.querySelector('.chat')!.getBoundingClientRect().x);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).classicSide), 'left');
+  assert.equal(await page.getByRole('separator', { name: 'Resize channel list' }).count(), 1, 'still resizable on the left');
+  await listSide.getByRole('button', { name: 'Right' }).click();
+  await page.waitForFunction(() => document.querySelector('.sidebar')!.getBoundingClientRect().x > document.querySelector('.chat')!.getBoundingClientRect().x);
   await page.getByRole('radio', { name: 'Stacked' }).click();
+  assert.equal(await listSide.count(), 0, 'the switch belongs to Classic');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.app.stacked').waitFor();
   const chatBox = await box('.chat'), treeBox = await box('.sidebar');
@@ -925,9 +935,8 @@ try {
   console.log('ok: server certificate viewer');
 
   // Own description: rich text with a picture, as Mumble-compatible XHTML
-  await page.locator('.me .profile').click();
-  await page.getByRole('button', { name: 'Edit description' }).click();
-  const area = page.locator('.rich .area');
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  const area = page.getByRole('dialog', { name: 'Edit profile' }).locator('.rich .area');
   await area.click();
   await page.keyboard.type('I test things ');
   await page.keyboard.press('Control+b');
@@ -950,7 +959,11 @@ try {
   const comment = await within(commented, 'comment update');
   assert.match(comment, /^<p>I test things <span style="font-weight:bold">bold<\/span><\/p><p>second line<img src="data:image\/jpeg;base64,[^"]+"\/><\/p>$/);
   assert.ok(comment.length > 5000, 'long enough that the server ran its XML check and accepted it');
-  await page.locator('.panel .html img').waitFor();
+  await page.getByRole('dialog', { name: 'Edit profile' }).waitFor({ state: 'detached' });
+  await page.locator('.me .profile').click();
+  await page.getByRole('dialog', { name: /^Profile of / }).locator('.html img').waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: /^Profile of / }).waitFor({ state: 'detached' });
   console.log('ok: own description edited');
 
   // Other user's profile and context menu
@@ -966,6 +979,7 @@ try {
   assert.equal(await page.getByRole('slider', { name: 'Volume' }).inputValue(), '1.5', 'volume remembered');
   await page.getByRole('menuitem', { name: 'View profile' }).click();
   await page.getByRole('dialog', { name: 'Profile of bob' }).locator('h3', { hasText: 'bob' }).waitFor();
+  assert.equal(await page.locator('.sidebar .user', { hasText: 'bob' }).getAttribute('data-card-on'), '', 'row lit when opened from the menu too');
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: 'Profile of bob' }).waitFor({ state: 'detached' });
   console.log('ok: user context menu and profile');
@@ -1019,30 +1033,57 @@ try {
   // Profile cards open beside what was clicked; pictures go both ways as Mumble textures
   const bobInTree = page.locator('.sidebar .user', { hasText: 'bob' });
   bob.setTexture(testPng(64, 64));
+  // Spheres are the default in lists; the picture shows there once chosen
+  await bobInTree.locator('.orb').waitFor();
+  const showPeopleAs = async (value: string) => {
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'Appearance' }).click();
+    await page.getByLabel('Show people as').selectOption(value);
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  };
+  await showPeopleAs('pictures');
   await bobInTree.locator('.avatar img').waitFor();
+  await showPeopleAs('spheres');
+  await bobInTree.locator('.orb').waitFor();
   await bobInTree.click();
   const bobCard = page.getByRole('dialog', { name: 'Profile of bob' });
   await bobCard.locator('.avatar img').waitFor();
+  // The row stays lit while its card is open, with the pointer elsewhere
+  const rowColor = () => bobInTree.evaluate(e => getComputedStyle(e).backgroundColor);
+  await page.mouse.move(640, 700);
+  await page.waitForTimeout(180);
+  const litColor = await rowColor();
+  assert.equal(await bobInTree.getAttribute('data-card-on'), '', 'row marked while the card is open');
   assert.ok((await bobCard.boundingBox())!.x >= (await bobInTree.boundingBox())!.x + (await bobInTree.boundingBox())!.width, 'card beside the row');
   assert.equal(await page.locator('aside.panel h3', { hasText: 'bob' }).count(), 0, 'no side panel for a profile');
   await bobCard.getByRole('button', { name: 'Send message' }).waitFor();
   await page.keyboard.press('Escape');
   await bobCard.waitFor({ state: 'detached' });
+  await page.waitForTimeout(180);
+  assert.notEqual(await rowColor(), litColor, 'row back to normal after the card closes');
   const pictureSet = new Promise<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
+  // Your own card only shows; editing is in the profile dialog
   await page.locator('.me .profile').click();
-  const ownCard = page.getByRole('dialog', { name: /^Profile of / });
-  await ownCard.locator('input[type=file]').setInputFiles(pic);
+  const shownCard = page.getByRole('dialog', { name: /^Profile of / });
+  await shownCard.locator('h3').waitFor();
+  assert.equal(await shownCard.locator('.actions').count(), 0, 'no buttons on your own card');
+  assert.equal(await shownCard.locator('input[type=file]').count(), 0, 'no picture button on your own card');
+  await page.keyboard.press('Escape');
+  await shownCard.waitFor({ state: 'detached' });
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  const ownCard = page.getByRole('dialog', { name: 'Edit profile' });
+  await ownCard.getByLabel('Picture file').setInputFiles(pic);
   await within(pictureSet, 'own picture announced');
   const pictureBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
   bob.requestBlob({ textures: [aliceId] });
   const sentPicture = await within(pictureBytes, 'own picture fetched');
   assert.ok((sentPicture[0] === 0x89 && sentPicture[1] === 0x50) || (sentPicture[0] === 0xff && sentPicture[1] === 0xd8), 'PNG or JPEG');
   assert.ok(sentPicture.length <= 131072, 'within the image limit');
-  await page.locator('.me .profile .avatar img').waitFor();
+  await ownCard.locator('.avatar img').waitFor();
   const pictureGone = new Promise<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
   await ownCard.getByRole('button', { name: 'Remove picture' }).click();
   assert.equal(await within(pictureGone, 'picture removed'), 0);
-  await page.locator('.me .profile .avatar img').waitFor({ state: 'detached' });
+  await ownCard.locator('.avatar img').waitFor({ state: 'detached' });
   await page.keyboard.press('Escape');
   bob.setTexture(new Uint8Array(0));
   await bobInTree.locator('.avatar img').waitFor({ state: 'detached' });
@@ -1059,14 +1100,32 @@ try {
   await srvInfo.waitFor({ state: 'detached' });
   console.log('ok: server information dialog');
 
-  // Toolbar: description editor and settings
-  await page.locator('.me').getByRole('button', { name: 'Change your description' }).click();
-  await page.locator('.panel .rich').waitFor();
-  await page.locator('.panel').getByRole('button', { name: 'Cancel' }).click();
+  // Toolbar: the profile editor is a dialog, and unsaved text survives a stray Escape
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  const profileEditor = page.getByRole('dialog', { name: 'Edit profile' });
+  await profileEditor.locator('.rich').waitFor();
+  assert.equal(await page.locator('.panel .rich').count(), 0, 'not in the side panel');
+  // On the first line of text: the middle of the box is the description's picture
+  await profileEditor.locator('.rich .area').click({ position: { x: 14, y: 14 } });
+  await page.keyboard.type(' more');
+  await page.keyboard.press('Escape');
+  await profileEditor.getByText('Discard your changes?').waitFor();
+  await profileEditor.getByRole('button', { name: 'Keep editing' }).click();
+  await profileEditor.getByRole('button', { name: 'Cancel' }).click();
+  await profileEditor.getByRole('button', { name: 'Discard' }).click();
+  await profileEditor.waitFor({ state: 'detached' });
+  // Your own menu edits the profile; other people's views it
+  await page.locator('.sidebar .user.self').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Edit profile' }).waitFor();
+  assert.equal(await page.getByRole('menuitem', { name: 'View profile' }).count(), 0, 'no View profile on yourself');
+  await page.getByRole('menuitem', { name: 'Edit profile' }).click();
+  await profileEditor.locator('.rich').waitFor();
+  await profileEditor.getByRole('button', { name: 'Cancel' }).click();
+  await profileEditor.waitFor({ state: 'detached' });
   await page.locator('.me').getByRole('button', { name: 'Configure' }).click();
   await page.getByRole('dialog', { name: 'Settings' }).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  console.log('ok: toolbar opens the description editor and settings');
+  console.log('ok: toolbar opens the profile dialog and settings');
 
   // Information: own connection shows client details and the full certificate
   await page.locator('.sidebar .user.self').click({ button: 'right' });
@@ -1431,7 +1490,26 @@ try {
     await page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').waitFor({ state: 'detached' });
     await page.getByLabel('Show next to names').selectOption('all');
     await page.locator('.sidebar .user', { hasText: 'carol' }).getByLabel('Moderator').waitFor();
+    // Spheres are the default; switching to pictures and back does not move the names
+    const carolName = page.locator('.sidebar .user', { hasText: 'carol' }).locator('.label');
+    const nameAt = (await carolName.boundingBox())!.x;
+    await page.locator('.sidebar .user', { hasText: 'carol' }).locator('.orb .ball').waitFor();
+    await page.getByLabel('Show people as').selectOption('pictures');
+    await page.locator('.sidebar .user', { hasText: 'carol' }).locator('.orb').waitFor({ state: 'detached' });
+    assert.equal((await carolName.boundingBox())!.x, nameAt, 'the name stays where it was');
+    await page.getByLabel('Show people as').selectOption('spheres');
+    await page.locator('.sidebar .user', { hasText: 'carol' }).locator('.orb .ball').waitFor();
+    assert.equal(await page.locator('.chat .msg .orb').count(), 0, 'chat keeps pictures and letters');
     await page.getByRole('button', { name: 'Done', exact: true }).click();
+    const panelWasOpen = await page.locator('aside.panel').count() > 0;
+    if (!panelWasOpen) await page.getByTitle('Members').click();
+    await page.locator('aside.panel .avatar').first().waitFor();
+    assert.equal(await page.locator('aside.panel .orb').count(), 0, 'the member list keeps pictures and letters');
+    if (!panelWasOpen) {
+      await page.getByTitle('Members').click();
+      await page.locator('aside.panel').waitFor({ state: 'detached' });
+    }
+    console.log('ok: people shown as spheres');
     // The published role data is never drawn
     assert.equal(await page.locator('img[src^="data:,mumh5roles"]').count(), 0);
     // The user menu switches roles directly and stays open for the next one
@@ -2020,8 +2098,8 @@ try {
   // Change name: Mumble needs a reconnect, the app does it and remembers the name.
   // Unique per run: a reused test server may still have an earlier run's name registered.
   const newName = `alice${Date.now() % 100000}`;
-  await page.locator('.me .profile').click();
-  await page.getByRole('button', { name: 'Change name' }).click();
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  await page.getByRole('dialog', { name: 'Edit profile' }).getByRole('button', { name: 'Change name' }).click();
   await page.getByLabel('New name').fill(newName);
   await page.getByRole('button', { name: 'Reconnect with this name' }).click();
   await page.locator('.me .who strong', { hasText: newName }).waitFor();
@@ -2222,8 +2300,7 @@ try {
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(shots, 'quick-audio.png') });
     await page.keyboard.press('Escape');
-    await page.locator('.me .profile').click();
-    await page.getByRole('button', { name: 'Edit description' }).click();
+    await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(shots, 'editor.png') });
     await page.getByRole('button', { name: 'Cancel' }).click();
