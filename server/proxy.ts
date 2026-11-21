@@ -243,10 +243,16 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     try { rel = decodeURIComponent(pathname); } catch { throw new HttpError(400, 'Bad path'); }
     let file = path.join(staticDir, path.normalize('/' + rel));
     if (file !== staticDir && !file.startsWith(staticDir + path.sep)) throw new HttpError(404, 'Not found');
-    let data: Buffer;
+    let data: Buffer | null = null;
+    let compressed = false;
     try {
       if ((await fs.stat(file)).isDirectory()) file = path.join(file, 'index.html');
-      data = await fs.readFile(file);
+      // The build ships large wasm files precompressed
+      if (file.endsWith('.wasm') && /\bbr\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+        data = await fs.readFile(`${file}.br`).catch(() => null);
+        compressed = !!data;
+      }
+      data ??= await fs.readFile(file);
     } catch {
       throw new HttpError(404, 'Not found');
     }
@@ -256,6 +262,8 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     res.writeHead(200, {
       'Content-Type': TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
       'Content-Length': data.length,
+      ...(file.endsWith('.wasm') ? { Vary: 'Accept-Encoding' } : {}),
+      ...(compressed ? { 'Content-Encoding': 'br' } : {}),
       'Cache-Control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY'

@@ -177,6 +177,15 @@ try {
   await page.locator('.sidebar').getByText('bob').waitFor();
   console.log('ok: sees bob');
 
+  // The fake microphone is a pure tone, which DeepFilterNet rightly removes as noise. The default
+  // is checked here; the voice steps below use the browser's filter so the tone gets through.
+  await page.getByTitle('Settings').click();
+  assert.equal(await page.locator('#v-noise').inputValue(), 'deepfilter');
+  await page.locator('[data-denoise="on"]').waitFor({ timeout: 30000 });
+  await page.locator('#v-noise').selectOption('browser');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: DeepFilterNet is the default and loads');
+
   // ─── Voice ───────────────────────────────────────────────────────────────
   const aliceSession = () => [...bob.users.values()].find(u => u.name === 'alice')!.session;
   const collect = (n: number, stopOnLast = false) => new Promise<VoicePacket[]>(res => {
@@ -538,6 +547,23 @@ try {
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), '');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: STUN server choices');
+
+  // Noise suppression: the model loads in the real app and can be switched off and on
+  await page.getByTitle('Settings').click();
+  const noise = page.locator('#v-noise');
+  assert.equal(await noise.inputValue(), 'browser');
+  await noise.selectOption('deepfilter');
+  await page.locator('[data-denoise="on"]').waitFor({ timeout: 30000 });
+  await noise.selectOption('off');
+  assert.equal(await page.locator('[data-denoise]').count(), 0);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.voice')!).noiseSuppression), false);
+  await noise.selectOption('deepfilter');
+  await page.locator('[data-denoise="on"]').waitFor({ timeout: 30000 });
+  await noise.selectOption('browser');
+  assert.equal(await page.locator('[data-denoise]').count(), 0);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.voice')!).noiseEngine), 'browser');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: DeepFilterNet noise suppression');
 
   // Color schemes apply right away and are remembered
   await page.getByTitle('Settings').click();
