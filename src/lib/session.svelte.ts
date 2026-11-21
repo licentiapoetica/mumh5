@@ -563,7 +563,7 @@ export class Session {
         } else if (changed.includes('channelId')) {
           if (user.session === self.session) {
             // Follow our own channel moves in the chat view (also from a DM when we asked to join)
-            if (this.view.startsWith('ch:') || this.pendingJoin === user.channelId) this.selectView(`ch:${user.channelId}`);
+            if (this.view.startsWith('ch:') || this.pendingJoin === user.channelId) this.selectView(`ch:${user.channelId}`, false);
             this.pendingJoin = null;
             this.system(`ch:${user.channelId}`, `You joined ${escapeHtml(this.channel(user.channelId)?.name || 'Root')}`);
           } else if (user.channelId === self.channelId) {
@@ -893,9 +893,11 @@ export class Session {
     for (const k of this.visibleKeys()) delete this.unread[k];
   }
 
-  selectView(key: ViewKey): void {
+  // reveal: false when the server moved you, which should not pull you off the home screen
+  selectView(key: ViewKey, reveal = true): void {
     this.view = key;
     delete this.unread[key];
+    if (reveal) sessions.homeShown = false;
   }
 
   // Removes a direct chat from the list; a new message from that person opens it again
@@ -1179,6 +1181,9 @@ class Sessions {
   // Self mute/deaf before we deafened a background server, to restore later
   private saved = new Map<Session, { mute: boolean; deaf: boolean }>();
 
+  // The home screen over a connected server, which keeps running behind it
+  homeShown = $state(false);
+
   get active(): Session {
     return this.list.find(s => s.server?.id === this.activeId) ?? this.idle;
   }
@@ -1197,6 +1202,7 @@ class Sessions {
   open(server: SavedServer): void {
     let s = this.byServer(server.id);
     this.activeId = server.id;
+    this.homeShown = false;
     s?.markVisibleRead();
     if (!s) {
       s = new Session();
@@ -1215,6 +1221,7 @@ class Sessions {
 
   select(id: string): void {
     this.activeId = id;
+    this.homeShown = false;
     this.active.markVisibleRead();
   }
 

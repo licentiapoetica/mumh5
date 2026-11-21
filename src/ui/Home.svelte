@@ -1,8 +1,9 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import ServerButton from './ServerButton.svelte';
   import UserBar from './UserBar.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
-  import { store, type SavedServer } from '../lib/settings.svelte.ts';
+  import { serverInitials as initials, store, type SavedServer } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { desktop, isWeb } from '../lib/native.ts';
   import { serverStatus, peopleOn } from '../lib/server-status.svelte.ts';
@@ -11,8 +12,6 @@
   // top: your buttons along the top, where the stacked layout keeps them
   let { onadd, onedit, onbrowse, top = false }: { onadd: () => void; onedit: (s: SavedServer) => void; onbrowse: () => void; top?: boolean } = $props();
 
-  const initials = (label: string) =>
-    label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
   const stateOf = (id: string) => sessions.byServer(id)?.status ?? 'idle';
 
   function line(s: SavedServer): string {
@@ -37,6 +36,7 @@
   {#if top}<UserBar toolbar />{/if}
   <div class="scroll">
     <header>
+      {#if !top && store.settings.railHidden}<ServerButton />{/if}
       <div class="title">
         <h1>Servers</h1>
         <p>{store.servers.length ? 'Pick one to connect.' : 'Add a Mumble server to get started.'}</p>

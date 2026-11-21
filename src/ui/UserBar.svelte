@@ -1,6 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
+  import ServerButton from './ServerButton.svelte';
+  import { store } from '../lib/settings.svelte.ts';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
@@ -66,6 +68,7 @@
     {/if}
   {/if}
   <div class="tools">
+    {#if toolbar && store.settings.railHidden}<ServerButton /><span class="sep"></span>{/if}
     <button class="icon-btn info" title="Server information" aria-label="Server information"
       disabled={session.status !== 'connected'} onclick={() => (ui.serverInfo = true)}>
       <Icon name="info" size={18} />
@@ -108,7 +111,8 @@
   /* Eight buttons and three dividers fit the default width (260px) in one row */
   .tools .icon-btn { width: 30px; }
   /* Stacked layout: the bar leads the stack, like the desktop client's toolbar */
-  .me.toolbar { order: -1; min-height: var(--footer-h); justify-content: center; border-top: 0; border-bottom: 1px solid var(--line); }
+  /* 8px above the row and, with the border, 8px below: the first server tile lines up with it */
+  .me.toolbar { order: -1; min-height: var(--footer-h); justify-content: center; padding-block: 8px 7px; border-top: 0; border-bottom: 1px solid var(--line); }
   .me.toolbar .tools { justify-content: flex-start; gap: 2px; }
   .me.toolbar .sep { margin: 0 6px; }
   .me.inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 6px 16px; }

@@ -105,6 +105,26 @@ try {
 
   // Stacked is the default layout; the steps below were written for Modern
   await page.locator('.app.stacked').waitFor();
+
+  // The server list starts hidden; the button in the top left corner docks it beside the content
+  const serverButton = page.getByRole('button', { name: 'Show servers' });
+  assert.equal(await page.locator('.rail').count(), 0, 'server list hidden');
+  const corner = (await serverButton.boundingBox())!;
+  assert.ok(corner.x < 16 && corner.y < 16, 'button in the top left corner');
+  await serverButton.click();
+  await page.locator('.rail').waitFor();
+  assert.deepEqual(await page.locator('.rail .tile').first().boundingBox(), corner, 'first tile exactly where the button was');
+  const railBox = (await page.locator('.rail').boundingBox())!;
+  const contentBox = (await page.locator('section.home').boundingBox())!;
+  assert.ok(contentBox.x >= railBox.x + railBox.width, 'the list sits beside the content, not over it');
+  assert.equal(await serverButton.count(), 0, 'no button while the list is open');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).railHidden), false);
+  await page.getByRole('button', { name: 'Hide server list' }).click();
+  await page.locator('.rail').waitFor({ state: 'detached' });
+  await serverButton.click();
+  await page.locator('.rail').waitFor();
+  console.log('ok: server list hides behind the current server');
+
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   await page.getByRole('radio', { name: 'Modern' }).click();
@@ -1586,6 +1606,59 @@ try {
   bob.sendText({ channels: [0] }, 'ping both');
   await page.locator('.rail .tile[title^="Test Server"] .unread').waitFor();
   console.log('ok: unread badge on the background server');
+
+  // With the list hidden, the button carries the other server's unread count
+  await page.getByRole('button', { name: 'Hide server list' }).click();
+  await page.locator('.rail').waitFor({ state: 'detached' });
+  await page.locator('.server-btn .unread').waitFor();
+  console.log('ok: hidden server list shows unread on the current server button');
+
+  // Right-click on the button: the server's actions, switching, and what the hidden list offers
+  const serverBtnMenu = () => page.locator('.server-btn').click({ button: 'right' });
+  await serverBtnMenu();
+  await page.locator('.menu .head', { hasText: 'Second' }).waitFor();
+  for (const item of ['Disconnect', 'Change icon...', 'Edit...', 'Add a server...', 'Browse public servers...', 'Show server list']) {
+    await page.getByRole('menuitem', { name: item, exact: true }).waitFor();
+  }
+  await page.getByRole('menuitem', { name: /^Test Server \(\d+\)$/ }).click();
+  await page.locator('.sidebar .title', { hasText: 'Test Server' }).waitFor();
+  await page.locator('.server-btn .unread').waitFor({ state: 'detached' });
+  await serverBtnMenu();
+  await page.getByRole('menuitem', { name: 'Second', exact: true }).click();
+  await page.locator('.sidebar .title', { hasText: 'Second' }).waitFor();
+  await serverBtnMenu();
+  await page.getByRole('menuitem', { name: 'Edit...', exact: true }).click();
+  assert.equal(await page.getByLabel('Label').inputValue(), 'Second');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  // The home screen opens over the running server: a draft in the message box survives it
+  await page.getByLabel('Message').fill('draft kept');
+  await serverBtnMenu();
+  await page.getByRole('menuitem', { name: 'Go to home screen', exact: true }).click();
+  const homeOver = page.locator('.home-over section.home');
+  await homeOver.getByRole('heading', { name: 'Servers' }).waitFor();
+  assert.equal(await page.getByLabel('Message').count(), 0, 'the view behind is out of reach');
+  await homeOver.locator('.server-btn').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Back to server', exact: true }).click();
+  await homeOver.waitFor({ state: 'detached' });
+  assert.equal(await page.getByLabel('Message').textContent().then(t => t?.trim()), 'draft kept');
+  await page.getByLabel('Message').fill('');
+  await serverBtnMenu();
+  await page.getByRole('menuitem', { name: 'Go to home screen', exact: true }).click();
+  await homeOver.locator('.server', { hasText: 'Second' }).getByRole('button', { name: 'Open', exact: true }).click();
+  await homeOver.waitFor({ state: 'detached' });
+  await page.locator('.sidebar .title', { hasText: 'Second' }).waitFor();
+  console.log('ok: home screen over a connected server');
+
+  await serverBtnMenu();
+  await page.getByRole('menuitem', { name: 'Show server list', exact: true }).click();
+  await page.locator('.rail').waitFor();
+  await page.getByRole('button', { name: 'Go to home screen' }).click();
+  await homeOver.waitFor();
+  assert.ok((await homeOver.boundingBox())!.x >= (await page.locator('.rail').boundingBox())!.width, 'the server list stays beside it');
+  await page.getByRole('button', { name: 'Back to server' }).click();
+  await homeOver.waitFor({ state: 'detached' });
+  console.log('ok: right-click on the current server button');
 
   // Reorder by dragging Second above Test Server
   await page.locator('.rail .tile[title^="Second"]').dragTo(page.locator('.rail .tile[title^="Test Server"]'), { targetPosition: { x: 22, y: 4 } });

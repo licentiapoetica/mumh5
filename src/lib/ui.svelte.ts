@@ -1,4 +1,5 @@
 import type { CertDetails } from '../core/transport.ts';
+import type { SavedServer } from './settings.svelte.ts';
 
 export interface PromptRequest {
   title: string;
@@ -47,6 +48,8 @@ class Ui {
   editDescription = $state(false);
   // Add-server dialog, optionally prefilled (from the public list)
   addServer = $state<{ host?: string; port?: number; label?: string } | null>(null);
+  // A saved server being edited, from its context menu
+  editServer = $state<SavedServer | null>(null);
   // Channel dialog: create a subchannel of `parent`, or edit channel `id`
   channelDialog = $state<{ mode: 'create'; parent: number } | { mode: 'edit'; id: number; tab?: 'general' | 'permissions' | 'groups' } | null>(null);
   // Session whose connection information is shown

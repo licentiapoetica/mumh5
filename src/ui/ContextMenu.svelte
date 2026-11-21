@@ -65,7 +65,7 @@
 <style>
   .catcher { position: fixed; inset: 0; z-index: 200; }
   .menu {
-    position: fixed; z-index: 201; min-width: 210px; max-width: 280px; padding: 5px;
+    position: fixed; z-index: 201; min-width: 210px; max-width: 280px; max-height: calc(100vh - 8px); overflow-y: auto; padding: 5px;
     background: var(--bg-1); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop);
     animation: pop 110ms var(--ease);
   }
