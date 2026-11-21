@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { sounds, SOUND_EVENTS, type PackReport, type SoundEvent } from '../lib/audio/sounds.svelte.ts';
   import { PACK_PATHS } from '../core/sound-events.ts';
@@ -16,6 +17,10 @@
   let error = $state('');
   let permission = $state(notifyPermission());
   const parked = $derived(SOUND_EVENTS.filter(e => s.custom[e.id]?.parked).length);
+
+  // The clip lists need the packs, which nothing else loads until a sound plays
+  onMount(() => { void sounds.prepare(); });
+  onDestroy(() => sounds.flush());
 
   async function pokeNotify(on: boolean) {
     store.settings.pokeNotify = on;
@@ -67,7 +72,7 @@
 {:else if store.settings.pokeNotify && permission === 'unsupported'}<p class="help">Not available here.</p>{/if}
 
 <h3 class="gap">Notification sounds</h3>
-<fieldset disabled={!sounds.loaded || sounds.busy}>
+<fieldset disabled={!sounds.loaded || !sounds.clipsReady || sounds.busy}>
 <label class="check"><input type="checkbox" checked={s.enabled} onchange={e => sounds.update({ enabled: e.currentTarget.checked })} /> Play sounds for events</label>
 <label for="snd-vol">Volume: {Math.round(s.volume * 100)}%</label>
 <input id="snd-vol" type="range" min="0" max="1" step="0.05" value={s.volume} oninput={e => sounds.update({ volume: Number(e.currentTarget.value) })} />
@@ -96,7 +101,7 @@
 <p class="help">Each ZIP or notification folder adds a pack to your library. Select a saved pack above, or switch back to the standard pack at any time. Importing the same pack again keeps one copy.</p>
 <p class="help">ZIP packs use notification folders at the root, for example <code>AudioNotification/SelfMute.wav</code>. Missing clips use the standard pack. Selecting a pack sets your individual files aside without deleting them, and keeps your event choices and clip selections. TeamSpeak 3 folders with <code>settings.ini</code> are also supported.</p>
 <p class="help">Quiet defaults play only connection loss, direct messages and pokes. Enable other events below. Importing a pack keeps your event choices. Sounds play one at a time without a queue. Those three and mic changes replace the clip playing, other events are skipped while one plays.</p>
-{#if !sounds.loaded}<p class="help" role="status">Loading audio pack...</p>{/if}
+{#if !sounds.loaded || !sounds.clipsReady}<p class="help" role="status">Loading audio pack...</p>{/if}
 {#if sounds.busy}<p class="help" role="status">Saving sounds...</p>{/if}
 {#if report}
   <div class="report">

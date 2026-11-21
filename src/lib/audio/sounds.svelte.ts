@@ -3,7 +3,7 @@ import { voice } from './voice.svelte.ts';
 import { desktop } from '../native.ts';
 import { putBlob, getBlob, deleteBlob } from '../blobstore.ts';
 import { zipSync } from 'fflate';
-import { isPackClip, readAudioPack, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../../core/audio-pack.ts';
+import { isPackClip, listAudioPack, readAudioPack, readPackClip, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../../core/audio-pack.ts';
 import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, STATE_EVENTS, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
 import { renderTones } from './tones.ts';
 import defaultPackUrl from '../../assets/default-audio-pack.zip?url';
@@ -25,22 +25,30 @@ const AUDIO = /\.(wav|mp3|ogg|oga|opus|flac|m4a|aac|webm)$/i;
 // A clip that never starts or never reports its end must not hold the one playback slot.
 const START_LIMIT = 5000;
 const UNKNOWN_LENGTH_LIMIT = 60000;
+const STANDARD_FAILED = 'Could not load the standard pack';
+const VOLUME_SAVE_DELAY = 300;
 
 function earlierInstall(): boolean {
   try { return ['mumh5.settings', 'mumh5.voice', 'mumh5.servers'].some(key => localStorage.getItem(key) !== null); }
   catch { return false; }
 }
 
+// An archive kept whole; a clip is unpacked the first time it plays.
+interface OpenPack { bytes: Uint8Array; names: Set<string>; urls: Map<string, string> }
+
 class Sounds {
   settings = $state<SoundSettings>(upgradeSoundSettings(load<unknown>('mumh5.sounds', null), earlierInstall()));
   loaded = $state(false);
+  clipsReady = $state(false);
   busy = $state(false);
   packClips = $state<string[]>([]);
   errors = $state<string[]>([]);
   private tones = new Map<SoundEvent, Promise<string>>();
   private urls = new Map<SoundEvent, string>();
-  private builtin = new Map<string, string>();
-  private packUrls = new Map<string, string>();
+  private standard: OpenPack | null = null;
+  private userPack: OpenPack | null = null;
+  private preparing: Promise<void> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
   private ready: Promise<void>;
   private active: HTMLAudioElement | null = null;
   private playing = false;
@@ -53,6 +61,7 @@ class Sounds {
     voice.onPtt = down => { void this.play(down ? 'pttDown' : 'pttUp'); };
     voice.onTalkingWhileMuted = () => { void this.play('talkingWhileMuted'); };
     this.ready = this.loadStored().catch(e => this.error(`Could not load sounds: ${e.message}`)).finally(() => { this.loaded = true; });
+    addEventListener('pagehide', () => this.flush());
   }
 
   private error(message: string): void {
@@ -75,8 +84,8 @@ class Sounds {
     else await deleteBlob(key);
   }
 
-  private makeUrls(clips: Map<string, Uint8Array<ArrayBuffer>>): Map<string, string> {
-    return new Map([...clips].map(([name, data]) => [name, URL.createObjectURL(new Blob([data], { type: 'audio/wav' }))]));
+  private openPack(bytes: Uint8Array, names: Iterable<string>): OpenPack {
+    return { bytes, names: new Set(names), urls: new Map() };
   }
 
   private clearUrls(urls: Map<unknown, string>): void {
@@ -85,7 +94,66 @@ class Sounds {
   }
 
   private refreshClips(): void {
-    this.packClips = [...new Set([...this.builtin.keys(), ...this.packUrls.keys()])].sort();
+    this.packClips = [...new Set([...(this.standard?.names ?? []), ...(this.userPack?.names ?? [])])].sort();
+  }
+
+  // The active pack first; a clip it lacks or cannot unpack comes from the standard pack.
+  private clipUrl(path: string): string | undefined {
+    for (const pack of [this.userPack, this.standard]) {
+      if (!pack?.names.has(path)) continue;
+      const known = pack.urls.get(path);
+      if (known) return known;
+      try {
+        const url = URL.createObjectURL(new Blob([readPackClip(pack.bytes, path)], { type: 'audio/wav' }));
+        pack.urls.set(path, url);
+        return url;
+      } catch (e) { this.error(`Could not read ${path}: ${(e as Error).message}`); }
+    }
+    return undefined;
+  }
+
+  // Loaded on first use, so nothing is fetched or kept while no sound plays and Sounds stays closed.
+  prepare(): Promise<void> {
+    this.preparing ??= this.loadClips().finally(() => {
+      this.clipsReady = true;
+      // Offline: try again at the next use
+      if (!this.standard) this.preparing = null;
+    });
+    return this.preparing;
+  }
+
+  private async loadClips(): Promise<void> {
+    await this.ready;
+    // A failure here must not keep the user's own pack from loading.
+    if (!this.standard) {
+      try {
+        const response = await fetch(defaultPackUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        this.standard = this.openPack(bytes, listAudioPack(bytes));
+        this.errors = this.errors.filter(e => !e.startsWith(STANDARD_FAILED));
+      } catch (e) { this.error(`${STANDARD_FAILED}: ${(e as Error).message}`); }
+    }
+    const saved = this.settings.pack;
+    if (saved && !this.userPack) {
+      try {
+        const blob = await this.read(saved.id ? `pack:${saved.id}` : 'pack');
+        if (!blob) throw new Error('The saved ZIP is missing.');
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let names: Iterable<string>;
+        if (saved.id) names = listAudioPack(bytes);
+        else {
+          // Preserve the previous single ZIP as the first library entry.
+          const clips = readAudioPack(bytes);
+          this.settings.pack = await this.rememberPack(saved.name, blob, clips);
+          await this.persist();
+          names = clips.keys();
+        }
+        // The user may have switched packs while this one was being read
+        if (!this.userPack && (!saved.id || this.settings.pack?.id === saved.id)) this.userPack = this.openPack(bytes, names);
+      } catch (e) { this.error(`Could not load ${saved.name}: ${(e as Error).message} Using the standard pack.`); }
+    }
+    this.refreshClips();
   }
 
   private async loadStored(): Promise<void> {
@@ -122,31 +190,11 @@ class Sounds {
       } catch (e) { this.error(`Could not load ${custom.name}: ${(e as Error).message}`); }
     }
     await this.persist();
-    // Vite emits the archive as a hashed asset, also included in the PWA offline cache.
-    // A failure here must not keep the user's own pack from loading.
-    try {
-      const response = await fetch(defaultPackUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      this.builtin = this.makeUrls(readAudioPack(new Uint8Array(await response.arrayBuffer())));
-    } catch (e) { this.error(`Could not load the standard pack: ${(e as Error).message}`); }
-    if (this.settings.pack) {
-      try {
-        const blob = await this.read(this.settings.pack.id ? `pack:${this.settings.pack.id}` : 'pack');
-        if (!blob) throw new Error('The saved ZIP is missing.');
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        const clips = readAudioPack(bytes);
-        if (!this.settings.pack.id) {
-          // Preserve the previous single ZIP as the first library entry.
-          this.settings.pack = await this.rememberPack(this.settings.pack.name, blob, clips);
-          await this.persist();
-        }
-        this.packUrls = this.makeUrls(clips);
-      } catch (e) { this.error(`Could not load ${this.settings.pack.name}: ${(e as Error).message} Using the standard pack.`); }
-    }
-    this.refreshClips();
   }
 
   private async persist(): Promise<void> {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
     if (this.saveBlocked) return;
     const snapshot = $state.snapshot(this.settings);
     try {
@@ -155,11 +203,19 @@ class Sounds {
     } catch (e) { this.error(`Could not save sound settings: ${(e as Error).message}`); }
   }
 
+  // Writes a change the volume slider is still holding back.
+  flush(): void {
+    if (this.saveTimer !== undefined) void this.persist();
+  }
+
   update(patch: Partial<Pick<SoundSettings, 'enabled' | 'volume'>>): void {
     Object.assign(this.settings, patch);
     if (this.active) this.active.volume = Math.max(0, Math.min(1, this.settings.volume));
     if (!this.settings.enabled || !this.settings.volume) this.stop();
-    void this.persist();
+    if (!('volume' in patch)) { void this.persist(); return; }
+    // The slider reports every step, and each save is a synced file write on desktop
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => void this.persist(), VOLUME_SAVE_DELAY);
   }
 
   isOn(ev: SoundEvent): boolean { return this.settings.on[ev] ?? QUIET_EVENTS.has(ev); }
@@ -250,15 +306,15 @@ class Sounds {
     this.settings.custom = {};
   }
 
-  private async activatePack(entry: SoundPack | undefined, clips: Map<string, Uint8Array<ArrayBuffer>>): Promise<void> {
+  private async activatePack(entry: SoundPack | undefined, pack: OpenPack | null): Promise<void> {
     this.stop();
     // Active files would hide the new pack's audio; they are set aside, not deleted.
     for (const { id } of SOUND_EVENTS) {
       const custom = this.settings.custom[id];
       if (custom) custom.parked = true;
     }
-    this.clearUrls(this.packUrls);
-    this.packUrls = this.makeUrls(clips);
+    if (this.userPack) this.clearUrls(this.userPack.urls);
+    this.userPack = pack;
     if (entry) this.settings.pack = entry;
     else delete this.settings.pack;
     this.refreshClips();
@@ -266,19 +322,19 @@ class Sounds {
   }
 
   async selectPack(id: string): Promise<void> {
-    await this.ready;
+    await this.prepare();
     if (id === (this.settings.pack?.id ?? '')) return;
-    if (!id) return this.activatePack(undefined, new Map());
+    if (!id) return this.activatePack(undefined, null);
     const entry = this.settings.packs.find(p => p.id === id);
     if (!entry) throw new Error('Sound pack is not in your library.');
     const blob = await this.read(`pack:${id}`);
     if (!blob) throw new Error('The saved sound pack is missing.');
-    const clips = readAudioPack(new Uint8Array(await blob.arrayBuffer()));
-    await this.activatePack(entry, clips);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    await this.activatePack(entry, this.openPack(bytes, listAudioPack(bytes)));
   }
 
   async removePack(id: string): Promise<void> {
-    await this.ready;
+    await this.prepare();
     if (!this.settings.packs.some(p => p.id === id)) return;
     if (this.settings.pack?.id === id) await this.selectPack('');
     await this.remove(`pack:${id}`);
@@ -287,14 +343,14 @@ class Sounds {
   }
 
   async importZip(file: File): Promise<PackReport> {
-    await this.ready;
+    await this.prepare();
     if (file.size > MAX_AUDIO_PACK) throw new Error('Sound packs must be at most 32 MB.');
     const bytes = new Uint8Array(await file.arrayBuffer());
     const clips = readAudioPack(bytes);
     // Content IDs keep every distinct pack; importing the same archive is a no-op
     // for the library, even when its file name differs.
     const entry = await this.rememberPack(file.name, file, clips);
-    await this.activatePack(entry, clips);
+    await this.activatePack(entry, this.openPack(bytes, clips.keys()));
     return {
       assigned: SOUND_EVENTS.filter(e => clips.has(PACK_PATHS[e.id] ?? '')).map(e => `${PACK_PATHS[e.id]}: ${e.name}`),
       unmatched: [],
@@ -304,17 +360,20 @@ class Sounds {
 
   async loadPack(files: File[]): Promise<PackReport> {
     await this.ready;
-    const folderClips = files.filter(f => isPackClip(f.webkitRelativePath.split('/').slice(1).join('/')));
+    const inFolder = (f: File) => f.webkitRelativePath.split('/').slice(1).join('/');
+    const folderClips = files.filter(f => isPackClip(inFolder(f)));
     if (folderClips.length) {
       const entries: Record<string, Uint8Array<ArrayBuffer>> = {};
-      // Validate sizes before reading or compressing a folder into a saved ZIP.
-      if (folderClips.length > 512 || folderClips.reduce((n, f) => n + f.size, 0) > 64 * 1024 * 1024) throw new Error('Sound pack folder is too large.');
+      // The size of the stored ZIP (file, both headers with the name, end record), known
+      // before anything is read. Stored, not compressed: WAV barely shrinks and this runs on the UI thread.
+      const archive = folderClips.reduce((n, f) => n + f.size + 76 + 2 * new TextEncoder().encode(inFolder(f)).length, 22);
+      if (folderClips.length > 512 || archive > MAX_AUDIO_PACK) throw new Error('Sound pack folders must be at most 32 MB and 512 clips.');
       for (const file of folderClips.sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath))) {
         if (file.size > MAX_AUDIO_FILE) throw new Error(`${file.name} is larger than 4 MB.`);
-        entries[file.webkitRelativePath.split('/').slice(1).join('/')] = new Uint8Array(await file.arrayBuffer());
+        entries[inFolder(file)] = new Uint8Array(await file.arrayBuffer());
       }
       const name = folderClips[0].webkitRelativePath.split('/')[0];
-      const bytes = zipSync(entries, { mtime: new Date('2000-01-01T00:00:00Z') });
+      const bytes = zipSync(entries, { level: 0, mtime: new Date('2000-01-01T00:00:00Z') });
       return this.importZip(new File([bytes], `${name}.zip`, { type: 'application/zip' }));
     }
     const assigned: string[] = [], unmatched: string[] = [], failed = new Set<string>();
@@ -359,19 +418,24 @@ class Sounds {
   }
 
   async resetAll(): Promise<void> {
-    await this.ready;
+    await this.prepare();
     await this.clearCustomFiles();
-    await this.activatePack(undefined, new Map());
+    await this.activatePack(undefined, null);
     this.settings.clips = {};
     this.refreshClips();
     await this.persist();
   }
 
+  private ownFile(ev: SoundEvent): string | undefined {
+    return this.settings.custom[ev]?.parked ? undefined : this.urls.get(ev);
+  }
+
   private async source(ev: SoundEvent): Promise<string> {
-    const custom = this.settings.custom[ev]?.parked ? undefined : this.urls.get(ev);
+    const custom = this.ownFile(ev);
     if (custom) return custom;
+    await this.prepare();
     const path = this.clipFor(ev);
-    const clip = path && (this.packUrls.get(path) ?? this.builtin.get(path));
+    const clip = path && this.clipUrl(path);
     if (clip) return clip;
     let p = this.tones.get(ev);
     if (!p) this.tones.set(ev, (p = renderTones(ev)));
@@ -395,7 +459,11 @@ class Sounds {
   // of speech. Previews, mic state changes and alerts replace the current clip.
   async play(ev: SoundEvent, force = false): Promise<void> {
     await this.ready;
-    if (!force && (!this.settings.enabled || !this.isOn(ev) || !this.settings.volume)) return;
+    const silent = () => !force && (!this.settings.enabled || !this.isOn(ev) || !this.settings.volume);
+    if (silent()) return;
+    // Before the start timer: the first sound may have to download the standard pack
+    if (!this.ownFile(ev)) await this.prepare();
+    if (silent()) return;
     const state = STATE_EVENTS.has(ev);
     const replaces = force || state || QUIET_EVENTS.has(ev);
     if (!replaces && this.playing) return;

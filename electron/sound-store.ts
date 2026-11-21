@@ -24,13 +24,20 @@ export class SoundStore {
 
   private async atomic(file: string, data: string | Uint8Array): Promise<void> {
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    // Synced before the rename, so a crash cannot leave a truncated file in place
-    const handle = await fs.open(`${file}.tmp`, 'w', 0o600);
+    // Per process: a dev build and the packaged app can share this directory.
+    // Synced before the rename, so a crash cannot leave a truncated file in place.
+    const tmp = `${file}.${process.pid}.tmp`;
     try {
-      await handle.writeFile(data);
-      await handle.sync();
-    } finally { await handle.close(); }
-    await fs.rename(`${file}.tmp`, file);
+      const handle = await fs.open(tmp, 'w', 0o600);
+      try {
+        await handle.writeFile(data);
+        await handle.sync();
+      } finally { await handle.close(); }
+      await fs.rename(tmp, file);
+    } catch (e) {
+      await fs.rm(tmp, { force: true }).catch(() => {});
+      throw e;
+    }
   }
 
   load(): Promise<LoadedSoundSettings | null> {

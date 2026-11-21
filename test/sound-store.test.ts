@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { SoundStore } from '../electron/sound-store.ts';
@@ -64,6 +64,20 @@ test('a damaged sounds.json is kept aside and the saved packs and files are list
       assert.deepEqual(again?.packs.map(p => p.id), [id]);
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
+});
+
+test('temporary files are per process and do not stay behind', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'mumh5-sound-tmp-'));
+  try {
+    const store = new SoundStore(directory);
+    await mkdir(path.join(directory, 'sounds'), { recursive: true });
+    // Another process is halfway through its own write
+    const other = path.join(directory, 'sounds', `mute.audio.${process.pid + 1}.tmp`);
+    await writeFile(other, 'theirs');
+    await store.write('sound:mute', new Uint8Array([1]));
+    assert.equal(await readFile(other, 'utf8'), 'theirs');
+    assert.deepEqual((await readdir(path.join(directory, 'sounds'))).sort(), ['mute.audio', path.basename(other)].sort());
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('library archives persist independently and removing one leaves the others intact', async () => {

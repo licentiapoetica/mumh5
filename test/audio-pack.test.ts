@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
-import { readAudioPack, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
+import { listAudioPack, readAudioPack, readPackClip, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
 import { PACK_PATHS, QUIET_EVENTS, SOUND_EVENTS, normalizeSoundSettings, upgradeSoundSettings } from '../src/core/sound-events.ts';
 
 const standard = new URL('../src/assets/default-audio-pack.zip', import.meta.url);
@@ -43,6 +43,17 @@ test('ZIP size, entry count and expanded file limits are enforced before inflati
   assert.throws(() => readAudioPack(zipSync(Object.fromEntries(Array.from({ length: 513 }, (_, i) => [`${i}.txt`, new Uint8Array()])))), /too many entries/);
   const large = Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`AudioNotification/Sound${i}.wav`, new Uint8Array(MAX_AUDIO_FILE)]));
   assert.throws(() => readAudioPack(zipSync(large)), /64 MB/);
+});
+
+test('a saved pack lists its clips and unpacks one at a time, with the same checks', async () => {
+  const bytes = await readFile(standard);
+  const clips = readAudioPack(bytes);
+  assert.deepEqual(listAudioPack(bytes).sort(), [...clips.keys()].sort());
+  assert.deepEqual(readPackClip(bytes, clip), clips.get(clip));
+  assert.throws(() => readPackClip(bytes, 'AudioNotification/Missing.wav'), /not in this sound pack/);
+  assert.throws(() => listAudioPack(zipSync({ 'manifest.json': new Uint8Array(1) })), /No WAV clips/);
+  assert.throws(() => listAudioPack(zipSync({ '../evil.wav': new Uint8Array(44) })), /unsafe path/);
+  assert.throws(() => readPackClip(zipSync({ [clip]: new Uint8Array(44) }), clip), /supported WAV/);
 });
 
 test('quiet defaults have three events, and saved explicit choices and volume survive normalization', () => {

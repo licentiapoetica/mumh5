@@ -3,8 +3,9 @@
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { zipSync } from 'fflate';
 import { readAudioPack } from '../../src/core/audio-pack.ts';
@@ -28,7 +29,12 @@ try {
     };
     URL.revokeObjectURL = url => { blobs.delete(url); revoke(url); };
   });
+  const packFetches: string[] = [];
+  page.on('request', r => { if (r.resourceType() === 'fetch' && r.url().includes('default-audio-pack')) packFetches.push(r.url()); });
   await page.goto(server.resolvedUrls!.local[0]);
+  await page.getByRole('button', { name: 'Configure', exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  assert.deepEqual(packFetches, [], 'the standard pack is not fetched at start');
   const open = async () => {
     await page.getByRole('button', { name: 'Configure', exact: true }).click();
     await page.getByRole('tab', { name: 'Sounds' }).click();
@@ -48,8 +54,28 @@ try {
   });
   const hash = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
   await open();
+  assert.equal(packFetches.length, 1, 'opening Sounds loads it once');
   assert.equal(await page.locator('.events input:checked').count(), 3);
   assert.equal(await page.getByLabel('Clip for You muted', { exact: true }).locator('option').count(), 135);
+
+  // Dragging the volume slider saves once, after it stops.
+  const saves = await page.evaluate(async () => {
+    const module = '/src/lib/audio/sounds.svelte.ts';
+    const { sounds } = await import(module);
+    const original = Storage.prototype.setItem;
+    let count = 0;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'mumh5.sounds') count++;
+      original.call(this, key, value);
+    };
+    for (let i = 1; i <= 10; i++) sounds.update({ volume: 0.5 + i / 100 });
+    const during = count;
+    await new Promise(r => setTimeout(r, 500));
+    Storage.prototype.setItem = original;
+    return { during, after: count, saved: JSON.parse(localStorage.getItem('mumh5.sounds')!).volume };
+  });
+  assert.deepEqual(saves, { during: 0, after: 1, saved: 0.6 });
+
   await play('connected');
   assert.equal((await log()).length, 0, 'optional event is silent');
   await play('privateMessage');
@@ -166,35 +192,46 @@ try {
   assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!), 'switch back to vanilla');
   assert.equal(await library.locator('option').count(), 3, 'vanilla keeps the personal library');
 
-  // Optional local regression fixtures: exercise both user-supplied folders and
-  // the second pack's ZIP without copying those assets into the repository.
-  if (process.env.SOUND_PACK_FIXTURES) {
-    const fixtures = process.env.SOUND_PACK_FIXTURES;
-    for (const name of ['cara-cum', 'hitler']) {
+  // Folder imports, from generated folders.
+  const fixtures = await mkdtemp(path.join(tmpdir(), 'mumh5-sound-fixtures-'));
+  try {
+    const folderClip = { 'pack-one': clips.get('AudioNotification/SelfDeaf.wav')!, 'pack-two': clips.get('AudioNotification/SelfUndeaf.wav')! };
+    for (const [name, data] of Object.entries(folderClip)) {
+      await mkdir(path.join(fixtures, name, 'AudioNotification'), { recursive: true });
+      await writeFile(path.join(fixtures, name, 'AudioNotification/SelfMute.wav'), data);
       const before = await library.locator('option').count();
       await page.locator('input[webkitdirectory]').setInputFiles(path.join(fixtures, name));
+      await page.locator('.help strong').getByText(`${name}.zip`, { exact: true }).waitFor();
       await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
       assert.equal(await library.locator('option').count(), before + 1);
-      assert.equal(await sourceHash(), hash(await readFile(path.join(fixtures, name, 'AudioNotification/SelfMute.wav'))));
+      assert.equal(await sourceHash(), hash(data));
       await play('mute', true);
       await page.getByRole('button', { name: 'Stop preview' }).click();
     }
-    const count = await library.locator('option').count();
-    await page.locator('input[accept=".zip,application/zip"]').setInputFiles(path.join(fixtures, 'hitler/HitlerVoicepack.zip'));
+    const folders = await library.locator('option').count();
+    const sameAudio = zipSync({ 'AudioNotification/SelfMute.wav': folderClip['pack-two'] });
+    await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'same-audio.zip', mimeType: 'application/zip', buffer: Buffer.from(sameAudio) });
     await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
-    assert.equal(await library.locator('option').count(), count, 'folder and ZIP of the same clips share one entry');
-    await library.selectOption({ label: 'cara-cum.zip' });
+    assert.equal(await library.locator('option').count(), folders, 'folder and ZIP of the same clips share one entry');
+    await library.selectOption({ label: 'pack-one.zip' });
     await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
-    assert.equal(await sourceHash(), hash(await readFile(path.join(fixtures, 'cara-cum/AudioNotification/SelfMute.wav'))));
+    assert.equal(await sourceHash(), hash(folderClip['pack-one']));
     await page.reload();
     await open();
-    assert.equal(await library.locator('option').count(), count);
-    assert.equal(await library.locator('option:checked').textContent(), 'cara-cum.zip');
+    assert.equal(await library.locator('option').count(), folders);
+    assert.equal(await library.locator('option:checked').textContent(), 'pack-one.zip');
     await library.selectOption('');
     await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
     assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!));
-    console.log('USER PACKS PASSED: both generation folders, ZIP deduplication, audio identity, switching, reload and vanilla');
-  }
+
+    // A folder over the limit is refused before anything is read or zipped.
+    const large = path.join(fixtures, 'too-large', 'AudioNotification');
+    await mkdir(large, { recursive: true });
+    for (let i = 0; i < 9; i++) await writeFile(path.join(large, `Clip${i}.wav`), Buffer.alloc(4 * 1024 * 1024));
+    await page.locator('input[webkitdirectory]').setInputFiles(path.dirname(large));
+    await page.locator('.error').getByText('Sound pack folders must be at most 32 MB', { exact: false }).waitFor();
+    assert.equal(await library.locator('option').count(), folders);
+  } finally { await rm(fixtures, { recursive: true, force: true }); }
 
   await library.selectOption({ label: 'second.zip' });
   await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
