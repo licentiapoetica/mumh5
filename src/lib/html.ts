@@ -27,9 +27,9 @@ export function youtubeVideo(href: string): { id: string; start: number } | null
 }
 
 const EXT: Record<string, EmbedKind> = {
-  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', avif: 'image',
-  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video',
-  mp3: 'audio', ogg: 'audio', opus: 'audio', wav: 'audio', flac: 'audio', m4a: 'audio'
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', avif: 'image', bmp: 'image',
+  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video',
+  mp3: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio', wav: 'audio', flac: 'audio', m4a: 'audio', aac: 'audio'
 };
 
 export function mediaKind(name: string): EmbedKind | null {
@@ -98,11 +98,14 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
   }
 });
 
-// Sanitize an incoming Mumble HTML message and pull out announced files and media links from trusted hosts.
+// Sanitize an incoming Mumble HTML message and pull out announced files and media links.
+// Direct links to pictures, videos and sounds become media embeds whatever the host; the message
+// view loads those from trusted hosts at once and asks first for the rest (MediaLink.svelte).
 export function renderIncoming(raw: string, trustedHosts: string[]): { html: string; embeds: Embed[] } {
   const { html, files } = takeFiles(raw);
   const frag = DOMPurify.sanitize(html, purifyConfig);
   const embeds: Embed[] = files.map(f => ({ kind: 'file', url: `file:${f.meta.i}`, name: f.meta.n, file: f.meta, poster: f.poster }));
+  let trustedMedia = false;
   for (const a of frag.querySelectorAll('a[href]')) {
     const yt = youtubeVideo(a.getAttribute('href')!);
     if (yt) {
@@ -113,18 +116,20 @@ export function renderIncoming(raw: string, trustedHosts: string[]): { html: str
     }
     let url: URL;
     try { url = new URL(a.getAttribute('href')!); } catch { continue; }
-    const trusted = trustedHosts.includes(url.host.toLowerCase());
-    const name = decodeURIComponent(url.pathname.split('/').pop() ?? '');
-    const kind = trusted ? mediaKind(name) : null;
-    if (kind) embeds.push({ kind, url: url.href, name });
-    // Other web links get a preview card (not for media from trusted hosts)
-    else if (!trusted && /^https?:$/.test(url.protocol) && embeds.filter(e => e.kind === 'link').length < 2 && !embeds.some(e => e.url === url.href)) {
-      embeds.push({ kind: 'link', url: url.href, name: a.textContent ?? '' });
+    if (!/^https?:$/.test(url.protocol) || embeds.some(e => e.url === url.href)) continue;
+    let name = url.pathname.split('/').pop() ?? '';
+    try { name = decodeURIComponent(name); } catch { /* keep it encoded */ }
+    const kind = mediaKind(name);
+    if (kind) {
+      if (embeds.filter(e => e.kind === kind).length < 4) embeds.push({ kind, url: url.href, name });
+      trustedMedia ||= trustedHosts.includes(url.host.toLowerCase());
     }
+    // Other web links get a preview card
+    else if (embeds.filter(e => e.kind === 'link').length < 2) embeds.push({ kind: 'link', url: url.href, name: a.textContent ?? '' });
   }
   codeBlocks(frag);
-  // The inline thumbnail is only there for vanilla clients; we show the real media instead
-  if (embeds.some(e => e.kind === 'image' || e.kind === 'video' || e.kind === 'audio')) frag.querySelectorAll('img').forEach(img => img.remove());
+  // Pictures uploaded to a host come with an inline thumbnail for vanilla clients; we show the real media instead
+  if (trustedMedia) frag.querySelectorAll('img').forEach(img => img.remove());
   const div = document.createElement('div');
   div.append(frag);
   return { html: div.innerHTML.replace(/^(<br\s*\/?>)+|(<br\s*\/?>)+$/g, ''), embeds };

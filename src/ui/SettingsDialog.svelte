@@ -109,9 +109,14 @@
     </div>
 
     <h3>Embeds</h3>
-    <label for="s-embed">Also show media inline from these hosts</label>
+    <label for="s-media">Links to pictures, videos and sounds</label>
+    <select id="s-media" bind:value={s.mediaLinks} onchange={saveFiles}>
+      <option value="click">Player card, loads from the linked site when clicked</option>
+      <option value="off">Plain links</option>
+    </select>
+    <label for="s-embed">Load media at once from these hosts</label>
     <textarea id="s-embed" bind:value={embedHosts} onchange={saveFiles} rows="3" placeholder="one host per line, e.g. i.example.com"></textarea>
-    <p class="help">Links from other hosts stay plain links, so opening a chat never contacts servers you did not choose.</p>
+    <p class="help">Media from other hosts waits for a click, so opening a chat never contacts servers you did not choose.</p>
     <label for="s-lp">Link previews</label>
     <select id="s-lp" value={previewMode()} onchange={e => { s.linkPreviews = e.currentTarget.value as typeof s.linkPreviews; saveFiles(); }}>
       <option value="direct" disabled={!desktop}>Fetched by this computer (linked sites see your IP){desktop ? '' : ' - needs the desktop app'}</option>

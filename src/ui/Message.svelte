@@ -2,6 +2,7 @@
   import Avatar from './Avatar.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import LinkPreview from './LinkPreview.svelte';
+  import MediaLink from './MediaLink.svelte';
   import FileCard from './FileCard.svelte';
   import { store } from '../lib/settings.svelte.ts';
   import { session } from '../lib/session.svelte.ts';
@@ -61,16 +62,8 @@
           <div class="embed"><LinkPreview url={m.url} /></div>
         {:else if m.kind === 'youtube'}
           {#if store.settings.youtube !== 'off'}<div class="embed"><YouTubeEmbed videoId={m.videoId!} start={m.start} url={m.url} /></div>{/if}
-        {:else}
-        <div class="embed">
-          {#if m.kind === 'image'}
-            <a href={m.url} target="_blank" rel="noopener noreferrer"><img src={m.url} alt={m.name} loading="lazy" /></a>
-          {:else if m.kind === 'video'}
-            <video src={m.url} controls preload="metadata"><track kind="captions" /></video>
-          {:else}
-            <audio src={m.url} controls preload="metadata"></audio>
-          {/if}
-        </div>
+        {:else if store.settings.mediaLinks !== 'off' || store.trustedHosts.includes(new URL(m.url).host.toLowerCase())}
+          <div class="embed"><MediaLink kind={m.kind} url={m.url} name={m.name} /></div>
         {/if}
       {/each}
     </div>
@@ -100,8 +93,6 @@
   .html :global(code) { font-family: var(--mono); font-size: 13px; background: var(--bg-0); padding: 1px 4px; }
   .html :global(blockquote) { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--text-dim); }
   .embed { margin-top: 6px; max-width: min(520px, 100%); }
-  .embed img, .embed video { display: block; max-width: 100%; max-height: 360px; background: var(--bg-0); border: 1px solid var(--line); }
-  .embed audio { width: 100%; }
   .system { display: flex; gap: 14px; padding: 4px 16px; margin-top: 10px; color: var(--text-dim); font-size: 13px; }
   .system .mark { width: 40px; flex: none; display: flex; justify-content: center; padding-top: 7px; }
   .system .mark::before { content: ''; width: 6px; height: 6px; background: var(--text-faint); }

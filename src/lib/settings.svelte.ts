@@ -15,6 +15,7 @@ export interface SavedServer {
 
 export interface Settings {
   embedHosts: string[];    // hosts whose media links render inline
+  mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
   sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
   autoDownload: number;    // fetch announced files up to this many MB by themselves; 0: never
   compact: boolean;
@@ -60,6 +61,7 @@ export const THEMES: { id: ThemeId; name: string; note: string; light: boolean }
 
 const defaults: Settings = {
   embedHosts: [],
+  mediaLinks: 'click',
   sendThumbnails: true,
   autoDownload: 20,
   compact: false,
@@ -149,6 +151,12 @@ class SettingsStore {
   // Other links stay plain links, so opening a chat never pings arbitrary servers.
   get trustedHosts(): string[] {
     return this.settings.embedHosts.map(h => h.trim().toLowerCase()).filter(Boolean);
+  }
+
+  trustHost(host: string) {
+    if (this.trustedHosts.includes(host.toLowerCase())) return;
+    this.settings.embedHosts = [...this.settings.embedHosts, host.toLowerCase()];
+    this.saveSettings();
   }
 }
 

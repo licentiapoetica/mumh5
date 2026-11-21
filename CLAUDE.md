@@ -70,7 +70,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 - The protobuf codec is generated static code (no eval) because the CSP forbids `unsafe-eval`. `wasm-unsafe-eval` is allowed, for the built-in Opus codec only. Field names keep snake_case from the .proto.
 - TypeScript files imported by Node tests use `.ts` extensions and erasable syntax only (no parameter properties, no enums).
 - New features get an E2E step in `test/e2e/app.e2e.ts`; protocol logic gets unit or server tests.
-- Privacy rule: opening a chat must never contact hosts the user did not choose. Remote media only from user-listed hosts; YouTube is click-to-play (`youtube-nocookie.com`).
+- Privacy rule: opening a chat must never contact hosts the user did not choose. Remote media loads at once only from user-listed hosts; other direct media links (`MediaLink.svelte`) and YouTube (`youtube-nocookie.com`) wait for a click.
 
 ## Browser and CSP pitfalls (all hit before)
 

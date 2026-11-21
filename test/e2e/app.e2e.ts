@@ -390,6 +390,40 @@ try {
   assert.equal(await card.locator('iframe').getAttribute('src'), 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1&rel=0&start=90');
   console.log('ok: YouTube link plain by default, click-to-play when turned on');
 
+  // Direct links to media: a card that loads nothing until clicked, or at once from a listed host
+  const mediaHttp = await import('node:http');
+  const linkedPic = testPng(300, 200);
+  const clipWav = Buffer.alloc(44 + 8000);
+  clipWav.write('RIFF', 0); clipWav.writeUInt32LE(36 + 8000, 4); clipWav.write('WAVEfmt ', 8); clipWav.writeUInt32LE(16, 16);
+  clipWav.writeUInt16LE(1, 20); clipWav.writeUInt16LE(1, 22); clipWav.writeUInt32LE(8000, 24); clipWav.writeUInt32LE(8000, 28);
+  clipWav.writeUInt16LE(1, 32); clipWav.writeUInt16LE(8, 34); clipWav.write('data', 36); clipWav.writeUInt32LE(8000, 40); clipWav.fill(128, 44);
+  const mediaHits: string[] = [];
+  const mediaServer = mediaHttp.createServer((req, res) => {
+    mediaHits.push(req.url ?? '');
+    const body = req.url === '/pic.png' ? linkedPic : req.url === '/clip.wav' ? clipWav : null;
+    if (!body) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'Content-Type': req.url === '/pic.png' ? 'image/png' : 'audio/wav', 'Content-Length': body.length });
+    res.end(body);
+  });
+  await new Promise<void>(res => mediaServer.listen(0, '127.0.0.1', res));
+  const mediaHost = `127.0.0.1:${(mediaServer.address() as { port: number }).port}`;
+  bob.sendText({ channels: [0] }, `look <a href="http://${mediaHost}/pic.png">http://${mediaHost}/pic.png</a> and <a href="http://${mediaHost}/clip.wav">http://${mediaHost}/clip.wav</a>`);
+  const mediaMsg = page.locator('.msg', { hasText: 'look' });
+  await mediaMsg.locator('.ask').nth(1).waitFor();
+  await mediaMsg.getByText(`Picture from ${mediaHost}, click to show`).waitFor();
+  await page.waitForTimeout(300);
+  assert.deepEqual(mediaHits, [], 'nothing fetched before a click');
+  await mediaMsg.locator('.ask', { hasText: 'pic.png' }).locator('.load').click();
+  await page.waitForFunction(() => (document.querySelector('.msg .embed img[alt="pic.png"]') as HTMLImageElement)?.naturalWidth === 300);
+  assert.deepEqual(mediaHits, ['/pic.png'], 'only the clicked picture is fetched');
+  // "Always from this host" lists it in the settings; its media then loads at once
+  await mediaMsg.locator('.ask', { hasText: 'clip.wav' }).getByRole('button', { name: 'Always from this host' }).click();
+  await page.waitForFunction(() => ((document.querySelector('.msg .embed audio') as HTMLAudioElement)?.duration ?? 0) > 0.9);
+  assert.equal(await mediaMsg.locator('.ask').count(), 0);
+  assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).embedHosts as string[])).includes(mediaHost));
+  mediaServer.close();
+  console.log('ok: media links load when clicked, or at once from a listed host');
+
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;
   bob.sendText({ users: [alice.session] }, 'psst');
