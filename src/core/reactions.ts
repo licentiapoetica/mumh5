@@ -59,7 +59,8 @@ export function decodeReact(data: Uint8Array): ReactSignal | null {
 
 export interface Reactable { kind: string; ref?: string; authorSession: number | null; time: number }
 
-// The message a reaction is for: same digest and author, the one sent closest to the given age.
+// Text channel ids survive reconnects; their authors' session numbers do not.
+// Other messages match by digest and author, closest to the given age.
 // Ages instead of times, so clocks that disagree do not matter.
 export function findReacted<T extends Reactable>(entries: readonly T[], sig: Pick<ReactSignal, 'r' | 's' | 'a'>, now: number): T | undefined {
   const at = now - sig.a * 1000;
@@ -67,6 +68,7 @@ export function findReacted<T extends Reactable>(entries: readonly T[], sig: Pic
   let gap = Infinity;
   for (const e of entries) {
     if (e.kind !== 'text' || e.ref !== sig.r) continue;
+    if (sig.r.startsWith('t:')) return e;
     if (sig.s != null && e.authorSession != null && e.authorSession !== sig.s) continue;
     const g = Math.abs(e.time - at);
     if (g < gap) { best = e; gap = g; }

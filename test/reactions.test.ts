@@ -51,6 +51,12 @@ test('a reaction finds the message by ref, author and age', () => {
   assert.equal(findReacted([{ id: 9, kind: 'text', ref: 't:x', authorSession: null, time: 5 }], { r: 't:x', s: 3, a: 0 }, now)?.id, 9);
 });
 
+test('text channel message ids match after the author reconnects', () => {
+  const entry = { kind: 'text', ref: textRef('message-id'), authorSession: 9, time: 5 };
+  assert.equal(findReacted([entry], { r: entry.ref, s: 7, a: 10 }, 1_000_000), entry);
+  assert.equal(findReacted([entry], { r: textRef('another-id'), s: 9, a: 0 }, 1_000_000), undefined);
+});
+
 test('adding and removing reactions', () => {
   const a = { k: 'aa', name: 'alice' }, b = { k: 'bb', name: 'bob' };
   let list: Reaction[] = [];

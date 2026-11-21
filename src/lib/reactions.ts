@@ -8,7 +8,7 @@ import { store } from './settings.svelte.ts';
 const BURST = 4;
 const PER_SECOND = 1.5;
 
-interface Queued { id: string; to: number[]; packet: Uint8Array }
+interface Queued { id: string; to: number[]; sig: Omit<ReactSignal, 'a'>; time: number }
 interface State { queue: Queued[]; level: number; levelAt: number; timer: ReturnType<typeof setTimeout> | undefined }
 
 class Reactions {
@@ -36,11 +36,11 @@ class Reactions {
     const target = Number(id);
     const to = kind === 'dm' ? [target]
       : [...client.users.values()].filter(u => u.session !== client.session && (s.isText(target) || u.channelId === target)).map(u => u.session);
-    const sig: ReactSignal = {
+    const sig: Omit<ReactSignal, 'a'> = {
       c: kind === 'dm' ? null : target, r: entry.ref, s: entry.authorSession,
-      a: Math.max(0, Math.round((Date.now() - entry.time) / 1000)), e: emoji, on: want
+      e: emoji, on: want
     };
-    this.queue(s, `${key}|${entry.ref}|${emoji}`, to, encodeReact(sig));
+    this.queue(s, `${key}|${entry.id}|${emoji}`, to, sig, entry.time);
   }
 
   receive(s: Session, sender: number, dataId: string, data: Uint8Array): void {
@@ -61,13 +61,13 @@ class Reactions {
   }
 
   // A reaction switched on and off again before it went out is sent once, as it ends up
-  private queue(s: Session, id: string, to: number[], packet: Uint8Array): void {
+  private queue(s: Session, id: string, to: number[], sig: Queued['sig'], time: number): void {
     if (!to.length) return;
     let st = this.states.get(s);
     if (!st) this.states.set(s, st = { queue: [], level: 0, levelAt: Date.now(), timer: undefined });
     const waiting = st.queue.find(q => q.id === id);
-    if (waiting) Object.assign(waiting, { to, packet });
-    else st.queue.push({ id, to, packet });
+    if (waiting) Object.assign(waiting, { to, sig, time });
+    else st.queue.push({ id, to, sig, time });
     this.flush(s, st);
   }
 
@@ -83,9 +83,10 @@ class Reactions {
         return;
       }
       st.level++;
-      const { to, packet } = st.queue.shift()!;
+      const { to, sig, time } = st.queue.shift()!;
       const there = to.filter(id => client.users.has(id));
-      if (there.length) client.sendPluginData(there, REACT_DATA_ID, packet);
+      // Queuing can take seconds; measure the message's age when it actually goes out.
+      if (there.length) client.sendPluginData(there, REACT_DATA_ID, encodeReact({ ...sig, a: Math.max(0, (now - time) / 1000) }));
     }
   }
 }
