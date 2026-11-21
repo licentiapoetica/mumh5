@@ -1,10 +1,12 @@
 import { Emitter } from './emitter.ts';
 import { FrameReader, frame, type Codec, type MessageName } from './proto.ts';
 import type { Transport } from './transport.ts';
+import { LinkMeter } from './link-quality.ts';
 
 export const CLIENT_RELEASE = 'mumh5 0.2.0';
 const VERSION = { major: 1, minor: 5, patch: 0 };
-const PING_INTERVAL_MS = 15000;
+// Often enough for the connection wave to follow the link
+const PING_INTERVAL_MS = 5000;
 
 // Murmur drops these messages without telling the client when they come too fast
 // (leaky bucket, defaults messageburst=5 and messagelimit=1/s). Its bucket restarts its timer
@@ -192,6 +194,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
   // Force the TCP tunnel even when UDP would work (for networks that mangle UDP)
   forceTcp = false;
   rtt = 0;
+  readonly link = new LinkMeter();
   config: ServerConfig = { allowHtml: true, messageLength: 5000, imageMessageLength: 131072, maxUsers: 0, recordingAllowed: true };
 
   private transport: Transport | null = null;
@@ -333,6 +336,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
     return new Promise(resolve => {
       const at = Date.now();
       this.pingWaiters.push({ at, resolve });
+      this.link.sent(at);
       this.send('Ping', { timestamp: at });
     });
   }
@@ -510,7 +514,9 @@ export class MumbleClient extends Emitter<ClientEvents> {
   // ─── Incoming ──────────────────────────────────────────────────────────────
 
   private ping(): void {
-    this.send('Ping', { timestamp: Date.now() });
+    const at = Date.now();
+    this.link.sent(at);
+    this.send('Ping', { timestamp: at });
   }
 
   private handleClose(reason: string): void {
@@ -549,6 +555,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
         if (msg.timestamp) {
           const at = Number(msg.timestamp);
           this.rtt = Date.now() - at;
+          this.link.answered(this.rtt, at);
           this.emit('ping', this.rtt);
           if (this.pingWaiters.length) {
             const done = this.pingWaiters.filter(w => w.at <= at);

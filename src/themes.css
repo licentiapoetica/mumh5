@@ -322,6 +322,8 @@
 :root[data-theme="win95"] .panel > header .icon-btn,
 :root[data-theme="win95"] .sidebar header .icon-btn { width: 22px; height: 20px; }
 
+:root[data-theme="win95"] .conn-wave { display: none; }
+
 /* Windows and panels */
 :root[data-theme="win95"] .modal,
 :root[data-theme="win95"] .menu,

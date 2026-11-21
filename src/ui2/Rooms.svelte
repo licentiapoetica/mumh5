@@ -12,10 +12,12 @@
   import { makeServerIcon } from '../lib/images.ts';
   import { peopleOn } from '../lib/server-status.svelte.ts';
   import { PERM, type Channel } from '../core/client.ts';
+  import { describeLink } from '../core/link-quality.ts';
   import { stripMark } from '../core/text-signal.ts';
   import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
   import UserSelection from '../ui/UserSelection.svelte';
+  import ConnectionWave from '../ui/ConnectionWave.svelte';
 
   // The home screen: servers across the top, then every room of the server with the people
   // in it, text channels and direct messages. Rooms are a list, not a tree; where a room
@@ -158,9 +160,10 @@
   </nav>
 
   <header class="top">
+    {#if connected}<ConnectionWave />{/if}
     <button class="place" onclick={showCert} disabled={!cert} title={cert ? (cert.authorized ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <h1>{session.server?.label ?? 'mumh5'}</h1>
-      <span class="status">
+      <span class="status" role="status" onpointerenter={e => (e.currentTarget.title = describeLink(session.client?.link.read(Date.now())))}>
         {#if connected}<span class="dot"></span>Connected{#if session.rtt}, {session.rtt} ms{/if}{#if cert}<Icon name={cert.authorized ? 'lock' : 'shield'} size={12} />{/if}
         {:else if session.status === 'connecting'}Connecting...
         {:else if session.reconnectDelay != null}Waiting to reconnect
@@ -351,7 +354,7 @@
   .srv.add:hover .pic { color: var(--text); border-color: var(--text-dim); }
   .count { position: absolute; top: 0; right: 4px; min-width: 18px; padding: 0 4px; line-height: 16px; font-size: 10px; font-weight: 700; background: var(--danger); color: #fff; }
 
-  .top { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 0; }
+  .top { position: relative; isolation: isolate; flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 0; }
   .place { flex: 1; min-width: 0; padding: 4px 16px; text-align: left; }
   .place:disabled { opacity: 1; }
   h1 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -929,8 +929,16 @@ try {
     console.log('ok: link preview fetched directly');
   }
 
-  // Server certificate viewer from the header (the Docker server is self-signed, so no green header)
-  assert.equal(await page.locator('.sidebar header.trusted').count(), 0);
+  // The header wave follows the measured connection
+  await page.locator('.sidebar header canvas.conn-wave[data-tone="good"]').waitFor({ state: 'attached' });
+  await page.locator('.sidebar header .status').hover();
+  // With hints off the title is set aside while hovered and comes back afterwards
+  await page.locator('.sidebar header strong').hover();
+  await page.mouse.move(1, 1);
+  assert.match(await page.locator('.sidebar header .status').getAttribute('title') ?? '', /^Stable: \d+ ms, varies by \d+ ms$/);
+  console.log('ok: connection wave follows the measured link');
+
+  // Server certificate viewer from the header (the Docker server is self-signed)
   await page.locator('.sidebar header .title').click();
   await page.getByRole('dialog', { name: /Certificate of/ }).getByText('self-signed').waitFor();
   await page.getByRole('button', { name: 'Close', exact: true }).last().click();
