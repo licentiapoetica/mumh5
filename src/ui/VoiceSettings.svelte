@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { voice, type TransmitMode } from '../lib/audio/voice.svelte.ts';
+  import { voice, type NoiseEngine, type TransmitMode } from '../lib/audio/voice.svelte.ts';
   import { session, sessions } from '../lib/session.svelte.ts';
 
   function setForceTcp(on: boolean) {
@@ -116,7 +116,25 @@
   <h3>Processing</h3>
   <label class="check"><input type="checkbox" checked={s.releaseMicMuted} onchange={e => voice.update({ releaseMicMuted: e.currentTarget.checked })} /> Give the microphone back while muted</label>
   <p class="help">For Bluetooth headsets: with the microphone open, a headset switches to its telephone mode and everything sounds like a phone call. Muted, you then hear in full quality. To talk in full quality too, choose the phone's own microphone above instead of the headset's. No reminder when you speak while muted.{#if s.releaseMicMuted && voice.running} <strong>{voice.micOpen ? 'The microphone is open now.' : 'The microphone is given back now.'}</strong>{/if}</p>
-  <label class="check"><input type="checkbox" checked={s.noiseSuppression} onchange={e => voice.update({ noiseSuppression: e.currentTarget.checked })} /> Noise suppression</label>
+  <label for="v-noise">Noise suppression</label>
+  <select id="v-noise" value={s.noiseSuppression ? s.noiseEngine : 'off'}
+    onchange={e => {
+      const v = e.currentTarget.value;
+      voice.update(v === 'off' ? { noiseSuppression: false } : { noiseSuppression: true, noiseEngine: v as NoiseEngine });
+    }}>
+    <option value="deepfilter">Strong (DeepFilterNet)</option>
+    <option value="browser">Standard (browser)</option>
+    <option value="off">Off</option>
+  </select>
+  {#if s.noiseSuppression && s.noiseEngine === 'deepfilter'}
+    <p class="help" class:warn={voice.denoise === 'failed' || voice.denoise === 'overloaded'} data-denoise={voice.denoise}>
+      {#if voice.denoise === 'failed'}Could not load DeepFilterNet. Using the standard filter.
+      {:else if voice.denoise === 'overloaded'}This device is too slow for DeepFilterNet. Using the standard filter.
+      {:else if voice.denoise === 'loading'}Loading DeepFilterNet. Using the standard filter until it is ready.
+      {:else if voice.denoise === 'on'}DeepFilterNet is active. It runs on this device and adds about 30 ms of delay.
+      {:else}Runs on this device and adds about 30 ms of delay. In the browser it is a 10 MB download the first time.{/if}
+    </p>
+  {/if}
   <label class="check"><input type="checkbox" checked={s.echoCancellation} onchange={e => voice.update({ echoCancellation: e.currentTarget.checked })} /> Echo cancellation (for speakers instead of headphones)</label>
   <label class="check"><input type="checkbox" checked={s.autoGainControl} onchange={e => voice.update({ autoGainControl: e.currentTarget.checked })} /> Automatic gain control</label>
 

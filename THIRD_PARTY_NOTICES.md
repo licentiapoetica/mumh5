@@ -56,3 +56,11 @@ audio codec of their own. The package is MIT licensed, Copyright (c) 2021-presen
 libopus is under the three-clause BSD license, Copyright 2001-2011 Xiph.Org, Skype Limited,
 Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding,
 Erik de Castro Lopo.
+
+## DeepFilterNet
+
+DeepFilterNet3 (https://github.com/Rikorose/DeepFilterNet), used for noise suppression. The engine
+(`vendor/deepfilternet/df.wasm`) is built from upstream's libDF by `scripts/build-deepfilter.sh`,
+and the model (`DeepFilterNet3_onnx.bin`) is upstream's `DeepFilterNet3_onnx.tar.gz`. Copyright (c) 2021 Hendrik Schröter.
+Licensed under the MIT license or the Apache License 2.0, at your option; the full texts are in
+`vendor/deepfilternet/`.

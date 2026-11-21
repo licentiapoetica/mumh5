@@ -304,6 +304,28 @@ try {
   assert.equal(await page2.getByText('Voice is not working').count(), 0);
   console.log(`ok: voice with the built-in Opus codec (${fromCarol[0].opus.length} bytes per packet)`);
 
+  // The strong noise filter is a choice here: loaded from this site only, the engine compressed,
+  // and kept out of the offline cache
+  const filterAsked: string[] = [];
+  const onFilterRequest = (r: { url(): string }) => { if (/\/assets\/(df-|DeepFilterNet3)/.test(r.url())) filterAsked.push(r.url()); };
+  page.on('request', onFilterRequest);
+  await page.getByTitle('Settings').click();
+  assert.equal(await page.locator('#v-noise').inputValue(), 'browser');
+  await page.locator('#v-noise').selectOption('deepfilter');
+  await page.locator('[data-denoise="on"]').waitFor({ timeout: 60000 });
+  await page.locator('#v-noise').selectOption('browser');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  page.off('request', onFilterRequest);
+  const site = new URL(page.url()).origin;
+  assert.equal(new Set(filterAsked).size, 2, 'the engine and the model');
+  assert.ok(filterAsked.every(u => u.startsWith(`${site}/`)), 'from this site only');
+  const engine = await fetch(filterAsked.find(u => u.endsWith('.wasm'))!, { headers: { 'Accept-Encoding': 'br' } });
+  assert.equal(engine.headers.get('content-encoding'), 'br');
+  assert.ok(WebAssembly.validate(await engine.arrayBuffer()), 'decompresses to valid wasm');
+  const worker = await (await fetch(`${site}/sw.js`)).text();
+  assert.ok(!/df-[^"]*\.wasm|DeepFilterNet3/.test(worker), 'not in the offline cache');
+  console.log('ok: DeepFilterNet in the browser');
+
   await page.locator('.me').getByRole('button', { name: 'Share your screen' }).click();
   await page.getByRole('button', { name: 'Continue' }).click();
   const dialog = page.getByRole('dialog', { name: 'Share your screen' });

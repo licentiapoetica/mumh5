@@ -2,11 +2,16 @@ import { WasmEncoder, WasmDecoder, type Opus } from './opus-wasm.ts';
 import { loadOpus } from './opus-load.ts';
 import captureUrl from './capture.worklet.ts?worker&url';
 import playbackUrl from './playback.worklet.ts?worker&url';
+import denoiseUrl from './denoise.worklet.ts?worker&url';
+import { loadDeepFilter } from './denoise-load.ts';
 import { encodeVoice, decodeVoice } from '../../core/voice-packet.ts';
 import type { MumbleClient } from '../../core/client.ts';
 import { load, save } from '../storage.ts';
+import { desktop } from '../native.ts';
 
 export type TransmitMode = 'vad' | 'ptt' | 'continuous';
+export type NoiseEngine = 'browser' | 'deepfilter';
+export type DenoiseState = 'off' | 'loading' | 'on' | 'failed' | 'overloaded';
 
 export interface VoiceSettings {
   inputDevice: string;
@@ -19,6 +24,7 @@ export interface VoiceSettings {
   outputVolume: number;      // 0..2
   echoCancellation: boolean;
   noiseSuppression: boolean;
+  noiseEngine: NoiseEngine;  // which filter noiseSuppression uses
   autoGainControl: boolean;
   bitrate: number;           // Opus bits per second
   frameMs: 10 | 20 | 40 | 60;
@@ -46,6 +52,8 @@ const defaults: VoiceSettings = {
   outputVolume: 1,
   echoCancellation: true,
   noiseSuppression: true,
+  // In the browser the strong filter is a large download, so it is a choice there
+  noiseEngine: desktop ? 'deepfilter' : 'browser',
   autoGainControl: true,
   bitrate: 40000,
   frameMs: 20,
@@ -72,6 +80,7 @@ class VoiceEngine {
   running = $state(false);
   micOpen = $state(false);     // the microphone is held right now
   error = $state('');
+  denoise = $state<DenoiseState>('off');
   level = $state(-100);        // current input level, dBFS
   transmitting = $state(false);
   pttDown = $state(false);
@@ -87,6 +96,9 @@ class VoiceEngine {
   private outputGainNode: GainNode | null = null;
   private capture: AudioWorkletNode | null = null;
   private playback: AudioWorkletNode | null = null;
+  private denoiser: AudioWorkletNode | null = null;
+  private denoiseRun = 0;        // a load or node from an earlier run is stale
+  private micNoise = false;      // whether the open microphone uses the browser's filter
   // The browser's Opus codec (WebCodecs), or our own in WebAssembly where the browser has none
   private opus: Opus | null = null;
   private encoder: AudioEncoder | WasmEncoder | null = null;
@@ -130,7 +142,13 @@ class VoiceEngine {
     if ('jitterMs' in patch) this.playback?.port.postMessage({ jitterMs: this.settings.jitterMs });
     if ('outputDevice' in patch) this.applyOutputDevice();
     if ('bitrate' in patch || 'frameMs' in patch) this.configureEncoder();
-    if (['inputDevice', 'echoCancellation', 'noiseSuppression', 'autoGainControl'].some(k => k in patch)) this.syncInput(true);
+    if ('noiseSuppression' in patch || 'noiseEngine' in patch) {
+      // A new choice gets a new try after a failure
+      if (this.denoise === 'failed' || this.denoise === 'overloaded') this.denoise = 'off';
+      this.syncDenoise();
+      this.applyMicNoise();
+    }
+    if (['inputDevice', 'echoCancellation', 'autoGainControl'].some(k => k in patch)) this.syncInput(true);
     else if ('releaseMicMuted' in patch) this.syncInput();
   }
 
@@ -188,6 +206,8 @@ class VoiceEngine {
       await ctx.resume();
       this.levelTimer = setInterval(() => { this.level = this.levelRaw; }, 50);
       this.running = true;
+      // Not awaited: voice works with the browser's filter until the model is ready
+      this.syncDenoise();
       await this.refreshDevices();
     } catch (e) {
       this.error = (e as Error).message;
@@ -206,6 +226,10 @@ class VoiceEngine {
     this.decoders.clear();
     try { this.encoder?.close(); } catch { /* closed */ }
     this.encoder = null;
+    this.denoiseRun++;
+    this.denoiser = null;
+    // A device that was too slow stays on the browser's filter until the setting changes
+    if (this.denoise !== 'overloaded') this.denoise = 'off';
     await this.ctx?.close().catch(() => {});
     this.ctx = null;
     this.capture = this.playback = null;
@@ -245,13 +269,14 @@ class VoiceEngine {
     this.stream = null;
     this.micOpen = false;
     const s = this.settings;
+    const browserNoise = this.browserNoise();
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: s.inputDevice && s.inputDevice !== 'default' ? { exact: s.inputDevice } : undefined,
           echoCancellation: s.echoCancellation,
-          noiseSuppression: s.noiseSuppression,
+          noiseSuppression: browserNoise,
           autoGainControl: s.autoGainControl,
           channelCount: 1,
           sampleRate: SAMPLE_RATE
@@ -262,13 +287,94 @@ class VoiceEngine {
       return;
     }
     // Muted again, or opened a second time, while the browser was getting the microphone
-    if (!this.ctx || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
+    if (!this.ctx || !this.inputGainNode || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
     this.stream = stream;
+    this.micNoise = browserNoise;
     this.micOpen = true;
     this.error = '';
     this.source = this.ctx.createMediaStreamSource(this.stream);
-    this.source.connect(this.inputGainNode);
+    this.source.connect(this.denoiser ?? this.inputGainNode);
     this.refreshDevices();
+    // The model became ready, or failed, while the browser was getting the microphone
+    this.applyMicNoise();
+  }
+
+  // ─── Noise suppression ──────────────────────────────────────────────────────
+
+  // Two filters in a row damage speech, so the browser's runs only without the model
+  private browserNoise(): boolean {
+    return this.settings.noiseSuppression && !this.denoiser;
+  }
+
+  private applyMicNoise(): void {
+    if (this.stream && this.micNoise !== this.browserNoise()) this.syncInput(true);
+  }
+
+  private routeMic(): void {
+    if (!this.source || !this.inputGainNode) return;
+    this.source.disconnect();
+    this.source.connect(this.denoiser ?? this.inputGainNode);
+  }
+
+  private async syncDenoise(): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx || !this.inputGainNode) return;
+    const s = this.settings;
+    if (!s.noiseSuppression || s.noiseEngine !== 'deepfilter') {
+      this.dropDenoiser();
+      this.denoise = 'off';
+      return;
+    }
+    if (this.denoiser || this.denoise === 'loading' || this.denoise === 'overloaded') return;
+    const run = ++this.denoiseRun;
+    this.denoise = 'loading';
+    try {
+      const { module, model } = await loadDeepFilter();
+      if (run !== this.denoiseRun) return;
+      await ctx.audioWorklet.addModule(denoiseUrl);
+      if (run !== this.denoiseRun) return;
+      const node = new AudioWorkletNode(ctx, 'mumh5-denoise', {
+        numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+        channelCount: 1, channelCountMode: 'explicit', processorOptions: { module, model }
+      });
+      node.port.onmessage = e => this.onDenoiser(node, run, e.data);
+      node.onprocessorerror = () => this.onDenoiser(node, run, { failed: 'Processor error' });
+    } catch (e) {
+      console.warn('DeepFilterNet could not load:', e);
+      if (run === this.denoiseRun) this.denoise = 'failed';
+    }
+  }
+
+  private onDenoiser(node: AudioWorkletNode, run: number, msg: { ready?: boolean; failed?: string; overloaded?: boolean }): void {
+    if (run !== this.denoiseRun || !this.inputGainNode) return this.closeDenoiser(node);
+    if (msg.ready) {
+      node.connect(this.inputGainNode);
+      this.denoiser = node;
+      this.denoise = 'on';
+      this.routeMic();
+      this.applyMicNoise();
+      return;
+    }
+    if (msg.failed) console.warn('DeepFilterNet could not start:', msg.failed);
+    this.closeDenoiser(node);
+    this.dropDenoiser();
+    this.denoise = msg.overloaded ? 'overloaded' : 'failed';
+  }
+
+  private dropDenoiser(): void {
+    this.denoiseRun++;
+    const node = this.denoiser;
+    this.denoiser = null;
+    this.routeMic();
+    if (node) this.closeDenoiser(node);
+    this.applyMicNoise();
+  }
+
+  private closeDenoiser(node: AudioWorkletNode): void {
+    node.port.onmessage = null;
+    node.onprocessorerror = null;
+    node.disconnect();
+    node.port.postMessage({ close: true });
   }
 
   private async applyOutputDevice(): Promise<void> {
