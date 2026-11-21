@@ -36,7 +36,6 @@ The picture goes straight from you to the people watching, not through a company
 | Linux, AppImage | [mumh5-linux-x64.AppImage](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.AppImage) (make it executable, then run it; FUSE support is bundled) |
 | Debian, Ubuntu | [mumh5-linux-x64.deb](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.deb) |
 | Linux, portable | [mumh5-linux-x64.tar.gz](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.tar.gz) (runs from its folder, or installs with the script inside) |
-| macOS, Apple Silicon | [mumh5-mac-arm64.dmg](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-mac-arm64.dmg) (unsigned) |
 
 Older builds use an AppImage runtime that requires the system's FUSE 2 library. Current builds bundle a static FUSE runtime instead. If an older AppImage stops with `dlopen(): error loading libfuse.so.2`, download a new build, or run it without FUSE by extracting it at launch:
 
@@ -65,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/licentiapoetica/mumh5/main/scripts/
 
 To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/uninstall.sh`). Your settings and identities stay in `~/.config/mumh5`; `uninstall.sh --purge` deletes them too, after asking. Back up your identity first. The Windows installer has its own uninstaller in the system settings; the `.deb` is removed with `sudo apt remove mumh5`.
 
-For macOS Apple Silicon, download the unsigned `.dmg` above, or build it on a Mac from the source.
+Automated macOS builds are disabled. To use mumh5 on macOS, build it on a Mac from the source.
 
 ## A look around
 
@@ -124,6 +123,7 @@ On a phone or in a narrow window, everything fits on one screen:
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
+- Emoji reactions on messages: the button on a message, its right-click menu, or a click on a reaction to add or take back yours. Only mumh5 users see them
 - Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 (plus a system notification and a blinking tray icon while the window is in the background) and arrives as a private message in other Mumble clients
 - Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
 - Inline pictures, video and audio for shared files
@@ -155,8 +155,13 @@ On a phone or in a narrow window, everything fits on one screen:
 - 100 color schemes with a search box. Eleven are made by hand, the rest are generated from a hue and an accent
 
 ### Sounds
-- Notification sounds for joins, leaves, messages, mute, push to talk, kicks and more
-- Replace any sound with your own file, or load a sound pack at once (matched by file name)
+- Configurable sounds for joins, leaves, messages, mute, push to talk, kicks and more. Only connection loss, direct messages and pokes play by default
+- Bundled Chatterbox female voice pack. In Settings > Sounds, import a ZIP pack, choose a clip or an individual audio file per event, adjust volume, preview, or restore the standard pack and quiet defaults
+- ZIP and notification-folder imports grow a personal pack library. Choose the active pack in the Audio pack selector, including the standard pack at any time. Reimporting identical audio keeps one entry, even from a differently named folder or ZIP. Removing a pack leaves the others saved; resetting to built-in also keeps the library
+- ZIP packs have notification folders directly at the root, for example `AudioNotification/SelfMute.wav`, `MessageNotification/PrivateTextMessage.wav` and `PermissionNotification/Denied/ChannelFull.wav`. `manifest.json` and `README.md` are optional. WAV clips are mapped by exact path; missing clips use the standard pack. All clips are available in each event's selector. App-specific events without a matching clip use short tones
+- ZIP packs are limited to 32 MB compressed, 64 MB of audio expanded, 512 entries and 4 MB per clip. Notification folders are saved uncompressed and limited to 32 MB. The standard pack is fetched when the first sound plays or Settings > Sounds opens, so it is not part of the browser build's offline files. TeamSpeak 3 folders (`settings.ini`) and loose audio files are also supported
+- Desktop sound preferences and the library list are in `sounds.json` beside identities and other user settings (`~/.config/mumh5` on Linux); library archives are in `sounds/packs/` in that directory. Existing custom sounds migrate there on first use, and a previously imported ZIP becomes a library entry. The browser keeps preferences locally and audio in IndexedDB
+- Importing or switching packs sets individual files aside so the selected pack takes effect, without deleting them ("Use my file" brings one back), and keeps your event on/off choices and clip selections. "Reset all to built-in" deletes those files. "Use quiet defaults" restores the three default events, which are also what new installs start with; existing installs keep the sounds they had. Sounds use the selected voice output device and play one at a time, without a backlog. Mic changes, connection loss, direct messages and pokes replace the clip playing; other events are skipped while one plays
 
 ### Servers and identity
 - Server list with custom icons, your own order, connection status and unread counts
@@ -329,8 +334,8 @@ Installers are written to `release/`. The Windows installer also builds on Linux
 On GitHub, `.github/workflows/build.yml` builds the latest commit on every push to
 `main`, on pull requests targeting `main`, or manually from **Actions → Build
 desktop app and Docker image → Run workflow** (choose the branch to build).
-It runs type checks and tests, then packages Linux x64 (AppImage, `.deb`, `.tar.gz`),
-Windows x64 (`.exe`), and macOS Apple Silicon (`.dmg`) apps. Successful builds from
+It runs type checks and tests, then packages Linux x64 (AppImage, `.deb`, `.tar.gz`)
+and Windows x64 (`.exe`) apps. Successful builds from
 `main` update the [Latest snapshot prerelease](https://github.com/licentiapoetica/mumh5/releases/tag/snapshot)
 with direct installer downloads and SHA256 checksums. The `snapshot` tag tracks the
 built commit, and download filenames stay the same across updates. Release assets
@@ -375,6 +380,10 @@ src/ui2/    Rooms interface, using the same state, actions and dialogs
 proto/      Mumble.proto and MumbleUDP.proto from upstream
 test/       unit, server and end-to-end tests
 ```
+
+### Design notes
+
+- [docs/mumpeer-relay.md](docs/mumpeer-relay.md): Mumcord's community relay (mumpeer and the `mumbot peer` bot), its protocol, and a plan for carrying mumh5's screen sharing through it. Not implemented yet.
 
 ---
 

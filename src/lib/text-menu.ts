@@ -55,7 +55,11 @@ export function startTextMenu(): void {
       // The message under the pointer, as plain text
       const msg = document.elementFromPoint(p.x, p.y)?.closest('.msg, .system');
       const text = msg?.querySelector('.html')?.textContent?.trim();
-      if (text) add([{ label: 'Copy message text', action: () => navigator.clipboard.writeText(text) }]);
+      add([
+        ...(text ? [{ label: 'Copy message text', action: () => navigator.clipboard.writeText(text) }] : []),
+        // Message.svelte opens the emoji picker at the message
+        ...(msg?.matches('[data-reactable]') ? [{ label: 'Add reaction', action: () => msg.dispatchEvent(new Event('mumh5:react')) }] : [])
+      ]);
     }
 
     if (items.length) menu.showAt(p.x, p.y, items, true);

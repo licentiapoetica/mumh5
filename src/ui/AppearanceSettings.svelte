@@ -39,35 +39,29 @@
   }
 </script>
 
-<h3>Color scheme</h3>
-<div class="narrow">
-  <input type="search" placeholder="Find a color scheme" aria-label="Find a color scheme" bind:value={find} />
-  <div class="shades" role="group" aria-label="Show">
-    {#each ['all', 'dark', 'light'] as const as k (k)}
-      <button class:on={shade === k} aria-pressed={shade === k} onclick={() => (shade = k)}>{k === 'all' ? `All ${THEMES.length}` : k === 'dark' ? 'Dark' : 'Light'}</button>
-    {/each}
-  </div>
+<h3>Role icons</h3>
+<div class="role-opts">
+  <label for="role-icons">Show next to names</label>
+  <select id="role-icons" value={store.settings.roleIcons ?? 'all'}
+    onchange={e => { store.settings.roleIcons = e.currentTarget.value as 'all' | 'top' | 'off'; store.saveSettings(); }}>
+    <option value="all">All roles</option>
+    <option value="top">Top role only</option>
+    <option value="off">Off</option>
+  </select>
+  <label class="role-check"><input type="checkbox" checked={store.settings.roleColors !== false}
+    onchange={e => { store.settings.roleColors = e.currentTarget.checked; store.saveSettings(); }} /> Color names by top role</label>
 </div>
-<div class="themes" role="radiogroup" aria-label="Color scheme">
-  {#each shown as t (t.id)}
-    <button role="radio" aria-checked={store.settings.theme === t.id} class:active={store.settings.theme === t.id}
-      onclick={() => pick(t.id)} aria-label={t.name}>
-      <!-- A miniature of the app in that theme -->
-      <span class="mini" data-theme-preview={t.id} aria-hidden="true">
-        <span class="m-rail"><span></span><span></span></span>
-        <span class="m-side"><i></i><i class="sel"></i><i></i></span>
-        <span class="m-chat">
-          <span class="m-head"></span>
-          <i class="a"></i><i></i><i class="short"></i>
-          <span class="m-box"></span>
-        </span>
-      </span>
-      <span class="name">{t.name}</span>
-      <span class="note">{t.note}</span>
-    </button>
-  {/each}
+
+<h3 class="gap">People</h3>
+<div class="role-opts">
+  <label for="avatars">Show people as</label>
+  <select id="avatars" value={store.settings.avatars}
+    onchange={e => { store.settings.avatars = e.currentTarget.value as 'pictures' | 'spheres'; store.saveSettings(); }}>
+    <option value="pictures">Pictures</option>
+    <option value="spheres">Spheres</option>
+  </select>
 </div>
-{#if !shown.length}<p class="nothing">No color scheme matches.</p>{/if}
+<p class="help">Chat, members, profiles and voice tiles keep the picture.</p>
 
 <h3 class="gap">Interface</h3>
 <div class="themes" role="radiogroup" aria-label="Interface">
@@ -91,30 +85,6 @@
     </button>
   {/each}
 </div>
-
-<h3 class="gap">Role icons</h3>
-<div class="role-opts">
-  <label for="role-icons">Show next to names</label>
-  <select id="role-icons" value={store.settings.roleIcons ?? 'all'}
-    onchange={e => { store.settings.roleIcons = e.currentTarget.value as 'all' | 'top' | 'off'; store.saveSettings(); }}>
-    <option value="all">All roles</option>
-    <option value="top">Top role only</option>
-    <option value="off">Off</option>
-  </select>
-  <label class="role-check"><input type="checkbox" checked={store.settings.roleColors !== false}
-    onchange={e => { store.settings.roleColors = e.currentTarget.checked; store.saveSettings(); }} /> Color names by top role</label>
-</div>
-
-<h3 class="gap">People</h3>
-<div class="role-opts">
-  <label for="avatars">Show people as</label>
-  <select id="avatars" value={store.settings.avatars}
-    onchange={e => { store.settings.avatars = e.currentTarget.value as 'pictures' | 'spheres'; store.saveSettings(); }}>
-    <option value="pictures">Pictures</option>
-    <option value="spheres">Spheres</option>
-  </select>
-</div>
-<p class="help">Chat, members, profiles and voice tiles keep the picture.</p>
 
 {#if (store.settings.interface ?? 'standard') === 'standard'}
 <h3 class="gap">Layout</h3>
@@ -151,6 +121,36 @@
 {/if}
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
 {/if}
+
+<h3 class="gap">Color scheme</h3>
+<div class="narrow">
+  <input type="search" placeholder="Find a color scheme" aria-label="Find a color scheme" bind:value={find} />
+  <div class="shades" role="group" aria-label="Show">
+    {#each ['all', 'dark', 'light'] as const as k (k)}
+      <button class:on={shade === k} aria-pressed={shade === k} onclick={() => (shade = k)}>{k === 'all' ? `All ${THEMES.length}` : k === 'dark' ? 'Dark' : 'Light'}</button>
+    {/each}
+  </div>
+</div>
+<div class="themes" role="radiogroup" aria-label="Color scheme">
+  {#each shown as t (t.id)}
+    <button role="radio" aria-checked={store.settings.theme === t.id} class:active={store.settings.theme === t.id}
+      onclick={() => pick(t.id)} aria-label={t.name}>
+      <!-- A miniature of the app in that theme -->
+      <span class="mini" data-theme-preview={t.id} aria-hidden="true">
+        <span class="m-rail"><span></span><span></span></span>
+        <span class="m-side"><i></i><i class="sel"></i><i></i></span>
+        <span class="m-chat">
+          <span class="m-head"></span>
+          <i class="a"></i><i></i><i class="short"></i>
+          <span class="m-box"></span>
+        </span>
+      </span>
+      <span class="name">{t.name}</span>
+      <span class="note">{t.note}</span>
+    </button>
+  {/each}
+</div>
+{#if !shown.length}<p class="nothing">No color scheme matches.</p>{/if}
 
 <style>
   .role-opts { max-width: 280px; }

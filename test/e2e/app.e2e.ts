@@ -4,10 +4,12 @@
 import { _electron as electron, type Locator } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { zipSync } from 'fflate';
+import { readAudioPack } from '../../src/core/audio-pack.ts';
 import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
@@ -17,6 +19,7 @@ import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
 import { byOrder } from '../../src/core/channel-order.ts';
 import { encodePoke, decodePoke } from '../../src/core/poke.ts';
+import { REACT_DATA_ID, decodeReact, encodeReact, messageRef, type ReactSignal } from '../../src/core/reactions.ts';
 import { TEXT, TEXT_DATA_ID, TEXT_MARK, TextAssembler, encodeText, parseMsg, parseHistory } from '../../src/core/text-signal.ts';
 import {
   FILE, FILE_DATA_ID, FileAssembler, Sender, pump as pumpPieces, announce, takeFiles, encodeFileSignal, isPiece, parsePiece, decode15, encode15,
@@ -128,6 +131,37 @@ try {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('tab', { name: 'Sounds' }).click();
+  // Audio packs: a fresh profile is quiet, and an imported pack joins the library
+  const soundsIdle = () => page.waitForFunction(() => !!document.querySelector('fieldset:not([disabled])'));
+  await soundsIdle();
+  assert.equal(await page.locator('.events input:checked').count(), 3, 'quiet defaults');
+  const packSelect = page.getByLabel('Audio pack', { exact: true });
+  const standardClips = readAudioPack(readFileSync(new URL('../../src/assets/default-audio-pack.zip', import.meta.url)));
+  const e2ePack = zipSync({ 'AudioNotification/SelfMute.wav': standardClips.get('AudioNotification/SelfUnmute.wav')! });
+  await page.getByRole('checkbox', { name: 'You deafened', exact: true }).check();
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'e2e-pack.zip', mimeType: 'application/zip', buffer: Buffer.from(e2ePack) });
+  await page.locator('.help strong').getByText('e2e-pack.zip', { exact: true }).waitFor();
+  await soundsIdle();
+  assert.equal(await packSelect.locator('option').count(), 2);
+  assert.equal(await page.locator('.events input:checked').count(), 4, 'importing keeps event choices');
+  await packSelect.selectOption('');
+  await page.locator('.help strong').getByText('Chatterbox female (standard)', { exact: true }).waitFor();
+  await soundsIdle();
+  await packSelect.selectOption({ label: 'e2e-pack.zip' });
+  await page.locator('.help strong').getByText('e2e-pack.zip', { exact: true }).waitFor();
+  await soundsIdle();
+  await page.getByRole('button', { name: 'Remove pack', exact: true }).click();
+  await page.locator('.help strong').getByText('Chatterbox female (standard)', { exact: true }).waitFor();
+  await soundsIdle();
+  assert.equal(await packSelect.locator('option').count(), 1);
+  await page.getByRole('button', { name: 'Use quiet defaults' }).click();
+  assert.equal(await page.locator('.events input:checked').count(), 3);
+  console.log('ok: audio pack import, library, switching, removal and quiet defaults');
+  // The tests below exercise optional sounds.
+  for (const name of ['You connected', 'Channel message', 'You muted', 'You unmuted', 'Someone connected into your channel']) {
+    await page.getByRole('checkbox', { name, exact: true }).check();
+  }
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.app.side').waitFor();
   console.log('ok: stacked by default');
@@ -372,6 +406,38 @@ try {
   await emojiPop.waitFor({ state: 'detached' });
   await page.evaluate(() => localStorage.removeItem('mumh5.emojiTone'));
   console.log('ok: emoji picker with the full palette, search and skin tone');
+
+  // Reactions: plugin data to the people in the channel, naming the message by its text, author and age
+  const reactHtml = 'react to this, alice';
+  const reactMsg = page.locator('.chat .msg', { hasText: reactHtml });
+  const reactSignals: ReactSignal[] = [];
+  const offReact = bob.on('pluginData', (_from, id, data) => { const sig = id === REACT_DATA_ID ? decodeReact(data) : null; if (sig) reactSignals.push(sig); });
+  const nextReact = (n: number) => within(new Promise<ReactSignal>(res => { const check = () => (reactSignals.length > n ? res(reactSignals[n]) : setTimeout(check, 50)); check(); }), 'reaction signal');
+  bob.sendText({ channels: [0] }, reactHtml);
+  await reactMsg.waitFor();
+  await reactMsg.hover();
+  await reactMsg.getByRole('button', { name: 'Add reaction' }).first().click();
+  await emojiPop.getByLabel('Search emoji').fill('thumbs up');
+  await emojiPop.locator('.emoji-cell').first().click();
+  await emojiPop.waitFor({ state: 'detached' });
+  const thumbs = '\u{1F44D}', party = '\u{1F389}';
+  const added = await nextReact(0);
+  assert.deepEqual({ ...added, a: 0 }, { c: 0, r: messageRef(reactHtml), s: bob.session, a: 0, e: thumbs, on: true });
+  const thumbsChip = reactMsg.locator('.reaction', { hasText: thumbs });
+  await reactMsg.locator('.reaction.mine', { hasText: `${thumbs}1` }).waitFor();
+  // Bob reacts to the same message, once with the same emoji and once with another
+  const fromBob = (e: string) => bob.sendPluginData([aliceSession()], REACT_DATA_ID, encodeReact({ c: 0, r: messageRef(reactHtml), s: bob.session, a: 1, e, on: true }));
+  fromBob(thumbs);
+  fromBob(party);
+  await reactMsg.locator('.reaction.mine', { hasText: `${thumbs}2` }).waitFor();
+  await reactMsg.locator('.reaction:not(.mine)', { hasText: `${party}1` }).waitFor();
+  assert.equal(await thumbsChip.getAttribute('title'), `You and bob reacted with ${thumbs}`);
+  // A click on your own takes it back
+  await thumbsChip.click();
+  assert.equal((await nextReact(1)).on, false);
+  await reactMsg.locator('.reaction:not(.mine)', { hasText: `${thumbs}1` }).waitFor();
+  offReact();
+  console.log('ok: reactions sent, received and taken back');
 
   // Code: ```fences``` in the message box (Enter inside one adds a line), sent as <pre> with the language as title
   const gotFence = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('def f')) res(m.html); }));

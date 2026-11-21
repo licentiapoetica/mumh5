@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { IdentityStore } from './identity-store.ts';
 import { SavedState, isSavedKey, isSavedValue } from './saved-state.ts';
+import { SoundStore } from './sound-store.ts';
 import { describeCert } from './certs.ts';
 import * as tray from './tray.ts';
 import { fetchLinkPreview } from './link-preview.ts';
@@ -46,6 +47,14 @@ ipcMain.on('state:write', (e, key: unknown, raw: unknown) => {
     e.returnValue = false;
   }
 });
+
+let soundStore: SoundStore | null = null;
+const soundFiles = () => (soundStore ??= new SoundStore(app.getPath('userData')));
+ipcMain.handle('sounds:load', () => soundFiles().load());
+ipcMain.handle('sounds:save', (_e, settings: unknown) => soundFiles().save(settings));
+ipcMain.handle('sounds:read', (_e, key: string) => soundFiles().read(key));
+ipcMain.handle('sounds:write', (_e, key: string, bytes: Uint8Array) => soundFiles().write(key, bytes));
+ipcMain.handle('sounds:remove', (_e, key: string) => soundFiles().remove(key));
 
 // ─── Mumble TLS connections, one per renderer request ─────────────────────────
 
