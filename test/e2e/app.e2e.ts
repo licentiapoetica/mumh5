@@ -1663,6 +1663,16 @@ try {
   await homeOver.waitFor({ state: 'detached' });
   assert.equal(await page.locator('.rail .tile.active').count(), 1);
   assert.match(await page.locator('.rail .tile.active').getAttribute('title') ?? '', /^Second/);
+
+  // Double click: on a server it closes the list, on the button it opens it and stays open
+  await page.locator('.rail .tile[title^="Second"]').dblclick();
+  await page.locator('.rail').waitFor({ state: 'detached' });
+  await page.locator('.server-btn').dblclick();
+  await page.locator('.rail').waitFor();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('.rail').count(), 1, 'the second click does not close it again');
+  await page.locator('.sidebar .title', { hasText: 'Second' }).waitFor();
+  assert.equal(await page.getByRole('dialog').count(), 0, 'the second click opens nothing');
   console.log('ok: right-click on the current server button');
 
   // Reorder by dragging Second above Test Server

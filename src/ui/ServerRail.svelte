@@ -39,9 +39,16 @@
     dropIndex = null;
   }
 
+  // A double click on the collapsed button opens the list under the pointer. Its second click
+  // lands on whatever tile appeared there and must not switch servers or close the list again.
+  let firstClickHere = false;
+  function guardClick(e: MouseEvent) {
+    if (e.detail <= 1) firstClickHere = true;
+    else if (!firstClickHere) { e.preventDefault(); e.stopPropagation(); }
+  }
 </script>
 
-<nav class="rail" aria-label="Servers" ondrop={onDrop} ondragover={e => { if (dragging) e.preventDefault(); }}>
+<nav class="rail" aria-label="Servers" onclickcapture={guardClick} ondrop={onDrop} ondragover={e => { if (dragging) e.preventDefault(); }}>
   {#each store.servers as s, i (s.id)}
     {@const state = stateOf(s.id)}
     {@const unread = unreadOf(s.id)}
@@ -55,6 +62,7 @@
       ondragend={() => { dragging = null; dropIndex = null; }}
       ondragover={e => onDragOver(e, i)}
       onclick={() => sessions.open(s)}
+      ondblclick={() => { if (canHide && firstClickHere) hide(); }}
       oncontextmenu={e => menu.show(e, railMenu(s, i))}>
       {#if s.icon}<img class="icon" src={s.icon} alt="" draggable="false" />{:else}{initials(s.label)}{/if}
       {#if unread}<span class="unread">{unread > 99 ? '99+' : unread}</span>{/if}
