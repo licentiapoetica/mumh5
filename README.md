@@ -46,6 +46,8 @@ Older builds use an AppImage runtime that requires the system's FUSE 2 library. 
 
 This extracts to a temporary folder on each launch. For regular use without FUSE, choose the `.deb` or `.tar.gz` instead. See the [AppImage FUSE troubleshooting guide](https://docs.appimage.org/user-guide/troubleshooting/fuse.html) for installation instructions for your distribution.
 
+An AppImage runs from a temporary folder with a new name on each start, so firewalls that allow programs by their path (OpenSnitch, for example) ask again after every restart. The `.tar.gz` install below has a fixed path.
+
 The `.tar.gz` comes with an installer and an uninstaller. Unpack it and run the installer from that folder; it adds the app, a `mumh5` command and a menu entry, and running it again with a newer version updates it:
 
 ```bash
@@ -53,6 +55,12 @@ tar xzf mumh5-linux-x64.tar.gz
 cd mumh5-<version>-linux-x64
 ./install.sh                 # for you only, in ~/.local
 sudo ./install.sh --system   # or for everyone, in /opt
+```
+
+To download, install and later update the latest build in one step, for you only, use `scripts/install-snapshot.sh`. It runs the same installer, and running it again updates when a newer build is out (`--wait` keeps checking until there is one):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/licentiapoetica/mumh5/main/scripts/install-snapshot.sh | bash
 ```
 
 To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/uninstall.sh`). Your settings and identities stay in `~/.config/mumh5`; `uninstall.sh --purge` deletes them too, after asking. Back up your identity first. The Windows installer has its own uninstaller in the system settings; the `.deb` is removed with `sudo apt remove mumh5`.
