@@ -132,11 +132,14 @@
     <p class="about">mumh5 {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
     {#if updates.possible}
       <label class="check"><input type="checkbox" bind:checked={s.updateCheck} onchange={() => store.saveSettings()} /> Check for updates</label>
-      <p class="help">Asks GitHub every few hours whether a newer build is out. GitHub sees your IP address. Nothing is downloaded by itself.</p>
+      <p class="help">{updates.web
+        ? 'Asks this site now and then whether it serves a newer version than the one open here. Nothing else is contacted.'
+        : 'Asks GitHub every few hours whether a newer build is out. GitHub sees your IP address. Nothing is downloaded by itself.'}</p>
       <div class="row kept">
         <p class="help" role="status">
           {#if updates.checking}Checking...
           {:else if updates.error}Could not check: {updates.error}
+          {:else if updates.info?.newer && updates.web}This site has a newer version. <button class="link" onclick={() => updates.reload()}>Reload</button>
           {:else if updates.info?.newer}A newer build is available ({updates.info.changes} {updates.info.changes === 1 ? 'change' : 'changes'}). <a href={updates.info.url} target="_blank" rel="noreferrer">Download</a>
           {:else if updates.info}Up to date{checkedAt ? ` (checked ${checkedAt})` : ''}.
           {:else}Not checked yet.{/if}
@@ -185,4 +188,5 @@
   select:disabled, input:disabled { opacity: 0.5; }
   textarea { resize: vertical; }
   .about { margin: 6px 0 0; font-size: 14px; }
+  .link { color: var(--link); font-size: inherit; }
 </style>

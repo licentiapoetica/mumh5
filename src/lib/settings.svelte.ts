@@ -35,7 +35,7 @@ export interface Settings {
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
   shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
   hints: boolean;         // tooltips (title attributes) when resting the pointer on buttons
-  updateCheck: boolean;   // ask GitHub now and then whether a newer build is out (desktop)
+  updateCheck: boolean;   // desktop: ask GitHub now and then for a newer build; browser: ask the site
   pokeNotify: boolean;    // a system notification for a poke while the window is not focused
 }
 

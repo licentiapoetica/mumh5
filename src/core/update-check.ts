@@ -6,8 +6,9 @@ export const UPDATE_TAG = 'snapshot';
 
 export interface UpdateInfo {
   newer: boolean;
-  changes: number; // commits in the release that this build does not have
-  url: string;     // the release page with the downloads
+  changes: number; // commits in the release that this build does not have (desktop)
+  url: string;     // the release page with the downloads (desktop)
+  build?: string;  // the build the site serves now (browser)
 }
 
 type Fetch = (url: string, init?: { headers?: Record<string, string>; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
@@ -27,4 +28,19 @@ export async function checkForUpdate(repo: string, commit: string, fetchFn: Fetc
   const body = await res.json();
   const changes = Number(body?.ahead_by) || 0;
   return { newer: body?.status === 'ahead' && changes > 0, changes, url: releaseUrl(repo) };
+}
+
+// The browser build: whoever runs the proxy decides the version, so the page asks its own site,
+// never GitHub. vite.config.ts writes the build id into index.html (the build this page runs,
+// which a tab left open or a page from the service worker's cache keeps) and into version.json
+// (the build the site serves now). Any other build there is news, even an older one put back.
+export const WEB_VERSION_FILE = 'version.json';
+
+export async function checkDeployed(url: string, build: string, fetchFn: Fetch, signal?: AbortSignal): Promise<UpdateInfo> {
+  if (!/^[0-9a-f]{6,64}$/.test(build)) throw new Error('No build id to compare');
+  const res = await fetchFn(url, { signal });
+  if (!res.ok) throw new Error(`The site answered ${res.status}`);
+  const served = (await res.json())?.build;
+  if (typeof served !== 'string' || !/^[0-9a-f]{6,64}$/.test(served)) throw new Error('The site sent no build id');
+  return { newer: served !== build, changes: 0, url: '', build: served };
 }

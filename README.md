@@ -181,7 +181,7 @@ npm run build:web      # web app to dist-web/, proxy to dist-proxy/proxy.mjs
 MUMH5_SERVERS="mumble.example.com=My server" node dist-proxy/proxy.mjs
 ```
 
-Then open `http://127.0.0.1:8080`. For development, `npm run dev:web` starts the proxy and a hot-reloading page together, with any server allowed. To deploy, copy `dist-web/` and `dist-proxy/` next to each other on the server (Node 22 or newer, no `node_modules` needed) and put a reverse proxy with HTTPS in front that forwards WebSocket upgrades. Browsers only allow the microphone on HTTPS pages (or on localhost). Over HTTPS the page can also be installed as an app; it keeps its own files, so it opens without the proxy, but connecting still goes through it.
+Then open `http://127.0.0.1:8080`. For development, `npm run dev:web` starts the proxy and a hot-reloading page together, with any server allowed. To deploy, copy `dist-web/` and `dist-proxy/` next to each other on the server (Node 22 or newer, no `node_modules` needed) and put a reverse proxy with HTTPS in front that forwards WebSocket upgrades. Browsers only allow the microphone on HTTPS pages (or on localhost). Over HTTPS the page can also be installed as an app; it keeps its own files, so it opens without the proxy, but connecting still goes through it. After a new deploy, open pages notice it within about 15 minutes (they ask the site for `version.json`) and offer a reload.
 
 With Docker, the same thing is one command; settings go in a `.env` file next to `docker-compose.yml`:
 
