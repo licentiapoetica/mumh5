@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { SOUND_EVENTS, normalizeSoundSettings, type SoundSettings } from '../src/core/sound-events.ts';
+import { SOUND_EVENTS, isSoundPackId, normalizeSoundSettings, type SoundSettings } from '../src/core/sound-events.ts';
 import { MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
 
 // Everything stays beside identities and tray.json in Electron's userData directory.
@@ -17,6 +17,7 @@ export class SoundStore {
 
   private file(key: string): string {
     if (key === 'pack') return path.join(this.directory, 'sounds', 'pack.zip');
+    if (key.startsWith('pack:') && isSoundPackId(key.slice(5))) return path.join(this.directory, 'sounds', 'packs', `${key.slice(5)}.zip`);
     if (!SOUND_EVENTS.some(e => key === `sound:${e.id}`)) throw new Error('Invalid sound key');
     return path.join(this.directory, 'sounds', `${key.slice(6)}.audio`);
   }
@@ -49,7 +50,7 @@ export class SoundStore {
 
   write(key: string, bytes: Uint8Array): Promise<void> {
     const file = this.file(key);
-    if (!(bytes instanceof Uint8Array) || bytes.length > (key === 'pack' ? MAX_AUDIO_PACK : MAX_AUDIO_FILE)) {
+    if (!(bytes instanceof Uint8Array) || bytes.length > (key === 'pack' || key.startsWith('pack:') ? MAX_AUDIO_PACK : MAX_AUDIO_FILE)) {
       return Promise.reject(new Error('Invalid or oversized sound data'));
     }
     return this.serial(() => this.atomic(file, bytes));

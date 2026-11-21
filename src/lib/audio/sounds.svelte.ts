@@ -2,8 +2,9 @@ import { load, save } from '../storage.ts';
 import { voice } from './voice.svelte.ts';
 import { desktop } from '../native.ts';
 import { putBlob, getBlob, deleteBlob } from '../blobstore.ts';
-import { readAudioPack, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../../core/audio-pack.ts';
-import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, defaultSoundSettings, normalizeSoundSettings, type SoundEvent, type SoundSettings } from '../../core/sound-events.ts';
+import { zipSync } from 'fflate';
+import { isPackClip, readAudioPack, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../../core/audio-pack.ts';
+import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, defaultSoundSettings, normalizeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
 import { renderTones } from './tones.ts';
 import defaultPackUrl from '../../assets/default-audio-pack.zip?url';
 
@@ -110,9 +111,16 @@ class Sounds {
     this.builtin = this.makeUrls(readAudioPack(new Uint8Array(await response.arrayBuffer())));
     if (this.settings.pack) {
       try {
-        const blob = await this.read('pack');
+        const blob = await this.read(this.settings.pack.id ? `pack:${this.settings.pack.id}` : 'pack');
         if (!blob) throw new Error('The saved ZIP is missing.');
-        this.packUrls = this.makeUrls(readAudioPack(new Uint8Array(await blob.arrayBuffer())));
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const clips = readAudioPack(bytes);
+        if (!this.settings.pack.id) {
+          // Preserve the previous single ZIP as the first library entry.
+          this.settings.pack = await this.rememberPack(this.settings.pack.name, blob, clips);
+          await this.persist();
+        }
+        this.packUrls = this.makeUrls(clips);
       } catch (e) { this.error(`Could not load ${this.settings.pack.name}: ${(e as Error).message} Using the standard pack.`); }
     }
     this.refreshClips();
@@ -181,18 +189,73 @@ class Sounds {
     await this.persist();
   }
 
+  private async rememberPack(name: string, blob: Blob, clips: Map<string, Uint8Array<ArrayBuffer>>): Promise<SoundPack> {
+    // Identify the audio, not ZIP timestamps/compression or the source folder name.
+    const hashes = await Promise.all([...clips].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(async ([path, data]) => {
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+      return `${path}:${[...digest].map(b => b.toString(16).padStart(2, '0')).join('')}`;
+    }));
+    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashes.join('\n'))));
+    const id = [...hash].map(b => b.toString(16).padStart(2, '0')).join('');
+    const existing = this.settings.packs.find(p => p.id === id);
+    if (existing) return existing;
+    await this.write(`pack:${id}`, blob);
+    let label = name.slice(0, 240), n = 2;
+    while (this.settings.packs.some(p => p.name === label)) label = `${name.slice(0, 230)} (${n++})`;
+    const entry = { id, name: label };
+    this.settings.packs.push(entry);
+    return entry;
+  }
+
+  private async clearCustomFiles(): Promise<void> {
+    // Folder imports in older versions became per-event overrides. Leaving them
+    // in place would hide the newly selected pack's audio.
+    for (const { id } of SOUND_EVENTS) if (this.settings.custom[id]) await this.remove(`sound:${id}`);
+    this.clearUrls(this.urls);
+    this.settings.custom = {};
+  }
+
+  private async activatePack(entry: SoundPack | undefined, clips: Map<string, Uint8Array<ArrayBuffer>>): Promise<void> {
+    this.stop();
+    await this.clearCustomFiles();
+    this.clearUrls(this.packUrls);
+    this.packUrls = this.makeUrls(clips);
+    if (entry) this.settings.pack = entry;
+    else delete this.settings.pack;
+    this.refreshClips();
+    await this.persist();
+  }
+
+  async selectPack(id: string): Promise<void> {
+    await this.ready;
+    if (id === (this.settings.pack?.id ?? '')) return;
+    if (!id) return this.activatePack(undefined, new Map());
+    const entry = this.settings.packs.find(p => p.id === id);
+    if (!entry) throw new Error('Sound pack is not in your library.');
+    const blob = await this.read(`pack:${id}`);
+    if (!blob) throw new Error('The saved sound pack is missing.');
+    const clips = readAudioPack(new Uint8Array(await blob.arrayBuffer()));
+    await this.activatePack(entry, clips);
+  }
+
+  async removePack(id: string): Promise<void> {
+    await this.ready;
+    if (!this.settings.packs.some(p => p.id === id)) return;
+    if (this.settings.pack?.id === id) await this.selectPack('');
+    await this.remove(`pack:${id}`);
+    this.settings.packs = this.settings.packs.filter(p => p.id !== id);
+    await this.persist();
+  }
+
   async importZip(file: File): Promise<PackReport> {
     await this.ready;
     if (file.size > MAX_AUDIO_PACK) throw new Error('Sound packs must be at most 32 MB.');
-    const clips = readAudioPack(new Uint8Array(await file.arrayBuffer()));
-    // Validate the complete archive before replacing the previous pack.
-    await this.write('pack', file);
-    this.stop();
-    this.clearUrls(this.packUrls);
-    this.packUrls = this.makeUrls(clips);
-    this.settings.pack = { name: file.name };
-    this.refreshClips();
-    await this.persist();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const clips = readAudioPack(bytes);
+    // Content IDs keep every distinct pack; importing the same archive is a no-op
+    // for the library, even when its file name differs.
+    const entry = await this.rememberPack(file.name, file, clips);
+    await this.activatePack(entry, clips);
     return {
       assigned: SOUND_EVENTS.filter(e => clips.has(PACK_PATHS[e.id] ?? '')).map(e => `${PACK_PATHS[e.id]}: ${e.name}`),
       unmatched: []
@@ -201,6 +264,19 @@ class Sounds {
 
   async loadPack(files: File[]): Promise<PackReport> {
     await this.ready;
+    const folderClips = files.filter(f => isPackClip(f.webkitRelativePath.split('/').slice(1).join('/')));
+    if (folderClips.length) {
+      const entries: Record<string, Uint8Array<ArrayBuffer>> = {};
+      // Validate sizes before reading or compressing a folder into a saved ZIP.
+      if (folderClips.length > 512 || folderClips.reduce((n, f) => n + f.size, 0) > 64 * 1024 * 1024) throw new Error('Sound pack folder is too large.');
+      for (const file of folderClips.sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath))) {
+        if (file.size > MAX_AUDIO_FILE) throw new Error(`${file.name} is larger than 4 MB.`);
+        entries[file.webkitRelativePath.split('/').slice(1).join('/')] = new Uint8Array(await file.arrayBuffer());
+      }
+      const name = folderClips[0].webkitRelativePath.split('/')[0];
+      const bytes = zipSync(entries, { mtime: new Date('2000-01-01T00:00:00Z') });
+      return this.importZip(new File([bytes], `${name}.zip`, { type: 'application/zip' }));
+    }
     const assigned: string[] = [], unmatched: string[] = [];
     const audio = files.filter(f => AUDIO.test(f.name));
     const byName = new Map(audio.map(f => [f.name.toLowerCase(), f]));
@@ -247,11 +323,7 @@ class Sounds {
 
   async resetAll(): Promise<void> {
     await this.ready;
-    this.stop();
-    await this.remove('pack');
-    this.clearUrls(this.packUrls);
-    delete this.settings.pack;
-    for (const { id } of SOUND_EVENTS) if (this.settings.custom[id]) await this.reset(id);
+    await this.activatePack(undefined, new Map());
     this.settings.clips = {};
     this.refreshClips();
     await this.persist();

@@ -157,10 +157,11 @@ On a phone or in a narrow window, everything fits on one screen:
 ### Sounds
 - Configurable sounds for joins, leaves, messages, mute, push to talk, kicks and more. Only connection loss, direct messages and pokes play by default
 - Bundled Chatterbox female voice pack. In Settings > Sounds, import a ZIP pack, choose a clip or an individual audio file per event, adjust volume, preview, or restore the standard pack and quiet defaults
+- ZIP and notification-folder imports grow a personal pack library. Choose the active pack in the Audio pack selector, including the standard pack at any time. Reimporting identical audio keeps one entry, even from a differently named folder or ZIP. Removing a pack leaves the others saved; resetting to built-in also keeps the library
 - ZIP packs have notification folders directly at the root, for example `AudioNotification/SelfMute.wav`, `MessageNotification/PrivateTextMessage.wav` and `PermissionNotification/Denied/ChannelFull.wav`. `manifest.json` and `README.md` are optional. WAV clips are mapped by exact path; missing clips use the standard pack. All clips are available in each event's selector. App-specific events without a matching clip use short tones
 - Packs are limited to 32 MB compressed, 64 MB of audio expanded, 512 entries and 4 MB per clip. TeamSpeak 3 folders (`settings.ini`) and loose audio files are also supported
-- Desktop sound preferences are in `sounds.json` beside identities and other user settings (`~/.config/mumh5` on Linux); imported audio is in `sounds/` in that directory. Existing custom sounds migrate there on first use. The browser keeps preferences locally and audio in IndexedDB
-- Importing packs and resetting clips keep your per-event on/off choices. “Use quiet defaults” restores the three default events. Sounds use the selected voice output device and play one at a time, without a backlog
+- Desktop sound preferences and the library list are in `sounds.json` beside identities and other user settings (`~/.config/mumh5` on Linux); library archives are in `sounds/packs/` in that directory. Existing custom sounds migrate there on first use, and a previously imported ZIP becomes a library entry. The browser keeps preferences locally and audio in IndexedDB
+- Importing or switching packs clears individual file overrides so the selected pack takes effect, while keeping your event on/off choices and clip selections. “Use quiet defaults” restores the three default events. Sounds use the selected voice output device and play one at a time, without a backlog
 
 ### Servers and identity
 - Server list with custom icons, your own order, connection status and unread counts

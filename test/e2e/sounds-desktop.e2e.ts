@@ -2,7 +2,7 @@
 // npm run build && npm run test:e2e:sounds:desktop (requires DISPLAY on Linux)
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -37,18 +37,33 @@ try {
   await page.getByRole('checkbox', { name: 'You muted', exact: true }).check();
   await page.getByLabel('Clip for Someone poked you').selectOption('SystemNotification/Warning.wav');
   await page.locator('input[accept=".zip,application/zip"]').setInputFiles(path.join(root, 'src/assets/default-audio-pack.zip'));
-  await page.getByText('default-audio-pack.zip', { exact: true }).waitFor();
+  await page.locator('.help strong').getByText('default-audio-pack.zip', { exact: true }).waitFor();
   await page.waitForFunction(() => !!document.querySelector('fieldset:not([disabled])'));
   const config = JSON.parse(await readFile(path.join(directory, 'sounds.json'), 'utf8'));
   assert.equal(config.on.mute, true);
   assert.equal(config.clips.poke, 'SystemNotification/Warning.wav');
   assert.equal(config.pack.name, 'default-audio-pack.zip');
-  assert.deepEqual(await readFile(path.join(directory, 'sounds/pack.zip')), await readFile(path.join(root, 'src/assets/default-audio-pack.zip')));
+  assert.deepEqual(await readFile(path.join(directory, 'sounds/packs', `${config.pack.id}.zip`)), await readFile(path.join(root, 'src/assets/default-audio-pack.zip')));
   await page.reload();
   await open();
   assert.equal(await page.locator('.events input:checked').count(), 4);
   assert.equal(await page.getByLabel('Clip for Someone poked you').inputValue(), 'SystemNotification/Warning.wav');
-  await page.getByText('default-audio-pack.zip', { exact: true }).waitFor();
+  await page.locator('.help strong').getByText('default-audio-pack.zip', { exact: true }).waitFor();
+  await preview.click();
+  await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('mute'));
+  assert.equal(await page.locator('.error').count(), 0);
+  // The previous single-pack format is retained as the first library entry.
+  const legacy = { ...config, pack: { name: 'legacy.zip' } };
+  delete legacy.packs;
+  await writeFile(path.join(directory, 'sounds/pack.zip'), await readFile(path.join(root, 'src/assets/default-audio-pack.zip')));
+  await writeFile(path.join(directory, 'sounds.json'), JSON.stringify(legacy));
+  await page.reload();
+  await open();
+  assert.equal(await page.getByLabel('Audio pack', { exact: true }).locator('option').count(), 2);
+  assert.equal(await page.getByLabel('Audio pack', { exact: true }).locator('option:checked').textContent(), 'legacy.zip');
+  const library = JSON.parse(await readFile(path.join(directory, 'sounds.json'), 'utf8'));
+  assert.equal(library.packs.length, 1);
+  assert.equal(library.pack.id, library.packs[0].id);
   await preview.click();
   await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('mute'));
   assert.equal(await page.locator('.error').count(), 0);

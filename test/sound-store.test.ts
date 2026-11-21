@@ -37,9 +37,29 @@ test('sound storage accepts only known event keys, bounded data and valid settin
     const store = new SoundStore(directory);
     assert.throws(() => store.read('../../identities.json'), /Invalid sound key/);
     assert.throws(() => store.write('sound:../identities', new Uint8Array()), /Invalid sound key/);
+    assert.throws(() => store.read('pack:../../identities'), /Invalid sound key/);
     await assert.rejects(store.write('sound:mute', new Uint8Array(4 * 1024 * 1024 + 1)), /oversized/);
     await store.save({ volume: -10, on: { mute: 'yes', unknown: true } });
     assert.equal((await store.load())?.volume, 0);
     assert.deepEqual((await store.load())?.on, {});
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('library archives persist independently and removing one leaves the others intact', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'mumh5-sound-library-'));
+  try {
+    const a = { id: 'a'.repeat(64), name: 'first.zip' };
+    const b = { id: 'b'.repeat(64), name: 'second.zip' };
+    const store = new SoundStore(directory);
+    await store.write(`pack:${a.id}`, new Uint8Array([1]));
+    await store.write(`pack:${b.id}`, new Uint8Array([2]));
+    await store.save({ ...defaultSoundSettings(), packs: [a, b], pack: b });
+    const reopened = new SoundStore(directory);
+    assert.deepEqual((await reopened.load())?.packs, [a, b]);
+    assert.equal((await reopened.load())?.pack?.id, b.id);
+    assert.deepEqual(Array.from((await reopened.read(`pack:${a.id}`))!), [1]);
+    assert.deepEqual(Array.from((await reopened.read(`pack:${b.id}`))!), [2]);
+    await reopened.remove(`pack:${b.id}`);
+    assert.deepEqual(Array.from((await reopened.read(`pack:${a.id}`))!), [1]);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

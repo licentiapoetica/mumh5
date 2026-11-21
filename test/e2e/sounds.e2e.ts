@@ -4,6 +4,8 @@ import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { zipSync } from 'fflate';
 import { readAudioPack } from '../../src/core/audio-pack.ts';
 
@@ -15,6 +17,17 @@ try {
   const page = await browser.newPage();
   const failures: string[] = [];
   page.on('pageerror', e => { failures.push(e.message); console.error(e.message); });
+  await page.addInitScript(() => {
+    const blobs = new Map<string, Blob>();
+    (window as any).__soundBlobs = blobs;
+    const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = blob => {
+      const url = create(blob);
+      blobs.set(url, blob as Blob);
+      return url;
+    };
+    URL.revokeObjectURL = url => { blobs.delete(url); revoke(url); };
+  });
   await page.goto(server.resolvedUrls!.local[0]);
   const open = async () => {
     await page.getByRole('button', { name: 'Configure', exact: true }).click();
@@ -27,6 +40,13 @@ try {
     await (await import(module)).sounds.play(event, force);
   }, { event, force });
   const log = () => page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
+  const sourceHash = () => page.evaluate(async () => {
+    const module = '/src/lib/audio/sounds.svelte.ts';
+    const source = await (await import(module)).sounds.source('mute');
+    const bytes = await ((window as any).__soundBlobs.get(source) as Blob).arrayBuffer();
+    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+  });
+  const hash = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
   await open();
   assert.equal(await page.locator('.events input:checked').count(), 3);
   assert.equal(await page.getByLabel('Clip for You muted', { exact: true }).locator('option').count(), 135);
@@ -42,7 +62,7 @@ try {
   const clips = readAudioPack(await readFile(new URL('../../src/assets/default-audio-pack.zip', import.meta.url)));
   const custom = zipSync({ 'AudioNotification/SelfMute.wav': clips.get('AudioNotification/SelfMute.wav')! });
   await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'my-pack.zip', mimeType: 'application/zip', buffer: Buffer.from(custom) });
-  await page.getByText('my-pack.zip', { exact: true }).waitFor();
+  await page.locator('.help strong').getByText('my-pack.zip', { exact: true }).waitFor();
   assert.equal(await page.locator('.events input:checked').count(), 4, 'import keeps event choices');
   await play('mute', true);
   assert.ok((await log()).includes('mute'));
@@ -50,7 +70,7 @@ try {
   await page.getByLabel('Clip for Someone poked you').selectOption('SystemNotification/Warning.wav');
   await page.reload();
   await open();
-  await page.getByText('my-pack.zip', { exact: true }).waitFor();
+  await page.locator('.help strong').getByText('my-pack.zip', { exact: true }).waitFor();
   assert.ok(await page.getByRole('checkbox', { name: 'You muted', exact: true }).isChecked());
   assert.equal(await page.getByLabel('Clip for Someone poked you').inputValue(), 'SystemNotification/Warning.wav');
   await play('mute', true);
@@ -60,7 +80,7 @@ try {
   // A bad archive cannot replace the last good pack or change event settings.
   await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'broken.zip', mimeType: 'application/zip', buffer: Buffer.from('broken') });
   await page.locator('.error').waitFor();
-  await page.getByText('my-pack.zip', { exact: true }).waitFor();
+  await page.locator('.help strong').getByText('my-pack.zip', { exact: true }).waitFor();
   assert.equal(await page.locator('.events input:checked').count(), 4);
 
   // Individual overrides are stored separately from the pack and also survive reload.
@@ -75,12 +95,78 @@ try {
   assert.deepEqual(await log(), ['mute']);
   await page.getByRole('button', { name: 'Stop preview' }).click();
   await page.getByRole('button', { name: 'Reset all to built-in' }).click();
-  await page.getByText('Chatterbox female (standard)', { exact: true }).waitFor();
+  await page.locator('.help strong').getByText('Chatterbox female (standard)', { exact: true }).waitFor();
   assert.equal(await page.locator('.events input:checked').count(), 4);
   await page.getByRole('button', { name: 'Use quiet defaults' }).click();
   assert.equal(await page.locator('.events input:checked').count(), 3);
   await page.reload();
   await open();
+  assert.equal(await page.locator('.events input:checked').count(), 3);
+  assert.equal(await page.locator('.error').count(), 0);
+
+  // Multiple imports build a library. Switching changes the actual audio bytes,
+  // and the standard pack remains available after imports and after reload.
+  const library = page.getByLabel('Audio pack', { exact: true });
+  const second = zipSync({ 'AudioNotification/SelfMute.wav': clips.get('AudioNotification/SelfUnmute.wav')! });
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles([
+    { name: 'my-pack.zip', mimeType: 'application/zip', buffer: Buffer.from(custom) },
+    { name: 'second.zip', mimeType: 'application/zip', buffer: Buffer.from(second) }
+  ]);
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await library.locator('option').count(), 3, 'standard plus two distinct saved packs');
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfUnmute.wav')!));
+  await library.selectOption({ label: 'my-pack.zip' });
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!));
+  await library.selectOption({ label: 'second.zip' });
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  await page.reload();
+  await open();
+  assert.equal(await library.locator('option').count(), 3);
+  assert.equal(await library.locator('option:checked').textContent(), 'second.zip');
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfUnmute.wav')!));
+  await library.selectOption('');
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!), 'switch back to vanilla');
+  assert.equal(await library.locator('option').count(), 3, 'vanilla keeps the personal library');
+
+  // Optional local regression fixtures: exercise both user-supplied folders and
+  // the second pack's ZIP without copying those assets into the repository.
+  if (process.env.SOUND_PACK_FIXTURES) {
+    const fixtures = process.env.SOUND_PACK_FIXTURES;
+    for (const name of ['cara-cum', 'hitler']) {
+      const before = await library.locator('option').count();
+      await page.locator('input[webkitdirectory]').setInputFiles(path.join(fixtures, name));
+      await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+      assert.equal(await library.locator('option').count(), before + 1);
+      assert.equal(await sourceHash(), hash(await readFile(path.join(fixtures, name, 'AudioNotification/SelfMute.wav'))));
+      await play('mute', true);
+      await page.getByRole('button', { name: 'Stop preview' }).click();
+    }
+    const count = await library.locator('option').count();
+    await page.locator('input[accept=".zip,application/zip"]').setInputFiles(path.join(fixtures, 'hitler/HitlerVoicepack.zip'));
+    await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+    assert.equal(await library.locator('option').count(), count, 'folder and ZIP of the same clips share one entry');
+    await library.selectOption({ label: 'cara-cum.zip' });
+    await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+    assert.equal(await sourceHash(), hash(await readFile(path.join(fixtures, 'cara-cum/AudioNotification/SelfMute.wav'))));
+    await page.reload();
+    await open();
+    assert.equal(await library.locator('option').count(), count);
+    assert.equal(await library.locator('option:checked').textContent(), 'cara-cum.zip');
+    await library.selectOption('');
+    await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+    assert.equal(await sourceHash(), hash(clips.get('AudioNotification/SelfMute.wav')!));
+    console.log('USER PACKS PASSED: both generation folders, ZIP deduplication, audio identity, switching, reload and vanilla');
+  }
+
+  await library.selectOption({ label: 'second.zip' });
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  const count = await library.locator('option').count();
+  await page.getByRole('button', { name: 'Remove pack', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await library.locator('option').count(), count - 1);
+  assert.equal(await library.inputValue(), '', 'removing active pack selects vanilla');
   assert.equal(await page.locator('.events input:checked').count(), 3);
   assert.equal(await page.locator('.error').count(), 0);
   assert.deepEqual(failures, []);

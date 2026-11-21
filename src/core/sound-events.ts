@@ -85,8 +85,11 @@ export const PACK_PATHS: Partial<Record<SoundEvent, string>> = {
 };
 
 export function defaultSoundSettings(): SoundSettings {
-  return { enabled: true, volume: 0.6, on: {}, custom: {}, clips: {} };
+  return { enabled: true, volume: 0.6, on: {}, custom: {}, clips: {}, packs: [] };
 }
+
+export interface SoundPack { id: string; name: string }
+export const isSoundPackId = (id: unknown): id is string => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id);
 
 export function normalizeSoundSettings(value: unknown): SoundSettings {
   const out = defaultSoundSettings();
@@ -94,7 +97,15 @@ export function normalizeSoundSettings(value: unknown): SoundSettings {
   const v = value as Partial<SoundSettings>;
   if (typeof v.enabled === 'boolean') out.enabled = v.enabled;
   if (typeof v.volume === 'number' && Number.isFinite(v.volume)) out.volume = Math.max(0, Math.min(1, v.volume));
-  if (typeof v.pack?.name === 'string') out.pack = { name: v.pack.name.slice(0, 255) };
+  if (Array.isArray(v.packs)) {
+    for (const p of v.packs) if (p && isSoundPackId(p.id) && typeof p.name === 'string' && !out.packs.some(e => e.id === p.id)) {
+      out.packs.push({ id: p.id, name: p.name.slice(0, 255) });
+    }
+  }
+  if (typeof v.pack?.name === 'string') {
+    out.pack = { name: v.pack.name.slice(0, 255) };
+    if (isSoundPackId(v.pack.id) && out.packs.some(p => p.id === v.pack!.id)) out.pack.id = v.pack.id;
+  }
   for (const { id } of SOUND_EVENTS) {
     if (typeof v.on?.[id] === 'boolean') out.on[id] = v.on[id];
     if (typeof v.custom?.[id]?.name === 'string') {
@@ -111,7 +122,8 @@ export interface SoundSettings {
   volume: number;
   // Explicit choices survive switching packs; missing choices use QUIET_EVENTS.
   on: Partial<Record<SoundEvent, boolean>>;
-  pack?: { name: string };
+  packs: SoundPack[];
+  pack?: { id?: string; name: string }; // no id: legacy single-pack storage
   clips?: Partial<Record<SoundEvent, string>>;
   // File names only; audio is stored separately.
   custom: Partial<Record<SoundEvent, { name: string; data?: string }>>;

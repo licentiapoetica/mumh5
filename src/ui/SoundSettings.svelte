@@ -52,9 +52,11 @@
   }
 
   async function zip() {
-    const file = zipPicker.files?.[0];
+    const files = [...(zipPicker.files ?? [])];
     zipPicker.value = '';
-    if (file) await working(async () => { report = await sounds.importZip(file); });
+    if (files.length) await working(async () => {
+      for (const file of files) report = await sounds.importZip(file);
+    });
   }
 </script>
 
@@ -69,6 +71,14 @@
 <label for="snd-vol">Volume: {Math.round(s.volume * 100)}%</label>
 <input id="snd-vol" type="range" min="0" max="1" step="0.05" value={s.volume} oninput={e => sounds.update({ volume: Number(e.currentTarget.value) })} />
 
+<label for="snd-pack">Audio pack</label>
+<div class="packselect">
+  <select id="snd-pack" value={s.pack?.id ?? ''} onchange={e => working(async () => { await sounds.selectPack(e.currentTarget.value); report = null; })}>
+    <option value="">Chatterbox female (standard)</option>
+    {#each s.packs as pack (pack.id)}<option value={pack.id}>{pack.name}</option>{/each}
+  </select>
+  {#if s.pack?.id}<button class="btn" onclick={() => working(async () => { await sounds.removePack(s.pack!.id!); report = null; })}>Remove pack</button>{/if}
+</div>
 <div class="packrow">
   <button class="btn" onclick={() => zipPicker.click()}>Import ZIP audio pack...</button>
   <button class="btn" onclick={() => folderPicker.click()}>Load sound pack folder...</button>
@@ -76,12 +86,13 @@
   <button class="btn" onclick={() => working(async () => { await sounds.resetAll(); report = null; })}>Reset all to built-in</button>
   <button class="btn" onclick={() => sounds.quietDefaults()}>Use quiet defaults</button>
   <button class="btn" onclick={() => sounds.stop()}>Stop preview</button>
-  <input bind:this={zipPicker} type="file" accept=".zip,application/zip" hidden onchange={zip} />
+  <input bind:this={zipPicker} type="file" accept=".zip,application/zip" multiple hidden onchange={zip} />
   <input bind:this={folderPicker} type="file" webkitdirectory multiple hidden onchange={() => pack(folderPicker)} />
   <input bind:this={packPicker} type="file" accept="audio/*,.wav,.mp3,.ogg,.opus,.flac,.m4a,.ini" multiple hidden onchange={() => pack(packPicker)} />
 </div>
 <p class="help">Audio pack: <strong>{s.pack?.name ?? 'Chatterbox female (standard)'}</strong>. {sounds.packClips.length} clips available.</p>
-<p class="help">ZIP packs use notification folders at the root, for example <code>AudioNotification/SelfMute.wav</code>. Missing clips use the standard pack. Individual files override pack clips. TeamSpeak 3 folders with <code>settings.ini</code> are also supported.</p>
+<p class="help">Each ZIP or notification folder adds a pack to your library. Select a saved pack above, or switch back to the standard pack at any time. Importing the same pack again keeps one copy.</p>
+<p class="help">ZIP packs use notification folders at the root, for example <code>AudioNotification/SelfMute.wav</code>. Missing clips use the standard pack. Selecting a pack clears individual file overrides and keeps your event choices and clip selections. TeamSpeak 3 folders with <code>settings.ini</code> are also supported.</p>
 <p class="help">Quiet defaults play only connection loss, direct messages and pokes. Enable other events below. Importing a pack keeps your event choices. Sounds play one at a time without a queue.</p>
 {#if !sounds.loaded}<p class="help" role="status">Loading audio pack...</p>{/if}
 {#if sounds.busy}<p class="help" role="status">Saving sounds...</p>{/if}
@@ -127,6 +138,8 @@
   .check { display: flex; align-items: center; gap: 8px; text-transform: none; font-weight: 400; letter-spacing: 0; font-size: 14px; color: var(--text); margin-top: 10px; }
   input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
   .packrow { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .packselect { display: flex; align-items: center; gap: 8px; }
+  .packselect select { flex: 1; min-width: 0; }
   .packrow .btn { flex: none; }
   h4 { margin: 16px 0 0; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); }
   .help { font-size: 12px; color: var(--text-dim); }
