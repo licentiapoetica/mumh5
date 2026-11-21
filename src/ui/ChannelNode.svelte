@@ -224,12 +224,13 @@
     ondragleave={onDragLeave}
     ondrop={onDrop} bind:this={rowEl}
     onmouseenter={hoverRow} onmousemove={trackPointer} onmouseleave={leaveRow}>
-    {#if children.length || users.length}
+    <!-- Root is always open, so it has no caret -->
+    {#if channel.id !== 0 && (children.length || users.length)}
       <button class="caret" class:collapsed={!expanded} onclick={() => session.toggleExpanded(channel.id)}
         aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={expanded}>
         <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3l3 4 3-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg>
       </button>
-    {:else}
+    {:else if channel.id !== 0}
       <span class="caret"></span>
     {/if}
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->

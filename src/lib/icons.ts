@@ -55,5 +55,11 @@ export const ICON_PATHS: Record<string, string> = {
   'zoom-out': 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5M7 10.5h7',
   user: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1',
   rooms: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
-  eraser: 'M20 20H7L3 16l10-10 7 7-6.5 7M6 11l7 7'
+  eraser: 'M20 20H7L3 16l10-10 7 7-6.5 7M6 11l7 7',
+  smile: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM8 14a4.5 4.5 0 0 0 8 0M9 9h.01M15 9h.01',
+  leaf: 'M4 20C4 11 10 5 20 4c0 10-6 16-15 16M4 20l8-8',
+  coffee: 'M4 9h13v7a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 11h4v5h-4M8 2v3M13 2v3',
+  car: 'M3 12l2-6h14l2 6v6H3zM3 12h18M7 18v3M17 18v3M7 15h.01M17 15h.01',
+  trophy: 'M7 3h10v7a5 5 0 0 1-10 0zM7 5H3v3a4 4 0 0 0 4 4M17 5h4v3a4 4 0 0 1-4 4M12 15v4M8 21h8',
+  bulb: 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V16h8v-1.3A7 7 0 0 0 12 2z'
 };

@@ -337,6 +337,33 @@ try {
   await page.locator('.chat .composer').getByRole('button', { name: 'Text formatting' }).click();
   console.log('ok: formatted message from the toolbar');
 
+  // Emoji picker: the whole palette, search and skin tone, inserted where the caret was
+  await page.evaluate(() => localStorage.removeItem('mumh5.emojiTone'));
+  const emojiButton = page.locator('.chat .composer').getByRole('button', { name: 'Emoji', exact: true });
+  const emojiPop = page.getByRole('dialog', { name: 'Emoji' });
+  await composer.fill('before after');
+  await composer.press('Home');
+  for (let i = 0; i < 7; i++) await composer.press('ArrowRight');
+  await emojiButton.click();
+  await emojiPop.locator('.emoji-cell').first().waitFor();
+  assert.ok(await emojiPop.locator('.emoji-cell').count() > 1900, 'the full palette is there');
+  await emojiPop.getByRole('button', { name: 'Flags', exact: true }).click();
+  await emojiPop.locator('[data-group="flags"] .emoji-cell').first().waitFor();
+  for (let i = 0; i < 3; i++) await emojiPop.getByRole('button', { name: /^Skin tone/ }).click();
+  await emojiPop.getByLabel('Search emoji').fill('thumbs up');
+  await emojiPop.locator('.emoji-cell').first().click();
+  await emojiPop.waitFor({ state: 'detached' });
+  const wantEmoji = 'before \u{1F44D}\u{1F3FD}after';
+  const gotEmoji = new Promise<string>(res => bob.on('text', m => { if (m.html.includes(wantEmoji)) res(m.html); }));
+  await composer.press('Enter');
+  await within(gotEmoji, 'message with an emoji');
+  await emojiButton.click();
+  await emojiPop.waitFor();
+  await page.keyboard.press('Escape');
+  await emojiPop.waitFor({ state: 'detached' });
+  await page.evaluate(() => localStorage.removeItem('mumh5.emojiTone'));
+  console.log('ok: emoji picker with the full palette, search and skin tone');
+
   // Code: ```fences``` in the message box (Enter inside one adds a line), sent as <pre> with the language as title
   const gotFence = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('def f')) res(m.html); }));
   await composer.click();
@@ -1669,14 +1696,29 @@ try {
     console.log('ok: channel deleted');
 
     // Toolbar: expand and collapse the whole tree
-    await page.locator('.me').getByRole('button', { name: 'Expand all channels' }).click();
+    // The button follows the tree, so make sure something is closed before asking for Expand
+    const treeButton = (name: string) => page.locator('.me').getByRole('button', { name });
+    if (await treeButton('Collapse all channels').count()) await treeButton('Collapse all channels').click();
+    await treeButton('Expand all channels').click();
     await page.locator('.channel', { hasText: 'Minecraft' }).waitFor();
-    await page.locator('.me').getByRole('button', { name: 'Collapse all channels' }).click();
+    await treeButton('Collapse all channels').click();
     await page.locator('.channel', { hasText: 'Minecraft' }).waitFor({ state: 'detached' });
-    // Channels with people in them stay open
+    // Occupied channels close too, and the button works again after that
     assert.notEqual(await page.locator('.me .who span').textContent(), 'Root');
+    await page.locator('.sidebar .row.user.self').waitFor({ state: 'detached' });
+    await treeButton('Expand all channels').click();
     await page.locator('.sidebar .row.user.self').waitFor();
-    console.log('ok: toolbar expands and collapses all channels, occupied ones stay open');
+    await page.locator('.channel', { hasText: 'Minecraft' }).waitFor();
+    // Root has no caret, and the server name starts where the status text does
+    assert.equal(await page.locator('.channel').first().locator('.caret').count(), 0);
+    const textLeft = (sel: string) => page.locator(sel).evaluate(el => {
+      const range = document.createRange();
+      const text = [...el.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent!.trim())!;
+      range.selectNodeContents(text);
+      return range.getBoundingClientRect().left;
+    });
+    assert.ok(Math.abs(await textLeft('.sidebar header .server-name') - await textLeft('.sidebar header .status')) < 1);
+    console.log('ok: toolbar expands and collapses all channels repeatedly, root has no caret, header text lines up');
 
     // ─── Text channels: read and written without joining, between mumh5 clients ───
     // Bob plays a second mumh5 client by speaking the plugin data protocol
