@@ -630,8 +630,8 @@ test('the access checker agrees with the server on random rules', { skip: !targe
   } finally {
     su.saveAcl(baseRoot);
     if (parentId >= 0) su.removeChannel(parentId);
-    await su.flushed();
-    await new Promise(r => setTimeout(r, 1200));
+    // Saves are paced: the answer to this query means the server has the old rules back
+    await aclOf(0);
     for (const c of [a, b, guest, su]) c.disconnect();
   }
 });
