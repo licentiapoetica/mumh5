@@ -378,6 +378,10 @@ proto/      Mumble.proto and MumbleUDP.proto from upstream
 test/       unit, server and end-to-end tests
 ```
 
+### Design notes
+
+- [docs/mumpeer-relay.md](docs/mumpeer-relay.md): Mumcord's community relay (mumpeer and the `mumbot peer` bot), its protocol, and a plan for carrying mumh5's screen sharing through it. Not implemented yet.
+
 ---
 
 ## AI disclosure and credits
