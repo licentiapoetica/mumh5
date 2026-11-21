@@ -69,6 +69,9 @@
     const t = store.settings.theme;
     if (t && t !== 'dark') document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
+    // Title bar of the installed web app and phone status bars
+    const color = getComputedStyle(document.documentElement).getPropertyValue('--bg-1').trim();
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color || '#141518');
   });
 
   // The panel starts open only where it sits inline

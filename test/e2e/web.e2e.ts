@@ -197,6 +197,27 @@ try {
   assert.equal(hash(), before, 'same certificate after a reload');
   console.log('ok: identity kept across a reload, connected at start');
 
+  // Installable: a manifest with the install icons, and a service worker holding every file of the build
+  const manifest = await page.evaluate(async () => {
+    const href = document.querySelector<HTMLLinkElement>('link[rel=manifest]')!.href;
+    const res = await fetch(href);
+    const m = await res.json();
+    const loads = await Promise.all(m.icons.map(async (i: any) => (await fetch(new URL(i.src, href))).ok));
+    return { type: res.headers.get('content-type'), display: m.display, icons: m.icons.map((i: any) => `${i.sizes} ${i.purpose}`), loads };
+  });
+  assert.equal(manifest.type, 'application/manifest+json');
+  assert.equal(manifest.display, 'standalone');
+  assert.deepEqual(manifest.icons, ['192x192 any', '512x512 any', '512x512 maskable']);
+  assert.ok(manifest.loads.every(Boolean), 'every install icon loads');
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 15000 });
+  const cached = await page.evaluate(async () => {
+    const key = (await caches.keys()).find(k => k.startsWith('mumh5-'))!;
+    return (await (await caches.open(key)).keys()).map(r => new URL(r.url).pathname);
+  });
+  assert.ok(cached.includes('/') && cached.includes('/manifest.webmanifest') && cached.some(u => u.endsWith('.wasm')), 'the build is cached');
+  assert.ok(!cached.some(u => u.startsWith('/api/')), 'nothing from the API is cached');
+  console.log(`ok: installable, the service worker keeps ${cached.length} files`);
+
   // Screen sharing between two browsers: the proxy's own STUN is used without any setting
   assert.equal((await (await fetch(`http://127.0.0.1:${proxyPort}/api/config`)).json()).stun, proxyPort + 1000);
   second = await browser();
@@ -287,6 +308,14 @@ try {
   await page2.waitForFunction(() => (document.querySelector('.stage .tile video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
   await page.locator('.stage .status', { hasText: '1 watching' }).waitFor();
   console.log('ok: camera shared between two browsers, shown in the tile, through the relay');
+
+  // With the proxy gone the page still opens, from the service worker
+  const exited = new Promise(r => proxy.once('exit', r));
+  proxy.kill();
+  await exited;
+  await page.reload();
+  await page.locator('.rail').waitFor();
+  console.log('ok: opens without the proxy');
 
   console.log('WEB E2E PASSED');
 } finally {
