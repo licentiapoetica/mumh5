@@ -12,6 +12,9 @@ const isGrant = (r: AclEntry) => !r.inherited && r.applyHere && r.userId == null
 const isDenyAll = (r: AclEntry) => !r.inherited && r.applyHere && r.userId == null
   && r.group === 'all' && r.grant === 0 && isBits(r.deny);
 
+export const isPasswordRule = (r: AclEntry): 'grant' | 'deny' | null =>
+  isGrant(r) ? 'grant' : isDenyAll(r) ? 'deny' : null;
+
 const lastIndex = (acls: AclEntry[], test: (r: AclEntry) => boolean) => acls.map(test).lastIndexOf(true);
 
 export function channelPassword(acl: ChannelAcl): string {

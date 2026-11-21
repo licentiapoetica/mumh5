@@ -1196,10 +1196,23 @@ try {
     const teamId = chByName('Team Room')!.id;
     console.log('ok: channel edited');
 
+    // ACL messages are paced, so a save is done when the server answers with it
+    const aclSaved = async (id: number, ok: (a: ChannelAcl) => boolean, label: string) => {
+      for (let i = 0; i < 30; i++) {
+        const got = new Promise<ChannelAcl>(res => { const off = admin.on('acl', a => { if (a.channelId === id) { off(); res(a); } }); });
+        admin.queryAcl(id);
+        const a = await within(got, label);
+        if (ok(a)) return a;
+        await page.waitForTimeout(300);
+      }
+      throw new Error(`Not saved: ${label}`);
+    };
+
     // Permissions: deny Enter for everyone
     await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Permissions...' }).click();
     const dlg = page.getByRole('dialog', { name: 'Channel: Team Room' });
+    await dlg.getByRole('button', { name: 'Advanced rules' }).click();
     await dlg.getByRole('listbox', { name: 'Rules' }).waitFor();
     await dlg.getByRole('button', { name: 'Add', exact: true }).click();
     await dlg.getByLabel('Deny Enter').check();
@@ -1213,15 +1226,61 @@ try {
     await dlg.locator('.members', { hasText: 'SuperUser' }).waitFor();
     if (shots) await page.screenshot({ path: path.join(shots, 'groups.png') });
     await dlg.getByRole('button', { name: 'Save', exact: true }).click();
-    await page.waitForTimeout(1500);
-    const deniedEnter = new Promise<number>(res => bob.on('permissionDenied', d => res(d.permission)));
+    const ta = await aclSaved(teamId, a => a.acls.some(r => !r.inherited && (r.deny & 0x4) !== 0), 'team rules saved');
+    const deniedEnter = new Promise<number>(res => { const off = bob.on('permissionDenied', d => { off(); res(d.permission); }); });
     bob.joinChannel(teamId);
     assert.equal(await within(deniedEnter, 'enter denied'), 0x4);
-    const teamAcl = new Promise<any>(res => admin.on('acl', a => { if (a.channelId === teamId) res(a); }));
-    admin.queryAcl(teamId);
-    const ta = await within(teamAcl, 'team ACL');
     assert.deepEqual(ta.groups.find((g: any) => g.name === 'mods')?.add, [0]);
     console.log('ok: permissions and groups saved and enforced');
+
+    // Access tab: a preset and a grid cell, explained by the checker before saving
+    await page.mouse.click(listBox.x + listBox.width / 2, listBox.y + listBox.height - 20, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Create channel...' }).click();
+    await page.getByLabel('Name').fill('Access Room');
+    await page.getByRole('button', { name: 'Create channel' }).click();
+    await bobSees('access room', () => !!chByName('Access Room'));
+    const accessId = chByName('Access Room')!.id;
+    await page.locator('.channel .name', { hasText: 'Access Room' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Permissions...' }).click();
+    const accessDlg = page.getByRole('dialog', { name: 'Channel: Access Room' });
+    await accessDlg.getByRole('button', { name: /^Registered only/ }).click();
+    await accessDlg.getByRole('button', { name: 'Everyone, Speak: not set' }).click();
+    await accessDlg.getByRole('button', { name: 'Everyone, Speak: allowed here' }).click();
+    await accessDlg.getByRole('button', { name: 'Everyone, Speak: denied here' }).waitFor();
+    // Administrator does not include Speak, so the deny must not silence admins
+    await accessDlg.getByRole('button', { name: 'Admin, Speak: allowed here' }).waitFor();
+    if (shots) await page.screenshot({ path: path.join(shots, 'access.png') });
+    await accessDlg.getByRole('tab', { name: 'Check' }).click();
+    await accessDlg.getByLabel('Person').selectOption({ label: bob.self!.name });
+    await accessDlg.getByLabel('Action').selectOption({ label: 'Join' });
+    await accessDlg.getByText(`${bob.self!.name} cannot join this channel`).waitFor();
+    await accessDlg.getByText('Decided by Everyone in Access Room.').waitFor();
+    await accessDlg.getByText('Includes your unsaved changes.').waitFor();
+    if (shots) await page.screenshot({ path: path.join(shots, 'access-check.png') });
+    // Phone width: the grid scrolls inside the dialog, the dialog itself stays on screen
+    await page.setViewportSize({ width: 390, height: 800 });
+    const fits = () => accessDlg.evaluate(d => {
+      const box = d.getBoundingClientRect();
+      const body = d.querySelector('.body')!;
+      return box.left >= 0 && box.right <= innerWidth && body.scrollWidth <= body.clientWidth && document.documentElement.scrollWidth <= innerWidth;
+    });
+    assert.ok(await fits(), 'the checker fits a phone');
+    if (shots) await page.screenshot({ path: path.join(shots, 'access-check-phone.png') });
+    await accessDlg.getByRole('tab', { name: 'Access' }).click();
+    await accessDlg.getByRole('button', { name: 'Everyone, Join: denied here' }).waitFor();
+    assert.ok(await fits(), 'the grid fits a phone');
+    if (shots) await page.screenshot({ path: path.join(shots, 'access-phone.png') });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await accessDlg.getByRole('button', { name: 'Save', exact: true }).click();
+    const accessSaved = await aclSaved(accessId, a => a.acls.some(r => !r.inherited), 'access rules saved');
+    const savedAccess = accessSaved.acls.filter(r => !r.inherited);
+    assert.deepEqual(savedAccess.map(r => [r.group, r.grant, r.deny]), [['all', 0, 0x4 | 0x8], ['auth', 0x4, 0], ['admin', 0x8, 0]]);
+    const accessDenied = new Promise<number>(res => { const off = bob.on('permissionDenied', d => { off(); res(d.permission); }); });
+    bob.joinChannel(accessId);
+    assert.equal(await within(accessDenied, 'preset enforced'), 0x4);
+    admin.removeChannel(accessId);
+    await bobSees('access room removed', () => !chByName('Access Room'));
+    console.log('ok: access presets, grid and checker');
 
     // Drag the channel into Games, and bob into Lobby
     await page.locator('.channel .name', { hasText: 'Team Room' }).dragTo(page.locator('.channel .name', { hasText: 'Games' }));
@@ -1685,6 +1744,8 @@ try {
   assert.equal(await page.locator('.rail').count(), 1, 'the second click does not close it again');
   await page.locator('.sidebar .title', { hasText: 'Second' }).waitFor();
   assert.equal(await page.getByRole('dialog').count(), 0, 'the second click opens nothing');
+  // With hints off, the tile under the pointer has its title set aside
+  await page.mouse.move(700, 400);
   console.log('ok: right-click on the current server button');
 
   // Reorder by dragging Second above Test Server

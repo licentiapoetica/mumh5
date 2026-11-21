@@ -1,6 +1,9 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
   import RichEditor from './RichEditor.svelte';
+  import ChannelAccess from './ChannelAccess.svelte';
+  import AccessCheck from './AccessCheck.svelte';
+  import { effectivePermissions, type AccessLevel, type AccessTarget } from '../core/access.ts';
   import { session } from '../lib/session.svelte.ts';
   import { PERM, type ChannelAcl, type AclEntry, type AclGroup } from '../core/client.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
@@ -28,7 +31,7 @@
   const isRoot = channelId === 0;
 
   // svelte-ignore state_referenced_locally
-  let tab = $state<'general' | 'permissions' | 'groups'>(props.tab ?? 'general');
+  let tab = $state<'general' | 'permissions' | 'check' | 'groups'>(props.tab ?? 'general');
   let error = $state('');
 
   // ─── General ────────────────────────────────────────────────────────────────
@@ -64,11 +67,30 @@
   let password = $state('');
   let savedPassword = '';
   let showPassword = $state(false);
+  let advanced = $state(false);
+
+  // Rules of the parent channels, for the checker and the warning about losing your own access
+  const pathIds: number[] = [];
+  for (let c: number | null | undefined = channelId; c != null; c = session.channel(c)?.parent) pathIds.unshift(c);
+  const aboveIds = pathIds.slice(0, -1);
+  // Murmur answers for a channel if you hold Write there or on its parent
+  const readableIds = aboveIds.filter(id => {
+    const up = session.channel(id)?.parent;
+    return !!client?.can(id, PERM.Write) || (up != null && !!client?.can(up, PERM.Write));
+  });
+  let parentAcls = $state<Record<number, ChannelAcl>>({});
+  let parentsAsked = false;
+  let parentsGaveUp = $state(false);
+  let parentsTimer: ReturnType<typeof setTimeout> | undefined;
 
   const offs: (() => void)[] = [];
   if (client && channelId != null) {
     offs.push(client.on('acl', a => {
-      if (a.channelId !== channelId || acl) return;
+      if (a.channelId !== channelId) {
+        if (aboveIds.includes(a.channelId)) parentAcls = { ...parentAcls, [a.channelId]: a };
+        return;
+      }
+      if (acl) return;
       acl = a;
       password = savedPassword = channelPassword(a);
       selectedRule = a.acls.findIndex(r => !r.inherited);
@@ -78,10 +100,62 @@
     names = Object.fromEntries(client.registeredNames);
     client.queryAcl(channelId);
   }
-  $effect(() => () => offs.forEach(off => off()));
+  $effect(() => () => { offs.forEach(off => off()); clearTimeout(parentsTimer); });
+
+  $effect(() => {
+    // ACL messages are rate limited: ask only once the checker or the warning needs the answer
+    if (!acl || (tab !== 'check' && !aclDirty) || parentsAsked || !client) return;
+    parentsAsked = true;
+    for (const id of readableIds) client.queryAcl(id);
+    // The answers are rate limited; if one never comes, work with what the channel itself says
+    if (readableIds.length) parentsTimer = setTimeout(() => { parentsGaveUp = true; }, 8000);
+  });
 
   const userName = (id: number) => names[id] ?? `user #${id}`;
   const touch = () => { aclDirty = true; };
+
+  const plainAcl = $derived(acl ? ($state.snapshot(acl) as ChannelAcl) : null);
+  const parentOf = (id: number) => session.channel(id)?.parent;
+
+  // The path from the root with this channel's unsaved rules; null while still loading
+  const levels = $derived.by((): AccessLevel[] | null => {
+    const own = plainAcl;
+    if (!own || channelId == null) return null;
+    const here: AccessLevel = { channelId, name: channel?.name || 'Root', inheritAcls: own.inheritAcls, rules: own.acls.filter(r => !r.inherited), groups: own.groups };
+    if (!aboveIds.length) return [here];
+    if (!parentsGaveUp && readableIds.some(id => !parentAcls[id])) return null;
+    if (aboveIds.every(id => parentAcls[id])) {
+      return [...aboveIds.map(id => {
+        const a = $state.snapshot(parentAcls[id]) as ChannelAcl;
+        return { channelId: id, name: session.channel(id)?.name || 'Root', inheritAcls: a.inheritAcls, rules: a.acls, groups: a.groups };
+      }), here];
+    }
+    const inherited = own.acls.filter(r => r.inherited).map(r => ({ ...r, inherited: false }));
+    return [{ channelId: aboveIds[aboveIds.length - 1], name: 'Parent channels', inheritAcls: true, rules: inherited, groups: [], partial: true }, here];
+  });
+
+  // Saving would take away the right to undo it
+  const losesAdmin = $derived.by(() => {
+    const me = client?.self;
+    if (!aclDirty || !me || me.userId === 0 || channelId == null || !levels || levels.some(l => l.partial)) return false;
+    if (!client?.can(channelId, PERM.Write)) return false;
+    const person = { userId: me.userId, hash: me.hash, channelId: me.channelId, tokens: session.ownTokens(), strong: false };
+    return !(effectivePermissions(levels, person, parentOf) & PERM.Write);
+  });
+
+  function changeAccess(next: ChannelAcl) {
+    acl = next;
+    selectedRule = next.acls.findIndex(r => !r.inherited);
+    touch();
+  }
+
+  const AUDIENCES: Record<string, string> = { all: 'Everyone', auth: 'Registered', admin: 'Admin', in: 'In this channel', out: 'Outside this channel' };
+  const audience = (g: string | null) => {
+    if (g?.startsWith('#')) return 'Password or access token';
+    return AUDIENCES[g ?? ''] ?? groupLabel(g);
+  };
+  const targetLabel = (t: AccessTarget) => t.userId != null ? userName(t.userId) : audience(t.group);
+  const checkLabel = (r: AclEntry) => r.userId != null ? userName(r.userId) : audience(r.group);
 
   // Registered user id for a name, asked from the server
   function resolveName(raw: string): Promise<number | null> {
@@ -269,7 +343,8 @@
   {#if mode === 'edit'}
     <div class="tabs" role="tablist">
       <button role="tab" aria-selected={tab === 'general'} class:active={tab === 'general'} onclick={() => (tab = 'general')}>General</button>
-      <button role="tab" aria-selected={tab === 'permissions'} class:active={tab === 'permissions'} onclick={() => (tab = 'permissions')}>Permissions</button>
+      <button role="tab" aria-selected={tab === 'permissions'} class:active={tab === 'permissions'} onclick={() => (tab = 'permissions')}>Access</button>
+      <button role="tab" aria-selected={tab === 'check'} class:active={tab === 'check'} onclick={() => (tab = 'check')} title="See what someone can do here, and which rule decides">Check</button>
       <button role="tab" aria-selected={tab === 'groups'} class:active={tab === 'groups'} onclick={() => (tab = 'groups')}>Groups</button>
     </div>
   {/if}
@@ -315,6 +390,10 @@
     <p class="dim">Loading permissions...</p>
   {:else if tab === 'permissions'}
     <label class="check top"><input type="checkbox" bind:checked={acl.inheritAcls} onchange={touch} /> Inherit rules from the parent channel</label>
+    {#if !advanced && plainAcl}
+      <ChannelAccess acl={plainAcl} {isRoot} label={targetLabel} resolve={resolveName} onchange={changeAccess} onadvanced={() => (advanced = true)} />
+    {:else}
+    <div class="advanced"><button type="button" class="link" onclick={() => (advanced = false)}>Simple view</button></div>
     <div class="split">
       <div class="listcol">
         <ul class="list" role="listbox" aria-label="Rules">
@@ -371,6 +450,9 @@
         {/if}
       </div>
     </div>
+    {/if}
+  {:else if tab === 'check'}
+    <AccessCheck {levels} {isRoot} dirty={aclDirty} ruleLabel={checkLabel} />
   {:else}
     <div class="split">
       <div class="listcol">
@@ -425,6 +507,7 @@
     </div>
   {/if}
 
+  {#if losesAdmin}<p class="note lose">Saving removes your own admin access to this channel.</p>{/if}
   {#if error}<p class="error">{error}</p>{/if}
 
   {#snippet footer()}
@@ -473,6 +556,8 @@
   .link { color: var(--link); font-size: 13px; }
   .link.danger { color: var(--danger); }
   .note { margin: 0 0 8px; font-size: 13px; color: var(--warn); }
+  .note.lose { margin: 10px 0 0; }
+  .advanced { display: flex; justify-content: flex-end; margin-top: 8px; }
   .dim { color: var(--text-dim); }
   .small { font-size: 12px; }
   .error { color: var(--danger); margin: 10px 0 0; }

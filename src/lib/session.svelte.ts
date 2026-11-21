@@ -946,6 +946,10 @@ export class Session {
     return s ? `${s.host.toLowerCase()}:${s.port}` : '';
   }
 
+  ownTokens(): string[] {
+    return store.tokensFor(this.tokenKey);
+  }
+
   // A client cannot tell a password from a channel that is simply closed to it
   private askPassword(id: number, wrong = false): void {
     const name = this.client?.channels.get(id)?.name || 'Root';

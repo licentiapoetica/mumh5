@@ -6,6 +6,7 @@ import { createCodec } from '../src/core/proto.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../src/core/client.ts';
 import { channelPassword, withPassword } from '../src/core/channel-password.ts';
 import { parseAdmins, withAdmins } from '../src/core/admins.ts';
+import { ROOT_ONLY, effectivePermissions, explain, type AccessLevel, type Person } from '../src/core/access.ts';
 import type { Transport } from '../src/core/transport.ts';
 import { openTls } from '../electron/tls-transport.ts';
 import { generateIdentity } from '../electron/identity.ts';
@@ -538,5 +539,99 @@ test('a file reaches two people through the server, chat stays quick meanwhile',
     alice.disconnect();
     bob.disconnect();
     carol.disconnect();
+  }
+});
+
+test('the access checker agrees with the server on random rules', { skip: !target || !superPw, timeout: 240000 }, async () => {
+  const su = await connect('SuperUser', superPw);
+  const tag = Date.now() % 100000;
+  const [a, b, guest] = await Promise.all([connect(`acca${tag}`), connect(`accb${tag}`), connect(`accg${tag}`)]);
+  const token = 'AccessKey';
+  guest.setTokens([token.toLowerCase()]);
+  const people = [a, b, guest];
+  const aclOf = (id: number) => until<ChannelAcl>(res => {
+    const off = su.on('acl', x => { if (x.channelId === id) { off(); res(x); } });
+    su.queryAcl(id);
+  }, 20000);
+  const poll = (ok: () => boolean) => until<void>(res => {
+    const t = setInterval(() => { if (ok()) { clearInterval(t); res(); } }, 25);
+  }, 8000);
+  const makeChannel = async (parent: number, name: string) => {
+    su.createChannel(parent, name);
+    await poll(() => [...su.channels.values()].some(c => c.name === name));
+    return [...su.channels.values()].find(c => c.name === name)!.id;
+  };
+  const baseRoot = await aclOf(0);
+  let parentId = -1;
+  try {
+    for (const c of [a, b]) {
+      su.register(c.self!.session);
+      await poll(() => c.self?.userId != null);
+    }
+    parentId = await makeChannel(0, `access${tag}`);
+    const childId = await makeChannel(parentId, `inner${tag}`);
+    su.setUserState(a.self!.session, { channel_id: parentId });
+    su.setUserState(b.self!.session, { channel_id: childId });
+    await poll(() => a.self?.channelId === parentId && b.self?.channelId === childId);
+    const ids = [a.self!.userId!, b.self!.userId!];
+
+    // Fixed seed: a failure can be repeated
+    let seed = 20261121;
+    const rnd = (n: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return (seed >>> 16) % n; };
+    const pick = <T>(list: T[]) => list[rnd(list.length)];
+    const some = () => ids.filter(() => rnd(3) === 0);
+    const bits = Object.values(PERM) as number[];
+    const mask = bits.reduce((x, y) => x | y, 0);
+    const someBits = () => { let v = 0; for (let i = rnd(3) + 1; i > 0; i--) v |= pick(bits); return v; };
+    const specs = ['all', 'auth', 'in', 'out', 'sub', 'sub,0,1', 'sub,-1,1,2', '~in', '~out', '~sub', '!auth', '!in', 'none', 'strong',
+      'team', '!team', '~team', '!~team', `$${a.self!.hash}`, `!$${b.self!.hash}`, `#${token}`, `!#${token}`];
+    const randomRules = () => Array.from({ length: rnd(5) + 1 }, () => {
+      const grant = someBits();
+      const deny = rnd(2) ? someBits() & ~grant : 0;
+      const byUser = rnd(6) === 0;
+      return { applyHere: rnd(4) > 0, applySubs: rnd(4) > 0, inherited: false, userId: byUser ? pick(ids) : null, group: byUser ? null : pick(specs), grant, deny };
+    });
+    const randomGroup = () => ({ name: 'team', inherited: false, inherit: rnd(4) > 0, inheritable: rnd(4) > 0, add: some(), remove: some(), inheritedMembers: [] });
+
+    const path = [0, parentId, childId];
+    const parents = (id: number) => su.channels.get(id)?.parent;
+    for (let round = 0; round < 8; round++) {
+      su.saveAcl({ ...baseRoot, groups: [...baseRoot.groups, randomGroup()], acls: [...baseRoot.acls, ...randomRules()] });
+      su.saveAcl({ channelId: parentId, inheritAcls: rnd(4) > 0, groups: rnd(2) ? [randomGroup()] : [], acls: randomRules() });
+      su.saveAcl({ channelId: childId, inheritAcls: rnd(4) > 0, groups: rnd(2) ? [randomGroup()] : [], acls: randomRules() });
+      const levels: AccessLevel[] = [];
+      for (const id of path) {
+        const acl = await aclOf(id);
+        levels.push({ channelId: id, name: String(id), inheritAcls: acl.inheritAcls, rules: acl.acls, groups: acl.groups });
+      }
+      await su.flushed();
+      for (const c of people) {
+        const who: Person = { userId: c.self!.userId, hash: c.self!.hash, channelId: c.self!.channelId, tokens: c === guest ? [token.toLowerCase()] : [], strong: false };
+        const server = new Map<number, number>();
+        for (const id of path) {
+          await c.flushed();
+          const got = until<number>(res => { const off = c.on('permissions', (ch, p) => { if (ch === id) { off(); res(p); } }); });
+          c.requestPermissions(id);
+          server.set(id, (await got) & mask);
+        }
+        path.forEach((id, i) => {
+          const upTo = levels.slice(0, i + 1);
+          const where = `round ${round}, user ${c.self!.name}, channel ${i}`;
+          assert.equal(effectivePermissions(upTo, who, parents) & mask, server.get(id), where);
+          for (const bit of bits) {
+            const rootOnly = (bit & ROOT_ONLY) !== 0;
+            const wanted = bit === PERM.Kick ? PERM.Kick | PERM.Ban : bit;
+            const allowed = (server.get(rootOnly ? 0 : id)! & wanted) !== 0;
+            assert.equal(explain(upTo, who, bit, parents).verdict, allowed ? 'allowed' : 'denied', `${where}, bit ${bit}`);
+          }
+        });
+      }
+    }
+  } finally {
+    su.saveAcl(baseRoot);
+    if (parentId >= 0) su.removeChannel(parentId);
+    // Saves are paced: the answer to this query means the server has the old rules back
+    await aclOf(0);
+    for (const c of [a, b, guest, su]) c.disconnect();
   }
 });
