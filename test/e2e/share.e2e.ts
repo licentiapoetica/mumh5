@@ -259,6 +259,30 @@ try {
   if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/zoom.png` });
   await view.getByRole('button', { name: 'Zoom in' }).click();
   assert.ok(Number(await slider.inputValue()) * 100 > level, 'zoom in button');
+  // The panel is there only while the pointer is on the picture, and stays during a drag that leaves it
+  const panelOpacity = (o: string) => bob.page.waitForFunction(o => getComputedStyle(document.querySelector('.spot .zoom')!).opacity === o, o, { timeout: 3000 });
+  const outside = { x: spotBox.x + spotBox.width / 2, y: spotBox.y - 60 };
+  const leave = async () => { await bob.page.mouse.move(outside.x, outside.y); await bob.page.mouse.move(outside.x + 1, outside.y); await panelOpacity('0'); };
+  const enter = async () => { await bob.page.mouse.move(at.x, at.y); await panelOpacity('1'); };
+  await leave();
+  assert.equal(await bob.page.evaluate(() => getComputedStyle(document.querySelector('.spot .zoom')!).pointerEvents), 'none', 'the hidden panel takes no clicks');
+  await enter();
+  const mapNow = (await view.locator('.map').boundingBox())!;
+  for (const from of [at, { x: mapNow.x + mapNow.width / 2, y: mapNow.y + mapNow.height / 2 }]) {
+    await bob.page.mouse.move(from.x, from.y);
+    await bob.page.mouse.down();
+    await bob.page.mouse.move(outside.x, outside.y, { steps: 4 });
+    await bob.page.waitForTimeout(250);
+    assert.equal(await bob.page.evaluate(() => getComputedStyle(document.querySelector('.spot .zoom')!).opacity), '1', 'the panel stays during a drag');
+    await bob.page.mouse.up();
+    await leave();
+    await enter();
+  }
+  // Having used the slider does not pin the panel open
+  await slider.click();
+  await leave();
+  await enter();
+  console.log('ok: the zoom panel hides when the pointer leaves the picture');
   await bob.page.locator('.spot .pic > video').click({ button: 'right' });
   await bob.page.getByRole('menuitem', { name: 'Reset zoom' }).click();
   await bob.page.waitForFunction(() => getComputedStyle(document.querySelector('.spot .pic > video')!).transform === 'none');
@@ -289,9 +313,16 @@ try {
   const popBox = (await streamWindow.locator('video').first().boundingBox())!;
   await streamWindow.mouse.move(popBox.x + popBox.width * 0.4, popBox.y + popBox.height * 0.4);
   assert.equal(await streamWindow.getByRole('group', { name: 'Zoom' }).count(), 0, 'no zoom panel in the window before zooming');
+  await streamWindow.waitForFunction(() => getComputedStyle(document.querySelector('.zoom-btn')!).visibility === 'visible', null, { timeout: 3000 });
   await streamWindow.mouse.wheel(0, -400);
   const popPanel = streamWindow.getByRole('group', { name: 'Zoom' });
   await popPanel.waitFor({ timeout: 3000 });
+  const popOpacity = (o: string) => streamWindow.waitForFunction(o => getComputedStyle(document.querySelector('.zoom')!).opacity === o, o, { timeout: 3000 });
+  await popOpacity('1');
+  await streamWindow.mouse.move(-20, -20, { steps: 3 });
+  await popOpacity('0');
+  await streamWindow.mouse.move(popBox.x + popBox.width * 0.4, popBox.y + popBox.height * 0.4, { steps: 3 });
+  await popOpacity('1');
   assert.ok(Number(await popPanel.getByRole('slider', { name: 'Zoom' }).inputValue()) > 1, 'zoomed in the separate window');
   assert.notEqual(await streamWindow.evaluate(() => getComputedStyle(document.querySelector('video')!).transform), 'none');
   const panelBox = (await popPanel.boundingBox())!;
