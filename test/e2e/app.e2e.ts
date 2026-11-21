@@ -685,6 +685,13 @@ try {
   await app.evaluate(() => (globalThis as any).__mumh5Tray.click('Mute'));
   await trayUntil('muted again', t => /muted/.test(t.tooltip));
   console.log('ok: tray icon follows voice state and its menu mutes');
+  // Clicking the tray icon hides a shown window and shows it again
+  const winVisible = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible());
+  await app.evaluate(() => (globalThis as any).__mumh5Tray.activate());
+  await within((async () => { while (await winVisible()) await new Promise(r => setTimeout(r, 100)); })(), 'tray click hides the window');
+  await app.evaluate(() => (globalThis as any).__mumh5Tray.activate());
+  await within((async () => { while (!(await winVisible())) await new Promise(r => setTimeout(r, 100)); })(), 'tray click shows the window');
+  console.log('ok: tray icon click toggles the window');
   await page.locator('.channel + .users, .users').getByTitle('Muted', { exact: true }).first().waitFor();
   console.log('ok: self mute propagated and shown');
   assert.ok((await soundLog()).includes('mute'), 'mute sound');

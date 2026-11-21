@@ -32,13 +32,19 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
     win.show();
     win.focus();
   };
+  // A minimized window counts as hidden, so the click brings it back
+  const toggle = () => {
+    const win = getWindow();
+    if (win?.isVisible() && !win.isMinimized()) win.hide();
+    else show();
+  };
 
   const rebuild = () => {
     if (!tray || !state) return;
     const win = getWindow();
     const s = state;
     const menu = Menu.buildFromTemplate([
-      { label: win?.isVisible() ? 'Hide mumh5' : 'Show mumh5', click: () => (win?.isVisible() ? win.hide() : show()) },
+      { label: win?.isVisible() && !win.isMinimized() ? 'Hide mumh5' : 'Show mumh5', click: toggle },
       { type: 'separator' },
       { label: s.connected ? `Connected: ${s.server}` : 'Not connected', enabled: false },
       { label: 'Mute', type: 'checkbox', checked: s.muted, enabled: s.connected, click: () => send('toggle-mute') },
@@ -69,6 +75,7 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
       fullIcon: s.icon,
       items: menu.items.map(i => ({ label: i.label, checked: i.checked, enabled: i.enabled })),
       get blinking() { return blinkTimer != null; },
+      activate: () => tray?.emit('click'),
       click: (label: string) => { const item = menu.items.find(i => i.label === label); item?.click(undefined, getWindow() ?? undefined, getWindow()?.webContents); }
     };
   };
@@ -81,7 +88,7 @@ export async function setupTray(getWindow: () => BrowserWindow | null, send: (ac
     const image = nativeImage.createFromDataURL(next.icon);
     if (!tray) {
       tray = new Tray(image);
-      tray.on('click', show);
+      tray.on('click', toggle);
     } else {
       tray.setImage(image);
     }
