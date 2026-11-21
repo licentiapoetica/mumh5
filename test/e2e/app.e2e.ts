@@ -129,6 +129,12 @@ try {
 
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
+  const backgroundDesign = page.getByRole('group', { name: 'Background design' });
+  await backgroundDesign.getByRole('button', { name: 'Grid', exact: true }).click();
+  await page.locator('.home > .background-art[data-design="grid"]').waitFor();
+  await backgroundDesign.getByRole('button', { name: 'None', exact: true }).click();
+  assert.equal(await page.locator('.background-art').count(), 0);
+  console.log('ok: background design applies and clears from Appearance');
   await page.getByRole('radio', { name: 'Modern' }).click();
   await page.getByRole('tab', { name: 'Sounds' }).click();
   // Audio packs: a fresh profile is quiet, and an imported pack joins the library

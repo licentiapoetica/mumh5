@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
@@ -26,7 +27,8 @@
   const openSettings = (tab: Tab) => { ui.settingsTab = tab; ui.settingsOpen = true; };
 </script>
 
-<section class="you" aria-label="You">
+<section data-background class="you" aria-label="You">
+  <Background />
   <div class="scroll">
     <div class="card">
       {#if self}

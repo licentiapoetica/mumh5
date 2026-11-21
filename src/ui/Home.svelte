@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from './Background.svelte';
   import Icon from './Icon.svelte';
   import ServerButton from './ServerButton.svelte';
   import UserBar from './UserBar.svelte';
@@ -32,7 +33,8 @@
   const d = $derived(session.disconnectInfo);
 </script>
 
-<section class="home" aria-label="Servers">
+<section data-background class="home" aria-label="Servers">
+  <Background />
   {#if top}<UserBar toolbar />{/if}
   <div class="scroll">
     <header>
