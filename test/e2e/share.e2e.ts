@@ -45,6 +45,10 @@ async function join(page: Page, name: string) {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('tab', { name: 'Sounds' }).click();
+  for (const name of ['A screen share started (yours or in your channel)', 'A screen share stopped', 'Someone started watching your screen', 'Someone stopped watching your screen']) {
+    await page.getByRole('checkbox', { name, exact: true }).check();
+  }
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByTitle('Add a server').click();
   await page.getByLabel('Address').fill(host);

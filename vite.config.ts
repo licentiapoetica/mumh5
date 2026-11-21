@@ -57,13 +57,15 @@ function pwa(): Plugin {
       // The noise filter is 17 MB: only people who choose it load it, so it stays out of the
       // offline cache, and the proxy sends the engine compressed (the model already is)
       const deepFilter = /^assets\/(df-[^/]+\.wasm(\.br)?|DeepFilterNet3_onnx[^/]*\.bin)$/;
+      // The 8 MB voice pack likewise: it is fetched when the first sound plays
+      const voicePack = /^assets\/default-audio-pack-[^/]+\.zip$/;
       for (const [fileName, file] of Object.entries(bundle)) {
         if (file.type !== 'asset' || !/^assets\/df-[^/]+\.wasm$/.test(fileName)) continue;
         const params = { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 };
         this.emitFile({ type: 'asset', fileName: `${fileName}.br`, source: brotliCompressSync(file.source as Uint8Array, { params }) });
       }
       // Names under assets/ carry a content hash; index.html is cached as ./
-      const files = [...Object.keys(bundle).filter(f => f.startsWith('assets/') && !f.endsWith('.map') && !deepFilter.test(f)), ...fixed.keys()].sort();
+      const files = [...Object.keys(bundle).filter(f => f.startsWith('assets/') && !f.endsWith('.map') && !deepFilter.test(f) && !voicePack.test(f)), ...fixed.keys()].sort();
       const hash = createHash('sha256').update(files.join('\n'));
       for (const source of fixed.values()) hash.update(source);
       const version = hash.digest('hex').slice(0, 12);

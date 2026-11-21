@@ -4,10 +4,12 @@
 import { _electron as electron, type Locator } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { zipSync } from 'fflate';
+import { readAudioPack } from '../../src/core/audio-pack.ts';
 import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
@@ -128,6 +130,37 @@ try {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   await page.getByRole('radio', { name: 'Modern' }).click();
+  await page.getByRole('tab', { name: 'Sounds' }).click();
+  // Audio packs: a fresh profile is quiet, and an imported pack joins the library
+  const soundsIdle = () => page.waitForFunction(() => !!document.querySelector('fieldset:not([disabled])'));
+  await soundsIdle();
+  assert.equal(await page.locator('.events input:checked').count(), 3, 'quiet defaults');
+  const packSelect = page.getByLabel('Audio pack', { exact: true });
+  const standardClips = readAudioPack(readFileSync(new URL('../../src/assets/default-audio-pack.zip', import.meta.url)));
+  const e2ePack = zipSync({ 'AudioNotification/SelfMute.wav': standardClips.get('AudioNotification/SelfUnmute.wav')! });
+  await page.getByRole('checkbox', { name: 'You deafened', exact: true }).check();
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'e2e-pack.zip', mimeType: 'application/zip', buffer: Buffer.from(e2ePack) });
+  await page.locator('.help strong').getByText('e2e-pack.zip', { exact: true }).waitFor();
+  await soundsIdle();
+  assert.equal(await packSelect.locator('option').count(), 2);
+  assert.equal(await page.locator('.events input:checked').count(), 4, 'importing keeps event choices');
+  await packSelect.selectOption('');
+  await page.locator('.help strong').getByText('Chatterbox female (standard)', { exact: true }).waitFor();
+  await soundsIdle();
+  await packSelect.selectOption({ label: 'e2e-pack.zip' });
+  await page.locator('.help strong').getByText('e2e-pack.zip', { exact: true }).waitFor();
+  await soundsIdle();
+  await page.getByRole('button', { name: 'Remove pack', exact: true }).click();
+  await page.locator('.help strong').getByText('Chatterbox female (standard)', { exact: true }).waitFor();
+  await soundsIdle();
+  assert.equal(await packSelect.locator('option').count(), 1);
+  await page.getByRole('button', { name: 'Use quiet defaults' }).click();
+  assert.equal(await page.locator('.events input:checked').count(), 3);
+  console.log('ok: audio pack import, library, switching, removal and quiet defaults');
+  // The tests below exercise optional sounds.
+  for (const name of ['You connected', 'Channel message', 'You muted', 'You unmuted', 'Someone connected into your channel']) {
+    await page.getByRole('checkbox', { name, exact: true }).check();
+  }
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.app.side').waitFor();
   console.log('ok: stacked by default');
