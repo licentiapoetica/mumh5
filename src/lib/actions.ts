@@ -23,6 +23,13 @@ export async function setPictureFromFile(file: Blob): Promise<string | null> {
   }
 }
 
+// The icon for someone muted or deafened; deafened comes first, since it includes muted
+export function voiceMark(u: User): { icon: 'headphones-off' | 'mic-off'; admin: boolean; title: string } | null {
+  if (u.deaf || u.selfDeaf) return { icon: 'headphones-off', admin: !!u.deaf, title: u.deaf ? 'Deafened by server' : 'Deafened' };
+  if (u.mute || u.selfMute || u.suppress) return { icon: 'mic-off', admin: !!(u.mute || u.suppress), title: u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted' };
+  return null;
+}
+
 // A person's profile card, next to the element that was clicked (or at a point, from a menu)
 export function openProfile(user: number, at: Element | { x: number; y: number }, from?: Element | null): void {
   // Stays lit while the card is open; from a menu, the row the menu belonged to
