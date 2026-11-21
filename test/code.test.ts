@@ -26,6 +26,7 @@ test('a snippet goes out as escaped <pre> with its language as title', () => {
   // Nothing recognisable: no title, and not guessed when told not to
   assert.equal(codeBlockHtml('hello everyone'), '<pre>hello everyone</pre>');
   assert.equal(codeBlockHtml('def f(x):\n    return [i for i in x]', null, false), '<pre>def f(x):\n    return [i for i in x]</pre>');
+  assert.equal(codeBlockHtml('"<tag>" & \'value\' &lt;', null, false), '<pre>"&lt;tag&gt;" &amp; \'value\' &amp;lt;</pre>');
   assert.equal(tidyCode('\r\n  indented\r\n'), '  indented');
 });
 

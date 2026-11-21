@@ -1,16 +1,15 @@
 // Pokes, like TeamSpeak's: a short note that pops up for one person. Mumble has no such
 // message, so a poke is a private text message with a marker. Other clients show it as a
 // normal private message ("Poked you: ..."); the marker is an HTML comment, invisible there.
+import { escapeHtml } from './html.ts';
 
 export const POKE_MARK = '<!--mumh5:poke-->';
 export const POKE_PREFIX = 'Poked you';
 export const POKE_MAX = 200;
 
-const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
 export function encodePoke(text: string): string {
   const t = text.trim().slice(0, POKE_MAX);
-  return POKE_MARK + POKE_PREFIX + (t ? ': ' + escape(t) : '');
+  return POKE_MARK + POKE_PREFIX + (t ? ': ' + escapeHtml(t) : '');
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
