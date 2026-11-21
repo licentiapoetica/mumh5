@@ -123,6 +123,47 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text-dim
 label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 400; color: var(--text); margin-top: 12px; }
 .opt { font-weight: 400; color: var(--text-faint); }
 
+/* Code blocks in rendered text (html.ts): the language over the code, a copy button (App.svelte) */
+.code { position: relative; margin: 4px 0; max-width: 100%; background: var(--bg-0); border: 1px solid var(--line); }
+.code::before {
+  content: attr(data-lang); display: block; padding: 0 40px 0 10px; line-height: 28px; border-bottom: 1px solid var(--line);
+  font: 650 11px/28px var(--font); letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint);
+}
+/* Long code scrolls inside the block (about 15 lines) instead of filling the chat */
+.code > pre { margin: 0; padding: 8px 10px; max-height: min(320px, 50vh); overflow: auto; background: none; }
+.code .copy { position: absolute; top: 0; right: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: var(--text-faint); }
+.code .copy:hover { background: var(--bg-hover); color: var(--text); }
+.code .copy .done, .code .copy.copied .idle { display: none; }
+.code .copy.copied .done { display: block; }
+.code .copy.copied { color: var(--speaking); }
+
+/* Highlighted code (src/core/code.ts), in messages and the snippet editor. Token colors keep the
+   lightness of the theme's text, pulled a little toward the middle, so they read in light and dark
+   schemes alike; only hue and chroma are fixed. */
+.hl {
+  --syn-keyword: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.14 305);
+  --syn-string: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.13 145);
+  --syn-number: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.13 60);
+  --syn-title: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.13 250);
+  --syn-type: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.12 90);
+  --syn-attr: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.13 25);
+  --syn-meta: oklch(from var(--text) calc(l * 0.6 + 0.2) 0.11 200);
+  font: 13px/1.5 var(--mono); tab-size: 4; white-space: pre; color: var(--text);
+}
+.hl .hljs-keyword, .hl .hljs-selector-tag, .hl .hljs-doctag, .hl .hljs-template-tag, .hl .hljs-operator { color: var(--syn-keyword); }
+.hl .hljs-string, .hl .hljs-regexp, .hl .hljs-addition, .hl .hljs-meta .hljs-string { color: var(--syn-string); }
+.hl .hljs-number, .hl .hljs-literal, .hl .hljs-symbol, .hl .hljs-bullet, .hl .hljs-variable.constant_ { color: var(--syn-number); }
+.hl .hljs-title, .hl .hljs-section, .hl .hljs-selector-id { color: var(--syn-title); }
+.hl .hljs-type, .hl .hljs-built_in, .hl .hljs-title.class_, .hl .hljs-selector-class, .hl .hljs-variable.language_ { color: var(--syn-type); }
+.hl .hljs-attr, .hl .hljs-attribute, .hl .hljs-property, .hl .hljs-name, .hl .hljs-variable, .hl .hljs-template-variable,
+.hl .hljs-selector-attr, .hl .hljs-selector-pseudo, .hl .hljs-deletion { color: var(--syn-attr); }
+.hl .hljs-meta, .hl .hljs-meta .hljs-keyword, .hl .hljs-link, .hl .hljs-char.escape_, .hl .hljs-subst { color: var(--syn-meta); }
+.hl .hljs-comment, .hl .hljs-quote { color: var(--text-faint); font-style: italic; }
+.hl .hljs-addition { background: color-mix(in srgb, var(--syn-string) 12%, transparent); }
+.hl .hljs-deletion { background: color-mix(in srgb, var(--syn-attr) 12%, transparent); }
+.hl .hljs-emphasis { font-style: italic; }
+.hl .hljs-strong, .hl .hljs-section { font-weight: 650; }
+
 /* Images in rendered text open large on click (App.svelte) */
 .html img, .embed img { cursor: zoom-in; }
 .card img { cursor: inherit; }

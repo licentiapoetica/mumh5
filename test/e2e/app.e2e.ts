@@ -307,6 +307,71 @@ try {
   await page.locator('.chat .composer').getByRole('button', { name: 'Text formatting' }).click();
   console.log('ok: formatted message from the toolbar');
 
+  // Code: ```fences``` in the message box (Enter inside one adds a line), sent as <pre> with the language as title
+  const gotFence = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('def f')) res(m.html); }));
+  await composer.click();
+  await page.keyboard.type('look `inline` here');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('```py');
+  for (const line of ['def f(x):', '    return x < 1', '```']) {
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(line);
+  }
+  await page.keyboard.press('Enter');
+  assert.equal(await within(gotFence, 'fenced code'), 'look <code>inline</code> here<pre title="python">def f(x):\n    return x &lt; 1</pre>');
+  const pyBlock = page.locator('.msg .code[data-lang="Python"]');
+  await pyBlock.locator('.hljs-keyword', { hasText: 'def' }).waitFor();
+  assert.equal(await pyBlock.locator('pre').innerText(), 'def f(x):\n    return x < 1');
+  assert.equal(await page.locator('.msg code', { hasText: 'inline' }).count(), 1);
+  // Copy button: the code alone, as text
+  await pyBlock.getByRole('button', { name: 'Copy code' }).click();
+  await pyBlock.locator('.copy.copied').waitFor();
+  await composer.click({ button: 'right' });
+  await menuItem('Paste').click();
+  assert.equal(await composerText(), 'def f(x):\n    return x < 1');
+  await composer.fill('');
+  // From the desktop client's Markdown: <pre> with <br/>, no language; detected. Markup inside stays text.
+  bob.sendText({ channels: [0] }, '<pre>#include &lt;stdio.h&gt;<br/>int main(void) { printf("hi"); return 0; }</pre>'
+    + '<pre title="html">&lt;img src=x onerror="window.pwned=2"&gt;</pre><pre><button class="copy">x</button><span class="hljs-keyword">fake</span></pre>');
+  const cBlock = page.locator('.msg .code[data-lang="C++"]');
+  await cBlock.locator('.hljs-meta', { hasText: '#include' }).waitFor();
+  assert.equal(await cBlock.locator('pre').innerText(), '#include <stdio.h>\nint main(void) { printf("hi"); return 0; }');
+  const htmlBlock = page.locator('.msg .code[data-lang="HTML / XML"]');
+  assert.equal(await htmlBlock.locator('pre').innerText(), '<img src=x onerror="window.pwned=2">');
+  assert.equal(await page.evaluate(() => (window as any).pwned), undefined);
+  assert.equal(await page.locator('.msg .code[data-lang="Text"] pre').innerText(), 'xfake');
+  assert.equal(await page.locator('.msg .code[data-lang="Text"] button, .msg .code[data-lang="Text"] .hljs-keyword').count(), 1, 'only our copy button');
+  // The snippet dialog: language, highlighted while typing, Ctrl+Enter sends
+  const gotSnippet = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('fn main')) res(m.html); }));
+  await page.locator('.chat .composer').getByRole('button', { name: 'Code snippet' }).click();
+  const snippet = page.getByRole('dialog', { name: 'Code snippet' });
+  await snippet.getByLabel('Language').selectOption('rust');
+  await snippet.getByLabel('Code').fill('fn main() {\n    println!("hi");\n}');
+  await snippet.locator('.hljs-keyword', { hasText: 'fn' }).waitFor();
+  if (shots) { await page.waitForTimeout(300); await page.screenshot({ path: path.join(shots, 'code-dialog.png') }); }
+  await snippet.getByLabel('Code').press('Control+Enter');
+  assert.equal(await within(gotSnippet, 'snippet from the dialog'), '<pre title="rust">fn main() {\n    println!("hi");\n}</pre>');
+  await snippet.waitFor({ state: 'detached' });
+  await page.locator('.msg .code[data-lang="Rust"]').waitFor();
+  // Long code scrolls inside its block; the language and copy button stay in view
+  const lines = Array.from({ length: 60 }, (_, i) => `    total += step(${i})  # line ${i + 1}`);
+  bob.sendText({ channels: [0] }, `<pre title="python">def run(step):\n    total = 0\n${lines.join('\n')}\n    return total</pre>`);
+  const longBlock = page.locator('.msg .code[data-lang="Python"]', { hasText: 'line 60' });
+  const longPre = longBlock.locator('pre');
+  await longPre.waitFor();
+  const longBox = await longPre.evaluate(el => ({ height: el.getBoundingClientRect().height, scroll: el.scrollHeight }));
+  assert.ok(longBox.height <= 321 && longBox.scroll > longBox.height * 2, `long code capped and scrollable: ${JSON.stringify(longBox)}`);
+  await longPre.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await longPre.getByText('line 60').waitFor({ state: 'visible' });
+  await longBlock.getByRole('button', { name: 'Copy code' }).waitFor({ state: 'visible' });
+  if (shots) {
+    await page.screenshot({ path: path.join(shots, 'code-chat.png') });
+    const was = await page.evaluate(() => { const t = document.documentElement.dataset.theme; document.documentElement.dataset.theme = 'snow'; return t; });
+    await page.screenshot({ path: path.join(shots, 'code-chat-light.png') });
+    await page.evaluate(t => { if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }, was);
+  }
+  console.log('ok: code snippets: fences, dialog, highlighting, detection, copy');
+
   // YouTube links are plain links by default
   bob.sendText({ channels: [0] }, 'watch <a href="https://youtu.be/dQw4w9WgXcQ?t=1m30s">https://youtu.be/dQw4w9WgXcQ?t=1m30s</a>');
   const ytMsg = page.locator('.msg', { hasText: 'watch' });
@@ -1527,6 +1592,11 @@ try {
     await page.locator('.chat2 .composer [contenteditable]').press('Enter');
     await within(roomsMsg, 'message from the rooms interface');
     await page.locator('.chat2 .msg', { hasText: 'hello from rooms' }).waitFor();
+    // Code snippets from the same message box; the dialog fits the phone width
+    await page.locator('.chat2 .composer').getByRole('button', { name: 'Code snippet' }).click();
+    const roomsSnippet = page.getByRole('dialog', { name: 'Code snippet' });
+    assert.ok((await roomsSnippet.boundingBox())!.width <= 390);
+    await roomsSnippet.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Back to rooms' }).click();
     await rooms.waitFor();
 

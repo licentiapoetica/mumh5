@@ -903,6 +903,12 @@ export class Session {
     return true;
   }
 
+  // The longest text message (HTML, no pictures) the chat at `key` takes; 0 when not known
+  messageLimit(key: string = this.view): number {
+    if (key.startsWith('ch:') && this.isText(Number(key.slice(3)))) return MAX_HTML;
+    return this.client?.config.messageLength ?? 0;
+  }
+
   sendText(text: string, key: string = this.view): boolean {
     const trimmed = text.trim();
     return trimmed ? this.sendHtml(textToHtml(trimmed), key) : false;

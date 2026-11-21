@@ -1,9 +1,11 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import FormatToolbar from './FormatToolbar.svelte';
+  import CodeDialog from './CodeDialog.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { toMumbleHtml } from '../lib/html.ts';
+  import { inOpenFence } from '../core/code.ts';
 
   // target: the chat this composer sends to ("ch:<id>" or "dm:<session>")
   let { target, placeholder, autofocus = true }: { target: string; placeholder: string; autofocus?: boolean } = $props();
@@ -12,6 +14,7 @@
   let picker: HTMLInputElement;
   let imagePicker: HTMLInputElement;
   let empty = $state(true);
+  let snippet = $state(false);
   // The formatting toolbar is opt-in and remembered
   let formatting = $state(loadFormatting());
   const disabled = $derived(session.status !== 'connected');
@@ -46,10 +49,21 @@
     sync();
   }
 
+  // The text from the start of the message to the caret
+  function textBeforeCaret(): string {
+    const sel = window.getSelection();
+    if (!sel?.rangeCount || !input.contains(sel.anchorNode)) return '';
+    const r = document.createRange();
+    r.selectNodeContents(input);
+    r.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+    return r.toString();
+  }
+
   function onkeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault();
-      if (e.shiftKey) exec('insertLineBreak');
+      // Inside an open ``` fence Enter starts a new line of code, as Shift+Enter does
+      if (e.shiftKey || inOpenFence(textBeforeCaret())) exec('insertLineBreak');
       else submit();
       return;
     }
@@ -113,6 +127,7 @@
         onchange={() => { session.sendFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
       <input bind:this={imagePicker} type="file" accept="image/*" hidden
         onchange={() => { session.sendFiles([...(imagePicker.files ?? [])], target); imagePicker.value = ''; }} />
+      <button class="icon-btn" title="Code snippet (or ```language in the message)" aria-label="Code snippet" {disabled} onclick={() => (snippet = true)}><Icon name="code" /></button>
       <div class="input" class:blank={empty} bind:this={input} contenteditable={!disabled}
         role="textbox" aria-multiline="true" aria-label="Message" tabindex="0" data-placeholder={placeholder}
         oninput={sync} {onkeydown} {onpaste}></div>
@@ -122,6 +137,8 @@
     </div>
   </div>
 </div>
+
+{#if snippet}<CodeDialog {target} onclose={() => { snippet = false; input.focus(); }} />{/if}
 
 <style>
   /* A framed field set in from the edges; grows for longer messages */

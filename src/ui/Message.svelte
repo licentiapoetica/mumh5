@@ -96,8 +96,8 @@
   .html { overflow-wrap: anywhere; user-select: text; }
   .html :global(p) { margin: 0; }
   .html :global(img) { max-width: min(520px, 100%); max-height: 360px; display: block; margin-top: 4px; border: 1px solid var(--line); }
-  .html :global(pre), .html :global(code) { font-family: var(--mono); font-size: 13px; background: var(--bg-0); padding: 1px 4px; }
-  .html :global(pre) { padding: 8px 10px; overflow-x: auto; }
+  /* Inline code; blocks are .code in app.css */
+  .html :global(code) { font-family: var(--mono); font-size: 13px; background: var(--bg-0); padding: 1px 4px; }
   .html :global(blockquote) { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--text-dim); }
   .embed { margin-top: 6px; max-width: min(520px, 100%); }
   .embed img, .embed video { display: block; max-width: 100%; max-height: 360px; background: var(--bg-0); border: 1px solid var(--line); }
