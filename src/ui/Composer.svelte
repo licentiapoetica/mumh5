@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  // Sent messages for the Up arrow, newest last; in memory only, so a reload clears them
+  const history: string[] = [];
+</script>
+
 <script lang="ts">
   import Icon from './Icon.svelte';
   import FormatToolbar from './FormatToolbar.svelte';
@@ -45,8 +50,30 @@
       ? session.sendHtml(toMumbleHtml(html, { linkify: true }), target)
       : session.sendText(input.innerText, target);
     if (!ok) return;
+    if (history.at(-1) !== html) history.push(html);
+    if (history.length > 50) history.shift();
+    recalled = -1;
     input.innerHTML = '';
     sync();
+  }
+
+  // Index into history of what the field shows, -1 when it shows something else
+  let recalled = -1;
+
+  // Up and Down walk the history while the field is empty or shows an entry unchanged
+  function recall(step: number): boolean {
+    const browsing = recalled >= 0 && input.innerHTML === history[recalled];
+    if (!browsing) recalled = -1;
+    if (!browsing && (step > 0 || !empty || !history.length)) return false;
+    const next = browsing ? recalled + step : history.length - 1;
+    if (next < 0) return true;
+    recalled = next < history.length ? next : -1;
+    input.innerHTML = recalled >= 0 ? history[recalled] : '';
+    sync();
+    const sel = window.getSelection();
+    sel?.selectAllChildren(input);
+    sel?.collapseToEnd();
+    return true;
   }
 
   // The text from the start of the message to the caret
@@ -65,6 +92,10 @@
       // Inside an open ``` fence Enter starts a new line of code, as Shift+Enter does
       if (e.shiftKey || inOpenFence(textBeforeCaret())) exec('insertLineBreak');
       else submit();
+      return;
+    }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing) {
+      if (recall(e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault();
       return;
     }
     if (e.ctrlKey || e.metaKey) {
