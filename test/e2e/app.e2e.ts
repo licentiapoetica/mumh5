@@ -242,6 +242,8 @@ try {
 
   // Alice -> channel
   const gotText = new Promise<string>(res => bob.on('text', m => res(m.html)));
+  const emptyScroll = await page.getByLabel('Message').evaluate(e => e.scrollHeight - e.clientHeight);
+  assert.ok(emptyScroll <= 0, `empty composer scrolls by ${emptyScroll}px`);
   await page.getByLabel('Message').fill('hello <from> alice\nsecond line https://example.com/x');
   await page.getByLabel('Message').press('Enter');
   const html = await within(gotText, 'channel text');

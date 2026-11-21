@@ -149,8 +149,9 @@
   .composer .frame :global(.toolbar) { background: transparent; padding: 4px 8px; border-bottom-color: var(--line); }
   .composer .frame :global(.tool:hover:not(:disabled)), .composer .frame :global(.tool.on) { background: var(--bg-active); }
   .box { min-height: 46px; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
-  .input { position: relative; flex: 1; min-width: 0; padding: 12px 6px; max-height: 200px; overflow-y: auto; font-size: var(--fs-chat); line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
-  .input.blank::before { content: attr(data-placeholder); position: absolute; left: 6px; top: 12px; color: var(--text-faint); pointer-events: none; }
+  /* min-height: an empty field has no line box, and the placeholder below it would overflow into a scrollbar */
+  .input { position: relative; flex: 1; min-width: 0; padding: 12px 6px; min-height: calc(1.4em + 24px); max-height: 200px; overflow-y: auto; font-size: var(--fs-chat); line-height: 1.4; outline: none; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .input.blank::before { content: attr(data-placeholder); position: absolute; left: 6px; right: 6px; top: 12px; color: var(--text-faint); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .input :global(img) { max-height: 120px; }
   .input :global(ul), .input :global(ol) { margin: 0; padding-left: 20px; }
   .input[contenteditable='false'] { color: var(--text-faint); }
