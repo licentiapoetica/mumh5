@@ -106,7 +106,8 @@
 
   // Outside the card closes it; the click still reaches what is under the pointer
   function outside(e: MouseEvent) {
-    if (open && el && !el.contains(e.target as Node)) close();
+    // Role switches in the side menu leave the card open behind them
+    if (open && el && !el.contains(e.target as Node) && !(e.target as Element).closest?.('.menu.side')) close();
   }
 
   let picker = $state<HTMLInputElement>();
@@ -143,7 +144,7 @@
   }
 </script>
 
-<svelte:window onmousedowncapture={outside} onkeydown={e => { if (open && e.key === 'Escape') close(); }} />
+<svelte:window onmousedowncapture={outside} onkeydown={e => { if (open && !menu.open && e.key === 'Escape') close(); }} />
 
 {#if open && user}
   {#if sheet}<button class="scrim" aria-label="Close" onclick={close}></button>{/if}

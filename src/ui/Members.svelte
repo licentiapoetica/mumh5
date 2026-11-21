@@ -24,7 +24,7 @@
         {#each users as u (u.session)}
           {@const isSelf = u.session === session.self?.session}
           <li>
-            <button use:selectUser={{ id: u.session }} draggable="true" aria-pressed={session.selectedUsers.includes(u.session)}
+            <button data-menu-row use:selectUser={{ id: u.session }} draggable="true" aria-pressed={session.selectedUsers.includes(u.session)}
               onclick={e => openProfile(u.session, e.currentTarget)} title={isSelf ? `You. ${SELECT_HINT}` : `${u.name}. Double-click to message, ${SELECT_HINT.toLowerCase()}`}
               ondblclick={() => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }}
               oncontextmenu={e => menu.show(e, userMenu(u))}>

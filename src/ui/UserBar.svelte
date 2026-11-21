@@ -52,7 +52,7 @@
 <footer class="me" class:toolbar class:inline>
   {#if !toolbar}
     {#if self}
-      <button class="profile" title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
+      <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
         oncontextmenu={e => menu.show(e, userMenu(self))}>
         <Avatar name={self.name} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} />
         <span class="who">

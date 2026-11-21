@@ -7,6 +7,7 @@ import { sounds } from './audio/sounds.svelte.ts';
 import { menu, type MenuItem } from './menu.svelte.ts';
 import { PERM, type Channel, type User } from '../core/client.ts';
 import { POKE_MAX } from '../core/poke.ts';
+import { roleSubmenu } from './quick-roles.svelte.ts';
 
 // A person's profile card, next to the element that was clicked (or at a point, from a menu)
 export function openProfile(user: number, at: Element | { x: number; y: number }): void {
@@ -120,8 +121,11 @@ export function userMenu(u: User): MenuItem[] {
     { label: 'Priority speaker', checked: u.prioritySpeaker, action: () => session.setPrioritySpeaker(u.session, !u.prioritySpeaker) }
   );
   if (!isSelf && u.userId == null) items.push({ label: 'Register user', action: () => session.register(u.session) });
-  if (u.userId != null && u.userId !== 0 && session.can(0, PERM.Write) === true) {
-    items.push({ label: 'Manage roles...', action: () => (ui.rolesDialog = { tab: 'members', userId: u.userId }) });
+  if (u.userId == null) items.push({ label: 'Roles', disabled: true, title: 'Only registered users can hold a role' });
+  else if (u.userId !== 0) {
+    items.push(session.can(0, PERM.Write) === false
+      ? { label: 'Roles', disabled: true, title: 'Needs Write on the root channel' }
+      : { label: 'Roles', submenu: roleSubmenu(u.userId) });
   }
   if (!isSelf) {
     items.push(

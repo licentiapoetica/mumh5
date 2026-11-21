@@ -332,7 +332,7 @@
           <!-- While a camera is shown large, its tile goes back to the avatar: one picture, not two -->
           {@const cam = focus === u.session ? null : camOf(u.session)}
           {@const w = watchOf(u.session)}
-          <button class="tile" class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
+          <button class="tile" data-menu-row class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
             onclick={e => tileClick(u.session, e.currentTarget)}
             oncontextmenu={e => menu.show(e, userMenu(u))}
             title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u)}

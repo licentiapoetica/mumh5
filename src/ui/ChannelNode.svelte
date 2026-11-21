@@ -217,7 +217,7 @@
 
 <!-- Behind an open channel is below its people and subchannels; the line is drawn there -->
 <li class:after-end={zone === 'after' && open} style:--indent="{8 + depth * 14}px">
-  <div class="row channel" class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
+  <div class="row channel" data-menu-row class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
     style:padding-left="{8 + depth * 14}px"
     oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
     ondragover={onDragOver}
@@ -266,7 +266,7 @@
           () => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }
         )}
         <li>
-          <button class="row user" class:self={isSelf} style:padding-left="{30 + depth * 14}px"
+          <button class="row user" data-menu-row class:self={isSelf} style:padding-left="{30 + depth * 14}px"
             draggable="true"
             use:selectUser={{ id: u.session, onselect: () => clearTimeout(timer) }}
             aria-pressed={session.selectedUsers.includes(u.session)}

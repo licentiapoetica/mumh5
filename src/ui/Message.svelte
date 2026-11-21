@@ -45,12 +45,12 @@
   <article class="msg" class:grouped>
     <time class="stamp" datetime={time.toISOString()}>{full}</time>
     <div class="gutter">
-      {#if !grouped}<button class="face" tabindex="-1" aria-hidden="true" onclick={authorCard} oncontextmenu={authorMenu}><Avatar name={entry.author} size={40} src={session.avatar(authorId)} /></button>{/if}
+      {#if !grouped}<button class="face" data-menu-row tabindex="-1" aria-hidden="true" onclick={authorCard} oncontextmenu={authorMenu}><Avatar name={entry.author} size={40} src={session.avatar(authorId)} /></button>{/if}
     </div>
     <div class="content">
       {#if !grouped}
         <header>
-          <button class="author" onclick={authorCard} oncontextmenu={authorMenu}><strong class:self={entry.self}>{entry.author}</strong></button>
+          <button class="author" data-menu-row onclick={authorCard} oncontextmenu={authorMenu}><strong class:self={entry.self}>{entry.author}</strong></button>
           <time datetime={time.toISOString()} title={full}>{when}</time>
         </header>
       {/if}
