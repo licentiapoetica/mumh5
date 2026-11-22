@@ -205,6 +205,10 @@ try {
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
   console.log('ok: connected');
+  // The chat's title bar is solid, so a background starts under it, as under the voice tiles
+  const [chatBg, headerBg] = await page.locator('section.chat > header').evaluate(el =>
+    [getComputedStyle(el.parentElement!).backgroundColor, getComputedStyle(el).backgroundColor]);
+  assert.equal(headerBg, chatBg);
   // The stacked toolbar names you at its far end
   await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
   console.log('ok: you shown in the stacked toolbar');
