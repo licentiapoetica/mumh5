@@ -479,7 +479,13 @@ try {
   fromBob(party);
   await reactMsg.locator('.reaction.mine', { hasText: `${thumbs}2` }).waitFor();
   await reactMsg.locator('.reaction:not(.mine)', { hasText: `${party}1` }).waitFor();
-  assert.equal(await thumbsChip.getAttribute('title'), `You and bob reacted with ${thumbs}`);
+  assert.equal(await thumbsChip.getAttribute('title'), null);
+  await thumbsChip.hover();
+  const reactors = page.locator('.reactors');
+  await reactors.waitFor();
+  assert.deepEqual(await reactors.locator('li').allTextContents(), ['You', 'bob']);
+  await page.keyboard.press('Escape');
+  await reactors.waitFor({ state: 'detached' });
   // A click on your own takes it back
   await thumbsChip.click();
   assert.equal((await nextReact(1)).on, false);
