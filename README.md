@@ -195,6 +195,7 @@ With Docker, the same thing is one command; settings go in a `.env` file next to
 
 ```bash
 echo 'MUMH5_SERVERS=mumble.example.com=My server' > .env
+echo 'MUMH5_DEFAULT_SERVER=mumble.example.com' >> .env   # optional: already in everyone's server list
 docker compose up -d --build
 ```
 
@@ -205,6 +206,7 @@ For screen sharing, open these in the firewall (and forward them on a router in 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MUMH5_SERVERS` | none | Mumble servers people may connect to: `host[:port][=Label]`, comma-separated. Required unless `MUMH5_ALLOW_ANY=1` |
+| `MUMH5_DEFAULT_SERVER` | none | One server, `host[:port][=Label]`, added to the saved servers of each visitor on their first visit (again only if you change it). Allowed without listing it in `MUMH5_SERVERS`. The visitor picks a name on the first connect |
 | `MUMH5_ALLOW_ANY` | off | Allow any server on the public internet. Private and loopback addresses stay blocked, except servers listed in `MUMH5_SERVERS` (for a Mumble server on the same machine: `MUMH5_SERVERS=localhost`), or all of them with `MUMH5_ALLOW_PRIVATE=1` |
 | `MUMH5_PORT`, `MUMH5_BIND` | `8080`, `127.0.0.1` | Where the proxy listens |
 | `MUMH5_ORIGINS` | same host | Origins allowed to use the API, comma-separated, when the page is hosted elsewhere |

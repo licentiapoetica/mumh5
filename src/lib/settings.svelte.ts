@@ -166,6 +166,17 @@ class SettingsStore {
     save('mumh5.servers', $state.snapshot(this.servers));
   }
 
+  // The server a hosted web app names (MUMH5_DEFAULT_SERVER), added once per browser, so
+  // removing it sticks; a new default on the site is added again. No name yet: connecting asks.
+  addDefaultServer(d: { host: string; port: number; label: string }) {
+    const key = `${d.host}:${d.port}`;
+    if (load('mumh5.defaultServer', { added: '' }).added === key) return;
+    save('mumh5.defaultServer', { added: key });
+    this.refreshServers();
+    if (this.servers.some(s => s.host.toLowerCase() === d.host && s.port === d.port)) return;
+    this.upsertServer({ id: crypto.randomUUID(), label: d.label, host: d.host, port: d.port, username: this.servers.at(-1)?.username ?? '', password: '' });
+  }
+
   removeServer(id: string) {
     this.refreshServers();
     this.servers = this.servers.filter(s => s.id !== id);

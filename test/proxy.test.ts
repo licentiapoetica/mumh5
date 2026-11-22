@@ -39,6 +39,23 @@ test('empty environment variables fall back to the defaults', () => {
   assert.equal(configFromEnv({ MUMH5_PORT: '8089' }).port, 8089);
 });
 
+test('the default server is allowed, announced and keeps one label', async () => {
+  const alone = configFromEnv({ MUMH5_DEFAULT_SERVER: 'Voice.example.org:1234=Friends', MUMH5_STUN_PORT: '0' });
+  assert.deepEqual(alone.defaultServer, { host: 'voice.example.org', port: 1234, label: 'Friends' });
+  assert.deepEqual(alone.servers, [alone.defaultServer]);
+  await withProxy({ ...alone, port: 0 }, async base => {
+    const c = await (await fetch(`${base}/api/config`)).json();
+    assert.deepEqual(c.default, { host: 'voice.example.org', port: 1234, label: 'Friends' });
+  });
+  // Listed already: no duplicate; the list's label is used unless the default names one
+  const listed = configFromEnv({ MUMH5_SERVERS: 'a.example=A, b.example', MUMH5_DEFAULT_SERVER: 'a.example' });
+  assert.deepEqual(listed.servers.map(s => s.label), ['A', 'b.example']);
+  assert.equal(listed.defaultServer?.label, 'A');
+  assert.deepEqual(configFromEnv({ MUMH5_SERVERS: 'a.example=A', MUMH5_DEFAULT_SERVER: 'a.example=B' }).servers, [{ host: 'a.example', port: 64738, label: 'B' }]);
+  assert.equal(configFromEnv({ MUMH5_DEFAULT_SERVER: '' }).defaultServer, null);
+  assert.throws(() => configFromEnv({ MUMH5_DEFAULT_SERVER: 'a.example,b.example' }), /one server/);
+});
+
 test('private address detection', () => {
   for (const a of ['127.0.0.1', '10.1.2.3', '192.168.1.1', '172.20.0.1', '169.254.1.1', '100.64.0.1', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1']) assert.ok(isPrivateAddress(a), a);
   for (const a of ['8.8.8.8', '172.32.0.1', '2001:4860:4860::8888', '::ffff:8.8.8.8']) assert.ok(!isPrivateAddress(a), a);
@@ -68,7 +85,7 @@ test('refuses to start without allowed servers', async () => {
 
 test('config lists the allowed servers', async () => {
   await withProxy({ servers: parseServers('voice.example.org=Friends') }, async base => {
-    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], any: false, stun: null, turn: false, audioPackLimits: defaults.audioPackLimits });
+    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], default: null, any: false, stun: null, turn: false, audioPackLimits: defaults.audioPackLimits });
   });
 });
 
