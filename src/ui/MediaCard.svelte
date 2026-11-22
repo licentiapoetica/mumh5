@@ -6,6 +6,10 @@
     name: string; detail: string; icon?: string; href?: string; file?: boolean; failed?: boolean;
     progress?: number; actions?: Snippet; children?: Snippet;
   } = $props();
+
+  // Remote hosts decide whether a URL downloads; a normal link may just open the media.
+  const remote = $derived(/^https?:/i.test(href ?? ''));
+  const action = $derived(`${remote ? 'Open' : 'Download'} ${name}`);
 </script>
 
 <div class="media-card" class:file class:failed>
@@ -17,7 +21,7 @@
     </div>
     <div class="actions">
       {#if href}
-        <a class="save" href={href} download={name} target={/^https?:/i.test(href) ? '_blank' : undefined} rel="noopener noreferrer" title="Download {name}" aria-label="Download {name}"><Icon name="download" size={18} /></a>
+        <a class="save" href={href} download={remote ? undefined : name} target={remote ? '_blank' : undefined} rel="noopener noreferrer" title={action} aria-label={action}><Icon name={remote ? 'popout' : 'download'} size={18} /></a>
       {/if}
       {@render actions?.()}
     </div>

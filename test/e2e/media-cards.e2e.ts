@@ -25,7 +25,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   await page.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
   const hits: string[] = [];
-  await page.route('http://media.example/**', route => {
+  await page.context().route('http://media.example/**', route => {
     hits.push(route.request().url());
     return route.fulfill({ status: 404, body: '' });
   });
@@ -118,8 +118,33 @@ try {
   assert.deepEqual(hits, [], 'untrusted media loads nothing before a click');
   await card('remote.png').locator('.load').click();
   await card('remote.png').getByText('Could not load preview').waitFor();
-  await card('remote.png').getByRole('link', { name: 'Download remote.png', exact: true }).waitFor();
+  await card('remote.png').getByRole('link', { name: 'Open remote.png', exact: true }).waitFor();
   assert.equal(hits.length, 1, 'click loads only the selected remote media');
+  const remoteImage = await card('pasted.png').locator('img').getAttribute('src');
+  await page.context().route('http://media.example/open.png', route => route.fulfill({
+    contentType: 'image/png', body: Buffer.from(remoteImage!.split(',')[1], 'base64')
+  }));
+  await page.evaluate(async () => {
+    const sessionPath = '/src/lib/session.svelte.ts', htmlPath = '/src/lib/html.ts';
+    const { session } = await import(sessionPath);
+    const { renderIncoming } = await import(htmlPath);
+    session.logs['ch:0'].push({ id: 4, kind: 'text', author: 'Test', authorSession: null, self: true, time: Date.now(), reactions: [],
+      ...renderIncoming('<a href="http://media.example/open.png">open.png</a>', []) });
+  });
+  const remote = card('open.png');
+  assert.equal(await remote.locator('a.save').count(), 0, 'unloaded remote media has no open action');
+  await remote.locator('.load').click();
+  await remote.locator('img').evaluate(img => (img as HTMLImageElement).decode());
+  const open = remote.getByRole('link', { name: 'Open open.png', exact: true });
+  assert.equal(await open.getAttribute('download'), null, 'remote actions do not promise a browser download');
+  assert.equal(await remote.getByRole('link', { name: 'Download open.png', exact: true }).count(), 0);
+  const popup = page.waitForEvent('popup');
+  await open.click();
+  const media = await popup;
+  await media.waitForLoadState();
+  assert.equal(media.url(), 'http://media.example/open.png');
+  assert.equal(await media.evaluate(() => document.contentType), 'image/png', 'remote action opens actual cross-origin media');
+  await media.close();
   for (const mode of ['standard', 'rooms']) {
     await page.evaluate(async mode => {
       const module = '/src/lib/settings.svelte.ts';
@@ -134,7 +159,7 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('ok: download, image zoom, PDF failure, remote privacy and responsive cards in both interfaces');
+  console.log('ok: local download, remote open, image zoom, PDF failure, remote privacy and responsive cards in both interfaces');
 } finally {
   await browser.close();
   await server.close();

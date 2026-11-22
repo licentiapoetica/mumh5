@@ -553,8 +553,8 @@ try {
   await page.waitForFunction(() => ((document.querySelector('.msg .embed audio') as HTMLAudioElement)?.duration ?? 0) > 0.9);
   assert.equal(await mediaMsg.locator('.ask').count(), 0);
   assert.equal(await mediaMsg.locator('.media-card').count(), 2, 'linked media keeps one uniform card per item');
-  await mediaMsg.getByRole('link', { name: 'Download pic.png', exact: true }).waitFor();
-  await mediaMsg.getByRole('link', { name: 'Download clip.wav', exact: true }).waitFor();
+  await mediaMsg.getByRole('link', { name: 'Open pic.png', exact: true }).waitFor();
+  await mediaMsg.getByRole('link', { name: 'Open clip.wav', exact: true }).waitFor();
   assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).embedHosts as string[])).includes(mediaHost));
   mediaServer.close();
   console.log('ok: media links load when clicked, or at once from a listed host');
