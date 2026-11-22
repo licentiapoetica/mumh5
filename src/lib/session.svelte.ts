@@ -1275,10 +1275,12 @@ export class Session {
       this.system(key, `Message too long for this server (${html.length} / ${limit} characters)`);
       return false;
     }
+    const entryId = nextId;
     client.sendText(this.target(key), html);
     sounds.play('messageSent');
     const rendered = renderIncoming(html, store.trustedHosts);
-    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered }, { raw: html });
+    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
+    chatHistory.record(this, key, html, this.logs[key].find(e => e.id === entryId));
     return true;
   }
 
