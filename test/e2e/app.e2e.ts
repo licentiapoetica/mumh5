@@ -470,6 +470,9 @@ try {
   assert.deepEqual({ ...added, a: 0 }, { c: 0, r: messageRef(reactHtml), s: bob.session, a: 0, e: thumbs, on: true });
   const thumbsChip = reactMsg.locator('.reaction', { hasText: thumbs });
   await reactMsg.locator('.reaction.mine', { hasText: `${thumbs}1` }).waitFor();
+  // The new reaction row must not leave the chat scrolled above the bottom
+  const reactGap = await page.locator('.chat .list').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight);
+  assert.ok(reactGap < 4, `chat stays at the bottom after a reaction (reactGap ${reactGap})`);
   // Bob reacts to the same message, once with the same emoji and once with another
   const fromBob = (e: string) => bob.sendPluginData([aliceSession()], REACT_DATA_ID, encodeReact({ c: 0, r: messageRef(reactHtml), s: bob.session, a: 1, e, on: true }));
   fromBob(thumbs);
