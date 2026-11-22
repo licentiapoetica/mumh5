@@ -61,6 +61,14 @@ try {
       const narrow = viewport.width < (mode === 'rooms' ? 900 : 760);
       const tabbed = mode === 'stacked' || narrow;
       const where = `${mode} at ${viewport.width}px`;
+      await populate(0);
+      await select('ch:5');
+      await frame();
+      assert.equal(await tabs.count(), mode === 'stacked' ? 1 : 0, `${where}: stacked always shows the channel tab, including before opening a private chat`);
+      if (mode === 'stacked') {
+        assert.equal(await tabs.getByRole('tab').count(), 1);
+        assert.equal(await tabs.getByRole('tab', { name: 'Channel 5', exact: true }).getAttribute('aria-selected'), 'true');
+      }
       await populate(3);
       await select('ch:5');
       await select('dm:100');
@@ -90,9 +98,15 @@ try {
         const fit = await tabs.evaluate(el => ({ scrolls: el.scrollWidth > el.clientWidth, page: document.documentElement.scrollWidth <= window.innerWidth,
           selected: (() => { const r = el.querySelector('[aria-selected="true"]')!.getBoundingClientRect(), box = el.getBoundingClientRect(); return r.left >= box.left - 1 && r.right <= box.right + 1; })() }));
         assert.ok(fit.scrolls && fit.page && fit.selected, `${where}: many tabs scroll sideways inside the strip and keep the open one in view (${JSON.stringify(fit)})`);
-        await populate(0);
+        await populate(1);
+        await select('dm:100');
+        await tabs.getByRole('button', { name: 'Close conversation with Person 100' }).click();
         await select('ch:5');
-        await tabs.waitFor({ state: 'detached' });
+        await frame();
+        if (mode === 'stacked') {
+          assert.equal(await tabs.getByRole('tab').count(), 1, `${where}: closing the last private chat keeps the channel tab`);
+          assert.equal(await tabs.getByRole('tab', { name: 'Channel 5', exact: true }).getAttribute('aria-selected'), 'true');
+        } else await tabs.waitFor({ state: 'detached' });
       } else {
         assert.equal(await tabs.count(), 0, `${where}: no tabs beside a list`);
         const list = mode === 'rooms' ? page.getByRole('region', { name: 'Rooms' }) : page.locator('.sidebar');

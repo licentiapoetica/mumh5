@@ -51,9 +51,18 @@ try {
     (await import(path)).session.selectView(key);
   }, key);
   const profile = async (text: string, name: string, id: number, target = '.author', rightClick = false) => {
-    await page.locator('.msg', { hasText: text }).locator(target).click({ button: rightClick ? 'right' : 'left' });
+    const message = page.locator('.msg', { hasText: text });
+    const faceFits = () => message.locator('.face').evaluate(el => {
+      const button = el.getBoundingClientRect(), avatar = el.querySelector('.avatar')!.getBoundingClientRect();
+      return Math.abs(button.width - avatar.width) < 1 && Math.abs(button.height - avatar.height) < 1;
+    });
+    await message.locator(target).hover();
+    assert.ok(await faceFits(), 'hovering an author keeps the avatar hit area inside the avatar');
+    await message.locator(target).click({ button: rightClick ? 'right' : 'left' });
+    if (rightClick) assert.ok(await faceFits(), 'the context menu highlight cannot stretch down the message');
     if (rightClick) await page.getByRole('menuitem', { name: 'View profile', exact: true }).click();
     await page.getByRole('dialog', { name: `Profile of ${name}`, exact: true }).waitFor();
+    assert.ok(await faceFits(), 'the profile card highlight cannot stretch down the message');
     assert.equal(await page.evaluate(async () => {
       const path = '/src/lib/ui.svelte.ts';
       return (await import(path)).ui.profile?.session;
@@ -92,7 +101,8 @@ try {
     session.sendText('saved private reply', 'dm:2');
     session.receive(session.client, { actor: 2, channels: [], trees: [], sessions: [1], html: '<b>saved private message</b>', time: Date.now() });
     session.sendText('saved channel message', 'ch:0');
-    session.receive(session.client, { actor: 2, channels: [0], trees: [], sessions: [], html: 'saved channel reply', time: Date.now() });
+    session.receive(session.client, { actor: 2, channels: [0], trees: [], sessions: [],
+      html: 'saved channel reply<br>second line<br>third line<br>fourth line<br>fifth line', time: Date.now() });
     for (let i = 0; i < 205; i++) session.receive(session.client, { actor: 2, channels: [], trees: [], sessions: [1], html: `history batch ${i}`, time: Date.now() });
   });
   await flush();
@@ -113,6 +123,8 @@ try {
   await profile('saved private reply', 'Alice', 1);
   await select('ch:0');
   await profile('saved channel reply', 'Bob', 22);
+  await profile('saved channel reply', 'Bob', 22, '.face');
+  await profile('saved channel reply', 'Bob', 22, '.face', true);
   console.log('ok: private and channel history survives reload; private chats follow identity, not session ID');
 
   // Reactions on saved messages: yours and someone else's, in a private chat and a channel

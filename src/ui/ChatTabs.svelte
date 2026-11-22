@@ -9,6 +9,7 @@
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
 
+  let { always = false }: { always?: boolean } = $props();
   let strip = $state<HTMLElement>();
 
   const serverId = $derived(session.server?.id ?? '');
@@ -35,8 +36,8 @@
   ]);
 </script>
 
-<!-- Only while a private chat is open; the channel alone needs no tab -->
-{#if session.status === 'connected' && dms.length}
+<!-- Stacked layout always names the channel here; other layouts need tabs for private chats. -->
+{#if session.status === 'connected' && (always || dms.length)}
   <div class="chat-tabs" role="tablist" aria-label="Open chats" bind:this={strip}>
     <div class="chat-tab" class:active={session.view === channelKey}>
       <button role="tab" aria-selected={session.view === channelKey} onclick={() => session.selectView(channelKey)}>

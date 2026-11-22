@@ -144,7 +144,7 @@
   header { display: flex; align-items: baseline; gap: 8px; line-height: 1.35; margin-bottom: 1px; }
   header strong { font-weight: 600; }
   .author:hover strong { text-decoration: underline; }
-  .face { display: flex; }
+  .face { display: flex; align-self: flex-start; }
   header strong.self { color: var(--accent-hover); }
   time, .time { font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
   .stamp { font-size: 11px; color: var(--text-dim); }
