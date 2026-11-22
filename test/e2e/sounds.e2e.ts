@@ -16,6 +16,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
   headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
 try {
   const page = await browser.newPage();
+  await page.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
   const failures: string[] = [];
   page.on('pageerror', e => { failures.push(e.message); console.error(e.message); });
   await page.addInitScript(() => {
