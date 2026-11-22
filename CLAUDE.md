@@ -75,6 +75,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 ## Conventions
 
 - Svelte 5 runes only. Comment density: short comments that explain why, not what.
+- Settings save only values that differ from the defaults (`changedFrom` in `storage.ts`), so a changed default reaches everyone who never picked that setting. A new key in `Settings` needs its place in `PARTS` (`settings.svelte.ts`), the Settings tab or Appearance heading whose reset covers it, or `kept` for window state; svelte-check fails without it. Voice and Sounds have their own `reset` / `resetChoices`.
 - The protobuf codec is generated static code (no eval) because the CSP forbids `unsafe-eval`. `wasm-unsafe-eval` is allowed, for the built-in Opus codec only. Field names keep snake_case from the .proto.
 - TypeScript files imported by Node tests use `.ts` extensions and erasable syntax only (no parameter properties, no enums).
 - HTML escaping is shared in `src/core/html.ts`: `escapeText` for text nodes, `escapeHtml` also for double-quoted attributes. Sanitizing and DOM serialization stay in `src/lib/html.ts`.

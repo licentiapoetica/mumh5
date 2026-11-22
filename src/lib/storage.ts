@@ -55,6 +55,18 @@ export function freshList<T>(key: string, current: T[]): T[] {
   }
 }
 
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+// Only what differs from the defaults, so a changed default reaches everyone who never picked that setting
+export function changedFrom<T extends object>(value: T, defaults: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([k, v]) => !same(v, (defaults as Record<string, unknown>)[k]))) as Partial<T>;
+}
+
+/** Whether these keys of `value` hold their defaults. */
+export function atDefaults<T extends object>(value: T, defaults: T, keys: (keyof T)[]): boolean {
+  return keys.every(k => same(value[k], defaults[k]));
+}
+
 export function save(key: string, value: unknown): void {
   const raw = JSON.stringify(value);
   try { localStorage.setItem(key, raw); } catch { /* storage unavailable */ }

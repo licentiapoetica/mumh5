@@ -6,7 +6,7 @@ import denoiseUrl from './denoise.worklet.ts?worker&url';
 import { loadDeepFilter } from './denoise-load.ts';
 import { encodeVoice, decodeVoice } from '../../core/voice-packet.ts';
 import type { MumbleClient } from '../../core/client.ts';
-import { load, save } from '../storage.ts';
+import { atDefaults, changedFrom, load, save } from '../storage.ts';
 import { desktop } from '../native.ts';
 
 export type TransmitMode = 'vad' | 'ptt' | 'continuous';
@@ -74,7 +74,7 @@ export const userKey = (u: { hash: string; name: string }) => u.hash || `name:${
 export interface DeviceInfo { id: string; label: string }
 
 class VoiceEngine {
-  settings = $state<VoiceSettings>(load('mumh5.voice', defaults));
+  settings = $state<VoiceSettings>(load('mumh5.voice', structuredClone(defaults)));
   inputDevices = $state<DeviceInfo[]>([]);
   outputDevices = $state<DeviceInfo[]>([]);
   running = $state(false);
@@ -131,7 +131,16 @@ class VoiceEngine {
   }
 
   save(): void {
-    save('mumh5.voice', $state.snapshot(this.settings));
+    save('mumh5.voice', changedFrom($state.snapshot(this.settings), defaults));
+  }
+
+  // Volumes and mutes set for other people are theirs, not settings of the Voice tab
+  private static readonly RESET_KEYS = (Object.keys(defaults) as (keyof VoiceSettings)[]).filter(k => k !== 'userVolumes' && k !== 'localMutes');
+
+  isDefault(): boolean { return atDefaults(this.settings, defaults, VoiceEngine.RESET_KEYS); }
+
+  reset(): void {
+    this.update(structuredClone(Object.fromEntries(VoiceEngine.RESET_KEYS.map(k => [k, defaults[k]]))) as Partial<VoiceSettings>);
   }
 
   update(patch: Partial<VoiceSettings>): void {

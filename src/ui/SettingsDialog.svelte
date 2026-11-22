@@ -5,6 +5,9 @@
   import IdentityList from './IdentityList.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
   import SoundSettings from './SoundSettings.svelte';
+  import ResetButton from './ResetButton.svelte';
+  import { voice } from '../lib/audio/voice.svelte.ts';
+  import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { native, desktop, isWeb } from '../lib/native.ts';
   import { previewMode } from '../lib/preview.ts';
@@ -58,6 +61,38 @@
     ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : []),
     { id: 'about', label: 'About' }
   ];
+  // The reset at the bottom of each tab; Identities has none
+  const reset = $derived.by((): { what: string; changed: boolean; note?: string; run: () => void } | null => {
+    switch (tab) {
+      case 'voice': return {
+        what: 'voice settings', changed: !voice.isDefault(), run: () => voice.reset(),
+        note: 'Back to the defaults, devices included. Volumes and mutes you set for people are kept.'
+      };
+      case 'sharing': return {
+        what: 'screen sharing settings', changed: !store.isDefault('sharing'),
+        run: () => { store.resetSettings('sharing'); stunCustom = false; }
+      };
+      case 'sounds': return {
+        what: 'sound settings', changed: !store.isDefault('sounds') || !sounds.choicesAtDefaults(),
+        run: () => { store.resetSettings('sounds'); sounds.resetChoices(); },
+        note: 'Turns sounds and poke notifications back on, sets the volume back and plays only the quiet defaults. Packs and your own files are kept; Reset all to built-in removes those.'
+      };
+      case 'appearance': return {
+        what: 'appearance', changed: !store.isDefault('appearance'), run: () => store.resetSettings('appearance'),
+        note: 'Back to the defaults. Background images stay on this device.'
+      };
+      case 'accessibility': return { what: 'accessibility settings', changed: !store.isDefault('accessibility'), run: () => store.resetSettings('accessibility') };
+      case 'files': return {
+        what: 'chat and file settings', changed: !store.isDefault('files'),
+        run: () => { store.resetSettings('files'); embedHosts = s.embedHosts.join('\n'); },
+        note: s.saveChatHistory
+          ? 'Saving chat history goes off, which deletes the saved history. Kept files stay.'
+          : 'Back to the defaults. Kept files stay.'
+      };
+      case 'about': return updates.possible ? { what: 'update check', changed: !store.isDefault('about'), run: () => store.resetSettings('about') } : null;
+      default: return null;
+    }
+  });
   const checkedAt = $derived(updates.lastCheck ? new Date(updates.lastCheck).toLocaleString() : '');
 </script>
 
@@ -163,6 +198,9 @@
     <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.{isWeb ? ' Certificates are kept in this browser and passed to the proxy when you connect.' : ''}</p>
     <IdentityList />
   {/if}
+  {#if reset}
+    <div class="reset"><ResetButton what={reset.what} changed={reset.changed} note={reset.note} onreset={reset.run} /></div>
+  {/if}
   </div>
   </div>
 
@@ -180,6 +218,7 @@
   .tabs button:hover { background: var(--bg-hover); color: var(--text); }
   .tabs button.active { background: var(--bg-active); color: var(--text); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
   .pane { min-width: 0; }
+  .reset { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); }
   @media (max-width: 760px) {
     .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
     .tabs { position: static; flex-direction: row; overflow-x: auto; margin: 8px 0 4px; padding-top: 0; border-bottom: 1px solid var(--line); }

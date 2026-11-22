@@ -159,7 +159,7 @@ try {
   await design('None').waitFor();
   await treeMode('None').click();
   await page.waitForFunction(() => !document.querySelector('.background-art'));
-  assert.equal((await saved()).backgroundDesign, 'none');
+  assert.equal((await saved()).backgroundDesign ?? 'none', 'none');
   assert.equal(await page.evaluate(async () => {
     const module = '/src/lib/blobstore.ts';
     return !!await (await import(module)).getBlob('appearance.background');

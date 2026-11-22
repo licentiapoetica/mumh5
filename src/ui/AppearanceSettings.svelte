@@ -1,5 +1,6 @@
 <script lang="ts">
   import BackgroundSettings from './BackgroundSettings.svelte';
+  import SectionHead from './SectionHead.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
   const ARRANGEMENTS: { id: Arrangement; name: string; note: string }[] = [
@@ -40,7 +41,7 @@
   }
 </script>
 
-<h3>Role icons</h3>
+<SectionHead first title="Role icons" part="appearance.roles" />
 <div class="role-opts">
   <label for="role-icons">Show next to names</label>
   <select id="role-icons" value={store.settings.roleIcons ?? 'all'}
@@ -53,7 +54,7 @@
     onchange={e => { store.settings.roleColors = e.currentTarget.checked; store.saveSettings(); }} /> Color names by top role</label>
 </div>
 
-<h3 class="gap">People</h3>
+<SectionHead title="People" part="appearance.people" />
 <div class="role-opts">
   <label for="avatars">Show people as</label>
   <select id="avatars" value={store.settings.avatars}
@@ -64,7 +65,7 @@
 </div>
 <p class="help">Chat, members, profiles and voice tiles keep the picture.</p>
 
-<h3 class="gap">Interface</h3>
+<SectionHead title="Interface" part="appearance.interface" />
 <div class="themes" role="radiogroup" aria-label="Interface">
   {#each INTERFACES as f (f.id)}
     {@const on = (store.settings.interface ?? 'standard') === f.id}
@@ -88,7 +89,7 @@
 </div>
 
 {#if (store.settings.interface ?? 'standard') === 'standard'}
-<h3 class="gap">Layout</h3>
+<SectionHead title="Layout" part="appearance.layout" />
 <div class="themes" role="radiogroup" aria-label="Layout">
   {#each ARRANGEMENTS as a (a.id)}
     {@const on = (store.settings.arrangement ?? 'side') === a.id}
@@ -125,7 +126,7 @@
 
 <BackgroundSettings />
 
-<h3 class="gap">Color scheme</h3>
+<SectionHead title="Color scheme" part="appearance.scheme" />
 <div class="narrow">
   <input type="search" placeholder="Find a color scheme" aria-label="Find a color scheme" bind:value={find} />
   <div class="shades" role="group" aria-label="Show">
@@ -159,7 +160,6 @@
   .role-opts { max-width: 280px; }
   .role-opts label:first-child { margin-top: 0; }
   .role-check { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-size: 14px; font-weight: 400; color: var(--text); }
-  .gap { margin-top: 22px; }
   .narrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .narrow input { flex: 1 1 180px; width: auto; }
   .shades { display: flex; border: 1px solid var(--line); }
@@ -176,7 +176,6 @@
   .pick-label { display: block; margin: 16px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
   .shades.pick { display: inline-flex; }
   .shades.pick button { min-width: 72px; min-height: var(--control-h); }
-  h3 { margin: 8px 0 0; font-size: 15px; font-weight: 650; }
   .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
   .themes > button { display: flex; flex-direction: column; gap: 2px; padding: 8px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); }
   .themes > button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }

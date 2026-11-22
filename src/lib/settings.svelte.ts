@@ -1,4 +1,4 @@
-import { freshList, load, loadList, save } from './storage.ts';
+import { atDefaults, changedFrom, freshList, load, loadList, save } from './storage.ts';
 import { GENERATED_THEMES } from './themes-generated.ts';
 
 export interface SavedServer {
@@ -123,8 +123,40 @@ const defaults: Settings = {
   avatars: 'spheres'
 };
 
+// Where in Settings each setting is reset; parts of Appearance are its headings.
+// kept: not picked in Settings (window state, notices already seen).
+export type SettingsPart = 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
+  | 'appearance.roles' | 'appearance.people' | 'appearance.interface' | 'appearance.layout'
+  | 'appearance.background' | 'appearance.tree' | 'appearance.scheme';
+const PARTS: Record<keyof Settings, SettingsPart> = {
+  embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files',
+  saveChatHistory: 'files', chatHistoryHours: 'files', youtube: 'files', linkPreviews: 'files',
+  compact: 'kept',
+  theme: 'appearance.scheme',
+  backgroundDesign: 'appearance.background', backgroundFit: 'appearance.background', backgroundStrength: 'appearance.background',
+  backgroundColor: 'appearance.background', backgroundMark: 'appearance.background', backgroundSpacing: 'appearance.background',
+  treeBackground: 'appearance.tree', treeBackgroundStyle: 'appearance.tree',
+  publicListUrl: 'kept',
+  arrangement: 'appearance.layout', classicSide: 'appearance.layout',
+  railHidden: 'kept',
+  interface: 'appearance.interface',
+  shareQuality: 'sharing', autoCameras: 'sharing', shareVolume: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
+  shareNoticeSeen: 'kept',
+  hints: 'accessibility',
+  updateCheck: 'about',
+  pokeNotify: 'sounds',
+  roleIcons: 'appearance.roles', roleColors: 'appearance.roles',
+  avatars: 'appearance.people'
+};
+
+/** The settings a part covers; 'appearance' covers all of its headings. */
+export function settingsIn(part: string): (keyof Settings)[] {
+  return (Object.keys(PARTS) as (keyof Settings)[]).filter(k => PARTS[k] === part || PARTS[k].startsWith(`${part}.`));
+}
+
 class SettingsStore {
-  settings = $state<Settings>(load('mumh5.settings', defaults));
+  // A copy, so nested defaults are never changed through the settings
+  settings = $state<Settings>(load('mumh5.settings', structuredClone(defaults)));
   servers = $state<SavedServer[]>(loadList('mumh5.servers'));
   // Pinned sha256 fingerprints of server certificates, keyed by host:port (trust on first use)
   pins = $state<Record<string, string>>(load('mumh5.pins', {}));
@@ -141,7 +173,15 @@ class SettingsStore {
     save('mumh5.identityNames', $state.snapshot(this.identityNames));
   }
 
-  saveSettings() { save('mumh5.settings', $state.snapshot(this.settings)); }
+  saveSettings() { save('mumh5.settings', changedFrom($state.snapshot(this.settings), defaults)); }
+
+  isDefault(part: string): boolean { return atDefaults(this.settings, defaults, settingsIn(part)); }
+
+  resetSettings(part: string) {
+    // Assigned one by one: views hold on to the settings object
+    for (const k of settingsIn(part)) (this.settings as Record<keyof Settings, unknown>)[k] = structuredClone(defaults[k]);
+    this.saveSettings();
+  }
 
   // A dev and a packaged copy can be open together; don't save over the other's changes
   private refreshServers() {
