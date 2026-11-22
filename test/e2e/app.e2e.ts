@@ -218,6 +218,22 @@ try {
   // Add and connect to the server
   await page.getByTitle('Add a server').click();
   await page.getByLabel('Address').fill(host);
+  // The right-click menu opens at the pointer, also with the page zoomed
+  await page.evaluate(() => addEventListener('contextmenu', e => { (window as any).__menuAt = [e.clientX, e.clientY]; }, true));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.25));
+  await page.waitForTimeout(200);
+  await page.getByLabel('Address').click({ button: 'right' });
+  await page.locator('.menu[role=menu]').waitFor();
+  const [menuAt, pointerAt] = await page.evaluate(() => {
+    const r = document.querySelector('.menu[role=menu]')!.getBoundingClientRect();
+    return [[r.left, r.top], (window as any).__menuAt as number[]];
+  });
+  assert.ok(Math.abs(menuAt[0] - pointerAt[0]) <= 1 && Math.abs(menuAt[1] - pointerAt[1]) <= 4, `menu ${menuAt} at pointer ${pointerAt}`);
+  await page.locator('.catcher').click({ position: { x: 5, y: 5 } });
+  await page.locator('.menu[role=menu]').waitFor({ state: 'detached' });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
+  await page.waitForTimeout(200);
+  console.log('ok: text menu opens at the pointer when zoomed');
   await page.getByLabel('Port').fill(port);
   assert.equal(await page.getByLabel('Username').inputValue(), 'alice', 'username suggested from the identity');
   await page.getByLabel('Label').fill('Test Server');
