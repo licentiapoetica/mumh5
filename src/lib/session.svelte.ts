@@ -3,6 +3,8 @@ import { MumbleClient, PERM, describeDenial, type Channel, type ChannelAcl, type
 import { native, desktop, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
+import { chatHistory, type SavedMessage } from './chat-history.ts';
+import { currentChatMessage } from '../core/chat-retention.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
 import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, roleMembers, rolesFromAcl, rolesOf, roleTint, setMember, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
@@ -42,6 +44,7 @@ export interface ChatEntry {
   // Names the message for reactions (see core/reactions.ts); unset where it cannot have any
   ref?: string;
   reactions: Reaction[];
+  historyId?: string;
 }
 
 // A file being read before it is announced
@@ -77,6 +80,7 @@ export class Session {
   panel = $state<Panel>({ kind: 'members' });
   logs = $state<Record<string, ChatEntry[]>>({});
   unread = $state<Record<string, number>>({});
+  dmNames = $state<Record<string, string>>({});
   preparing = $state<FileJob[]>([]);
   certPrompt = $state<CertPrompt | null>(null);
   rtt = $state(0);
@@ -334,7 +338,7 @@ export class Session {
   viewTitle(key: string = this.view): string {
     const [kind, id] = key.split(':');
     if (kind === 'ch') return this.channel(Number(id))?.name || 'Root';
-    return this.user(Number(id))?.name ?? 'Offline user';
+    return this.user(Number(id))?.name ?? this.dmNames[key] ?? 'Offline user';
   }
 
   // Keys whose chat is on screen right now (main view and an open side chat)
@@ -458,6 +462,7 @@ export class Session {
     const client = this.client;
     this.client = null;
     client?.disconnect();
+    chatHistory.closed(this);
     share.closed(this);
     textChannels.closed(this);
     files.closed(this);
@@ -514,6 +519,7 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      void chatHistory.entered(this);
       this.syncedAt = Date.now();
       const rejoin = this.lostChannel;
       const back = this.disconnectInfo != null || rejoin != null;
@@ -589,6 +595,7 @@ export class Session {
     client.on('channelRemove', id => {
       if (!live()) return;
       if (this.panel.kind === 'channel' && this.panel.id === id) this.panel = { kind: 'members' };
+      chatHistory.forget(this, `ch:${id}`);
       textChannels.channelRemoved(this, id);
       // The chat on screen is gone: back to the channel we are in
       if (this.view === `ch:${id}`) this.view = `ch:${client.self?.channelId ?? 0}`;
@@ -601,6 +608,7 @@ export class Session {
 
     client.on('user', (user, changed, actor, isNew) => {
       if (!live()) return;
+      chatHistory.userChanged(this, user);
       const self = client.self;
       const before = this.lastChannel.get(user.session);
       this.lastChannel.set(user.session, user.channelId);
@@ -645,6 +653,7 @@ export class Session {
 
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
+      chatHistory.userLeft(this, user);
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
@@ -738,6 +747,7 @@ export class Session {
       }
       if (client.synced) this.lostChannel = client.self?.channelId ?? null;
       this.client = null;
+      chatHistory.closed(this);
       share.closed(this);
       this.sharing = {};
       textChannels.closed(this);
@@ -910,17 +920,40 @@ export class Session {
   // ─── Chat ───────────────────────────────────────────────────────────────────
 
   // time: for messages from earlier, which go where they belong in the log. quiet: not counted as unread.
-  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean } = {}): void {
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean; raw?: string; historyId?: string } = {}): void {
     // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
     if (!this.logs[key]) this.logs[key] = [];
     const log = this.logs[key];
     const time = opts.time ?? Date.now();
     let at = log.length;
     while (at > 0 && log[at - 1].time > time) at--;
-    log.splice(at, 0, { ...entry, reactions: [], id: nextId++, time });
+    log.splice(at, 0, { ...entry, reactions: [], id: nextId++, time, historyId: opts.historyId });
+    if (opts.raw !== undefined && !opts.quiet) chatHistory.record(this, key, opts.raw, log[at]);
     if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
     // Files announced just now; ones from earlier wait for a click
     if (!opts.quiet && !entry.self) for (const e of entry.embeds) if (e.file) files.offered(this, e.file, entry.authorSession);
+  }
+
+  expireChat(now = Date.now()): void {
+    for (const [key, entries] of Object.entries(this.logs)) {
+      const kept = entries.filter(e => currentChatMessage(e.time, now));
+      if (kept.length !== entries.length) this.logs[key] = kept;
+      if (this.unread[key]) {
+        const count = Math.min(this.unread[key], kept.filter(e => e.kind === 'text' && !e.self).length);
+        if (count) this.unread[key] = count;
+        else delete this.unread[key];
+      }
+    }
+    textChannels.expire(this, now);
+  }
+
+  // Stored HTML is sanitized again; old session numbers never become live recipients.
+  restoreChat(key: ViewKey, message: SavedMessage): void {
+    const render: (raw: string, hosts: string[], inlineImages?: boolean) => ReturnType<typeof renderIncoming> = renderIncoming;
+    if (!currentChatMessage(message.time) || this.logs[key]?.some(e => e.historyId === message.id)) return;
+    this.push(key, { kind: 'text', author: message.author, authorSession: null, self: message.self,
+      ref: messageRef(message.raw), ...render(message.raw, store.trustedHosts, true) },
+      { time: message.time, quiet: true, historyId: message.id });
   }
 
   // A text channel message: live, kept from earlier, or handed over by another client
@@ -951,7 +984,7 @@ export class Session {
     if (msg.actor == null) {
       this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
     } else {
-      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ref: messageRef(msg.html), ...rendered });
+      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ref: messageRef(msg.html), ...rendered }, { raw: msg.html });
     }
   }
 
@@ -985,15 +1018,25 @@ export class Session {
   // reveal: false when the server moved you, which should not pull you off the home screen
   selectView(key: ViewKey, reveal = true): void {
     this.view = key;
+    if (key.startsWith('dm:')) {
+      if (!this.logs[key]) this.logs[key] = [];
+      chatHistory.record(this, key, '');
+    }
     delete this.unread[key];
     if (reveal) sessions.homeShown = false;
   }
 
-  // Removes a direct chat from the list; a new message from that person opens it again
+  // Hides a direct chat; opening it or receiving a message restores its retained history.
   closeDm(key: `dm:${number}`): void {
+    chatHistory.hide(this, key);
     delete this.logs[key];
     delete this.unread[key];
     if (this.view === key) this.view = `ch:${this.self?.channelId ?? 0}`;
+  }
+
+  deleteDm(key: `dm:${number}`): void {
+    chatHistory.forget(this, key);
+    this.closeDm(key);
   }
 
   // The view follows once the server confirms the move (see the 'user' handler). Murmur
@@ -1216,6 +1259,7 @@ export class Session {
   sendHtml(html: string, key: string = this.view): boolean {
     const client = this.client;
     if (!client || this.status !== 'connected') return false;
+    if (key.startsWith('dm:') && !this.user(Number(key.slice(3)))) return false;
     if (key.startsWith('ch:') && this.isText(Number(key.slice(3)))) {
       if (html.length > MAX_HTML) {
         this.system(key, `Message too long for a text channel (${html.length} / ${MAX_HTML} characters)`);
@@ -1234,7 +1278,7 @@ export class Session {
     client.sendText(this.target(key), html);
     sounds.play('messageSent');
     const rendered = renderIncoming(html, store.trustedHosts);
-    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
+    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered }, { raw: html });
     return true;
   }
 
@@ -1265,7 +1309,7 @@ export class Session {
   // ask for it, through the server (see files.svelte.ts); other clients get a preview picture.
   async sendFiles(list: File[], key: string = this.view): Promise<void> {
     const client = this.client;
-    if (!client) return;
+    if (!client || (key.startsWith('dm:') && !this.user(Number(key.slice(3))))) return;
     const textKey = key.startsWith('ch:') && this.isText(Number(key.slice(3)));
     const cfg = client.config;
     // 0 means no limit; stay reasonable anyway

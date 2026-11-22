@@ -4,7 +4,8 @@
 // another client after connecting are that client's word for what was said.
 import { TEXT, TEXT_DATA_ID, KEEP, MAX_HTML, TextAssembler, encodeText, encodeHistory, parseMsg, parseHistory, mergeMsgs, newId, isTextChannel, type TextMsg, type TextType } from '../core/text-signal.ts';
 import type { Session } from './session.svelte.ts';
-import { getData, putData } from './blobstore.ts';
+import { getData, updateData } from './blobstore.ts';
+import { currentChatMessage } from '../core/chat-retention.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 
 // Murmur allows a burst of 15 plugin messages per user and 4 a second after that, and drops
@@ -63,7 +64,7 @@ class TextChannels {
       const kept = await getData<Record<number, TextMsg[]>>(st.storeKey);
       if (s.client !== client) return;
       for (const [id, list] of Object.entries(kept ?? {})) {
-        if (Array.isArray(list)) st.msgs.set(Number(id), mergeMsgs(st.msgs.get(Number(id)) ?? [], list).all);
+        if (Array.isArray(list)) st.msgs.set(Number(id), mergeMsgs(st.msgs.get(Number(id)) ?? [], list.filter(m => currentChatMessage(m.t))).all);
       }
     } catch { /* no storage: start empty */ }
     if (s.client !== client) return;
@@ -156,6 +157,7 @@ class TextChannels {
         break;
       }
       case TEXT.want: {
+        this.expire(s);
         for (const [c, list] of st.msgs) {
           if (!this.isText(s, c) || !list.length) continue;
           for (const packet of await encodeHistory(c, list)) st.queue.push({ to: [sender], packet });
@@ -211,14 +213,26 @@ class TextChannels {
   }
 
   private keep(st: State, list: TextMsg[]): TextMsg[] {
+    list = list.filter(m => currentChatMessage(m.t));
     if (!list.length) return [];
     const c = list[0].c;
-    const { all, added } = mergeMsgs(st.msgs.get(c) ?? [], list, KEEP);
+    const { all, added } = mergeMsgs((st.msgs.get(c) ?? []).filter(m => currentChatMessage(m.t)), list, KEEP);
     if (added.length) {
       st.msgs.set(c, all);
       this.saveSoon(st);
     }
     return added;
+  }
+
+  expire(s: Session, now = Date.now()): void {
+    const st = this.states.get(s);
+    if (!st) return;
+    let changed = false;
+    for (const [id, list] of st.msgs) {
+      const kept = list.filter(m => currentChatMessage(m.t, now));
+      if (kept.length !== list.length) { st.msgs.set(id, kept); changed = true; }
+    }
+    if (changed) this.saveSoon(st);
   }
 
   private saveSoon(st: State): void {
@@ -230,18 +244,22 @@ class TextChannels {
   private async save(st: State): Promise<void> {
     st.saveTimer = undefined;
     try {
-      const kept = await getData<Record<number, TextMsg[]>>(st.storeKey) ?? {};
-      for (const [c, list] of st.msgs) kept[c] = mergeMsgs(Array.isArray(kept[c]) ? kept[c] : [], list).all;
-      await putData(st.storeKey, kept);
+      await updateData<Record<number, TextMsg[]>>(st.storeKey, saved => {
+        const kept = saved ?? {};
+        for (const [c, list] of st.msgs) kept[c] = mergeMsgs(Array.isArray(kept[c]) ? kept[c] : [], list).all;
+        for (const c of Object.keys(kept)) if (Array.isArray(kept[Number(c)])) kept[Number(c)] = kept[Number(c)].filter(m => currentChatMessage(m.t));
+        return kept;
+      });
     } catch { /* storage unavailable */ }
   }
 
   private async forget(st: State, channelId: number): Promise<void> {
     try {
-      const kept = await getData<Record<number, TextMsg[]>>(st.storeKey);
-      if (!kept || !(channelId in kept)) return;
-      delete kept[channelId];
-      await putData(st.storeKey, kept);
+      await updateData<Record<number, TextMsg[]>>(st.storeKey, kept => {
+        if (!kept || !(channelId in kept)) return;
+        delete kept[channelId];
+        return kept;
+      });
     } catch { /* storage unavailable */ }
   }
 
