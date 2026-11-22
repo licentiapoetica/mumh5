@@ -5,7 +5,12 @@
 //     -e MUMBLE_CONFIG_AUTOBANATTEMPTS=0 -e "MUMBLE_CONFIG_WELCOMETEXT=Welcome to the community voice server." \
 //     mumblevoip/mumble-server
 //   npm run build && MUMBLE_TEST_HOST=localhost:64740 MUMBLE_SUPERUSER_PASSWORD=shots npm run screenshots
-import { _electron as electron } from 'playwright-core';
+// For headless Chromium, build with npm run build:web, then set MUMH5_SCREENSHOT_WEB=1
+// and CHROMIUM_PATH to the Chromium executable. Always use a disposable test server:
+// this script replaces its channels with the screenshot scene.
+import { _electron as electron, chromium } from 'playwright-core';
+import { spawn } from 'node:child_process';
+import assert from 'node:assert/strict';
 import electronPath from 'electron';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
@@ -28,10 +33,32 @@ const root = path.resolve(import.meta.dirname, '../..');
 const out = path.join(root, 'docs', 'screenshots');
 mkdirSync(out, { recursive: true });
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+const web = process.env.MUMH5_SCREENSHOT_WEB === '1';
+const clients: MumbleClient[] = [];
+const apps: { close(): Promise<void> }[] = [];
+const pageErrors: string[] = [];
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+let proxy: ReturnType<typeof spawn> | undefined;
+const proxyPort = 18440;
+
+async function launchClient() {
+  if (!web) return electron.launch({
+    executablePath: electronPath as unknown as string,
+    args: [root, `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
+      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'ELECTRON_RUN_AS_NODE')) as Record<string, string>
+  });
+  const context = await browser!.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone', 'camera'] });
+  const page = await context.newPage();
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto(`http://127.0.0.1:${proxyPort}`);
+  return { firstWindow: async () => page, close: () => context.close() };
+}
 
 function headless(username: string, password = ''): Promise<MumbleClient> {
   const id = generateIdentity(username);
   const client = new MumbleClient(createCodec());
+  clients.push(client);
   const t: Transport = { onData: null, onClose: null, send: b => conn.send(b), close: () => conn.close() };
   const conn = openTls(host, Number(port), id.certPem, id.keyPem, {
     onSecure: () => {}, onData: c => t.onData?.(c), onClose: r => t.onClose?.(r)
@@ -98,228 +125,275 @@ const SCENE = `(() => {
   navigator.mediaDevices.getDisplayMedia = async () => stream.clone();
 })()`;
 
-// ─── Server scene ─────────────────────────────────────────────────────────────
-const admin = await headless('SuperUser', superPw);
-// Start from an empty tree when the server is reused
-for (const c of [...admin.channels.values()]) if (c.id !== 0 && c.parent === 0) admin.send('ChannelRemove', { channel_id: c.id });
-await wait(500);
-admin.send('ChannelState', { parent: 0, name: 'Lobby', position: 0, description: '<p><b>Welcome!</b> Hang out, say hi, and drop your clips here.</p><p>Be nice. Push to talk is appreciated in busy rooms.</p>' });
-admin.send('ChannelState', { parent: 0, name: 'Gaming', position: 1 });
-admin.send('ChannelState', { parent: 0, name: 'Music', position: 2, description: 'Listening parties every Friday.' });
-admin.send('ChannelState', { parent: 0, name: 'AFK', position: 3 });
-await wait(1500);
-admin.send('ChannelState', { parent: byName(admin, 'Gaming').id, name: 'Minecraft' });
-admin.send('ChannelState', { parent: byName(admin, 'Gaming').id, name: 'Valorant' });
-await wait(1500);
-const lobby = byName(admin, 'Lobby').id;
-admin.disconnect();
+try {
+  if (web) {
+    proxy = spawn(process.execPath, [path.join(root, 'dist-proxy/proxy.mjs')], {
+      env: { ...process.env, MUMH5_SERVERS: `${target}=Community`, MUMH5_DEFAULT_SERVER: '', MUMH5_PORT: String(proxyPort),
+        MUMH5_STUN_PORT: '18441', MUMH5_STUN_BIND: '127.0.0.1', MUMH5_TURN_IP: '127.0.0.1', MUMH5_ALLOW_PRIVATE: '1' },
+      stdio: ['ignore', 'pipe', 'inherit']
+    });
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Proxy startup timed out')), 10000);
+      proxy!.stdout!.on('data', data => { if (String(data).includes('listening')) { clearTimeout(timeout); resolve(); } });
+      proxy!.on('exit', code => { clearTimeout(timeout); reject(new Error(`Proxy exited: ${code}`)); });
+    });
+    browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true,
+      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'] });
+  }
 
-const v0id = await headless('v0id');
-const gl1tch = await headless('gl1tch');
-const cipher = await headless('cipher');
-const nullbyte = await headless('nullbyte');
-v0id.joinChannel(lobby);
-gl1tch.joinChannel(lobby);
-await wait(300);
-cipher.joinChannel(lobby);
-nullbyte.joinChannel(byName(nullbyte, 'Music').id);
-await wait(1200);
-nullbyte.setSelfMute(true);
-gl1tch.setSelfDeaf(true);
-v0id.setComment('<p><b>v0id</b> <span style="color:#e8b23c">streamer, night owl</span></p><p>Mostly in <i>Minecraft</i> and <i>Valorant</i>. Ask me about modpacks.</p><ul><li>EU evenings</li><li>Push to talk</li></ul>');
-// Pictures for some, the letter for gl1tch
-v0id.setTexture(neon(128, [255, 46, 136], [120, 40, 255]));
-cipher.setTexture(neon(128, [0, 229, 255], [20, 60, 160]));
-nullbyte.setTexture(neon(128, [57, 255, 120], [10, 90, 70]));
+  // ─── Server scene ─────────────────────────────────────────────────────────────
+  const admin = await headless('SuperUser', superPw);
+  // Start from an empty tree when the server is reused
+  for (const c of [...admin.channels.values()]) if (c.id !== 0 && c.parent === 0) admin.send('ChannelRemove', { channel_id: c.id });
+  await wait(500);
+  admin.send('ChannelState', { parent: 0, name: 'Lobby', position: 0, description: '<p><b>Welcome!</b> Hang out, say hi, and drop your clips here.</p><p>Be nice. Push to talk is appreciated in busy rooms.</p>' });
+  admin.send('ChannelState', { parent: 0, name: 'Gaming', position: 1 });
+  admin.send('ChannelState', { parent: 0, name: 'Music', position: 2, description: 'Listening parties every Friday.' });
+  admin.send('ChannelState', { parent: 0, name: 'AFK', position: 3 });
+  await wait(1500);
+  admin.send('ChannelState', { parent: byName(admin, 'Gaming').id, name: 'Minecraft' });
+  admin.send('ChannelState', { parent: byName(admin, 'Gaming').id, name: 'Valorant' });
+  await wait(1500);
+  const lobby = byName(admin, 'Lobby').id;
+  admin.disconnect();
 
-// ─── App ──────────────────────────────────────────────────────────────────────
-const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
-const app = await electron.launch({
-  executablePath: electronPath as unknown as string,
-  args: [root, `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
-  env: env as Record<string, string>
-});
-const page = await app.firstWindow();
-await page.setViewportSize({ width: 1440, height: 900 });
+  const v0id = await headless('v0id');
+  const gl1tch = await headless('gl1tch');
+  const cipher = await headless('cipher');
+  const nullbyte = await headless('nullbyte');
+  v0id.joinChannel(lobby);
+  gl1tch.joinChannel(lobby);
+  await wait(300);
+  cipher.joinChannel(lobby);
+  nullbyte.joinChannel(byName(nullbyte, 'Music').id);
+  await wait(1200);
+  nullbyte.setSelfMute(true);
+  gl1tch.setSelfDeaf(true);
+  v0id.setComment('<p><b>v0id</b> <span style="color:#e8b23c">streamer, night owl</span></p><p>Mostly in <i>Minecraft</i> and <i>Valorant</i>. Ask me about modpacks.</p><ul><li>EU evenings</li><li>Push to talk</li></ul>');
+  // Pictures for some, the letter for gl1tch
+  v0id.setTexture(neon(128, [255, 46, 136], [120, 40, 255]));
+  cipher.setTexture(neon(128, [0, 229, 255], [20, 60, 160]));
+  nullbyte.setTexture(neon(128, [57, 255, 120], [10, 90, 70]));
 
-await page.getByRole('button', { name: /Create a new identity/ }).click();
-await page.getByLabel('Name', { exact: true }).fill('n3on');
-await page.getByRole('button', { name: 'Create', exact: true }).click();
-await page.getByRole('button', { name: 'Skip for now' }).click();
-await page.getByRole('button', { name: 'Done' }).click();
+  // ─── App ──────────────────────────────────────────────────────────────────────
+  const app = await launchClient();
+  apps.push(app);
+  const page = await app.firstWindow();
+  await page.setViewportSize({ width: 1440, height: 900 });
 
-// A real mouse press: Playwright's click() first scrolls the settings, which nobody sees
-const press = async (loc: ReturnType<typeof page.locator>) => { const b = (await loc.boundingBox())!; await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
-const tab = (name: string) => press(page.getByRole('tab', { name }));
+  await page.getByRole('button', { name: /Create a new identity/ }).click();
+  await page.getByLabel('Name', { exact: true }).fill('n3on');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await page.getByRole('button', { name: 'Done' }).click();
 
-// The steps below use the server list directly
-await page.getByRole('button', { name: 'Show servers' }).click();
-// The README shows the Modern layout (channels left, members right); Stacked is the default
-await page.getByTitle('Settings').click();
-await tab('Appearance');
-await page.getByRole('radio', { name: 'Modern', exact: true }).click();
-await tab('Chat and files');
-await page.getByLabel('YouTube links').selectOption('thumbnail');
-await page.getByLabel('Link previews').selectOption('direct');
-await tab('Voice');
-await page.getByRole('radio', { name: /Always on/ }).click();
-await page.getByRole('button', { name: 'Done', exact: true }).click();
+  // A real mouse press: Playwright's click() first scrolls the settings, which nobody sees
+  const press = async (loc: ReturnType<typeof page.locator>) => { const b = (await loc.boundingBox())!; await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
+  const tab = (name: string) => press(page.getByRole('tab', { name }));
 
-await page.getByTitle('Add a server').click();
-await page.getByLabel('Address').fill(host);
-await page.getByLabel('Port').fill(port);
-await page.getByLabel('Username').fill('n3on');
-await page.getByLabel('Label').fill('Community');
-await page.getByRole('button', { name: 'Save and connect' }).click();
-await page.getByText(/Connected/).first().waitFor();
-await page.locator('.channel .name', { hasText: 'Lobby' }).dblclick();
-await page.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
-await wait(800);
-
-v0id.sendText({ channels: [lobby] }, 'anyone up for a run tonight?');
-await wait(1200);
-gl1tch.sendText({ channels: [lobby] }, 'yes, after dinner. 8pm?');
-await wait(1200);
-cipher.sendText({ channels: [lobby] }, 'btw this is what we are running: <a href="https://github.com/mumble-voip/mumble">https://github.com/mumble-voip/mumble</a>');
-await wait(1200);
-await page.getByLabel('Message').fill('works for me. meanwhile, a classic: https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-await page.getByLabel('Message').press('Enter');
-await wait(1200);
-v0id.sendText({ channels: [lobby] }, '<b>no.</b> not again <i>(ok it is a good song)</i>');
-await wait(3000);
-await page.locator('.card img').first().waitFor({ timeout: 15000 }).catch(() => {});
-await wait(1000);
-// Nothing under the pointer is highlighted in the pictures
-await page.mouse.move(1300, 700);
-// From cipher's message with the link preview down to the last one
-await page.locator('.chat .list').evaluate(list => {
-  const msg = [...list.querySelectorAll('.msg')].find(m => m.textContent?.includes('what we are running'));
-  if (msg) list.scrollTop += msg.getBoundingClientRect().top - list.getBoundingClientRect().top - 12;
-});
-await page.screenshot({ path: path.join(out, 'main.png') });
-
-await page.locator('.sidebar .user', { hasText: 'v0id' }).click();
-await page.getByRole('dialog', { name: 'Profile of v0id' }).locator('.html', { hasText: 'streamer' }).waitFor();
-await wait(500);
-await page.screenshot({ path: path.join(out, 'profile.png') });
-await page.keyboard.press('Escape');
-
-await page.getByTitle('Settings').click();
-await wait(800);
-await page.screenshot({ path: path.join(out, 'voice-settings.png') });
-await page.getByRole('button', { name: 'Done', exact: true }).click();
-
-// Every color scheme, main view with the member list
-for (const t of ['light', 'midnight', 'frost', 'win95', 'dark']) {
+  // The steps below use the server list directly
+  await page.getByRole('button', { name: 'Show servers' }).click();
+  // The README shows the Modern layout (channels left, members right); Stacked is the default
   await page.getByTitle('Settings').click();
   await tab('Appearance');
-  await page.locator(`[data-theme-preview="${t}"]`).click();
-  // Clicking scrolled the list to the scheme; the picture shows it from the top
-  await page.locator('.modal .body').evaluate(el => { el.scrollTop = 0; });
-  if (t === 'win95') await page.screenshot({ path: path.join(out, 'settings-appearance.png') });
+  await page.getByRole('radio', { name: 'Modern', exact: true }).click();
+  await tab('Chat and files');
+  await page.getByLabel('YouTube links').selectOption('off');
+  await page.getByLabel('Link previews').selectOption('off');
+  await tab('Voice');
+  await page.getByRole('radio', { name: /Always on/ }).click();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await page.mouse.move(1300, 700);
-  await wait(400);
-  if (t !== 'dark') await page.screenshot({ path: path.join(out, `theme-${t}.png`) });
-}
 
-await page.setViewportSize({ width: 390, height: 844 });
-await page.locator('.scrim').first().click().catch(() => {});
-await wait(500);
-await page.screenshot({ path: path.join(out, 'mobile.png') });
+  await page.getByTitle('Add a server').click();
+  if (web) await page.getByLabel('Server', { exact: true }).selectOption(target!);
+  else { await page.getByLabel('Address').fill(host); await page.getByLabel('Port').fill(port); }
+  await page.getByLabel('Username').fill('n3on');
+  await page.getByLabel('Label').fill('Community');
+  await page.getByRole('button', { name: 'Save and connect' }).click();
+  await page.getByText(/Connected/).first().waitFor();
+  await page.locator('.channel .name', { hasText: 'Lobby' }).dblclick();
+  await page.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
+  await wait(800);
 
-// ─── Screen sharing: v0id streams a game from a window of their own, three people watch ──
-await page.setViewportSize({ width: 1440, height: 900 });
-const work = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-shots-'));
-// The bots step aside so windows can use their names
-for (const c of [v0id, cipher, gl1tch]) c.disconnect();
-await wait(800);
-
-// Waits for a dialog's button, which may take a moment to appear, and presses it when it does
-const answer = (p: typeof page, name: string, ms = 3000) =>
-  p.getByRole('button', { name, exact: true }).waitFor({ timeout: ms }).then(() => p.getByRole('button', { name, exact: true }).click()).catch(() => {});
-
-// Another copy of the app, signed in under `name`, in Lobby, with a picture when colors are given
-async function client(name: string, colors?: [number[], number[]], stageHeight?: number) {
-  const instance = await electron.launch({
-    executablePath: electronPath as unknown as string,
-    args: [root, `--user-data-dir=${mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-'))}`, '--ozone-platform=x11',
-      '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'],
-    env: env as Record<string, string>
+  v0id.sendText({ channels: [lobby] }, 'anyone up for a run tonight?');
+  await wait(1200);
+  gl1tch.sendText({ channels: [lobby] }, 'yes, after dinner. 8pm?');
+  await wait(1200);
+  cipher.sendText({ channels: [lobby] }, 'I put the server details in the notes. Same world, fresh map.');
+  await wait(1200);
+  await page.getByLabel('Message').fill('8pm works. Bringing the new modpack and the build notes.');
+  await page.getByLabel('Message').press('Enter');
+  await wait(1200);
+  v0id.sendText({ channels: [lobby] }, '<b>Perfect.</b> Meet in Gaming when you are ready.');
+  await page.locator('.msg', { hasText: 'Meet in Gaming' }).waitFor();
+  await page.locator('.chat .composer input[type=file]').first().setInputFiles({ name: 'session-notes.txt', mimeType: 'text/plain',
+    buffer: Buffer.from('Community game night\nMeet in Gaming at 8pm.\nBring the new modpack.\n') });
+  await page.getByText('session-notes.txt', { exact: true }).first().waitFor();
+  await page.evaluate(() => document.fonts.ready);
+  await wait(500);
+  // Nothing under the pointer is highlighted in the pictures
+  await page.mouse.move(0, 0);
+  // Show the conversation from the first invitation through the shared file
+  await page.locator('.chat .list').evaluate(list => {
+    const msg = [...list.querySelectorAll('.msg')].find(m => m.textContent?.includes('anyone up for a run'));
+    if (msg) list.scrollTop += msg.getBoundingClientRect().top - list.getBoundingClientRect().top - 12;
   });
-  const p = await instance.firstWindow();
-  await p.setViewportSize({ width: 1440, height: 900 });
-  await p.getByRole('button', { name: /Create a new identity/ }).click();
-  await p.getByLabel('Name', { exact: true }).fill(name);
-  await p.getByRole('button', { name: 'Create', exact: true }).click();
-  await p.getByRole('button', { name: 'Skip for now' }).click();
-  await p.getByRole('button', { name: 'Done' }).click();
-  // The steps below use the server list directly
-  await p.getByRole('button', { name: 'Show servers' }).click();
-  // A taller meeting view than the default, so the stream fills the picture
-  if (stageHeight) await p.evaluate(h => localStorage.setItem('mumh5.stageHeightMeeting', String(h)), stageHeight);
-  await p.getByTitle('Settings').click();
-  { const b = (await p.getByRole('tab', { name: 'Appearance' }).boundingBox())!; await p.mouse.click(b.x + b.width / 2, b.y + b.height / 2); }
-  await p.getByRole('radio', { name: 'Modern', exact: true }).click();
-  await p.getByRole('button', { name: 'Done', exact: true }).click();
-  await p.getByTitle('Add a server').click();
-  await p.getByLabel('Address').fill(host);
-  await p.getByLabel('Port').fill(port);
-  await p.getByLabel('Username').fill(name);
-  await p.getByLabel('Label').fill('Community');
-  await p.getByRole('button', { name: 'Save and connect' }).click();
-  await p.getByText(/Connected/).first().waitFor();
-  await p.locator('.channel .name', { hasText: 'Lobby' }).dblclick();
-  await p.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
-  if (colors) {
-    const file = path.join(work, `${name}.png`);
-    writeFileSync(file, neon(256, colors[0], colors[1]));
-    await p.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
-    await p.getByRole('dialog', { name: 'Edit profile' }).getByLabel('Picture file').setInputFiles(file);
-    await p.getByRole('dialog', { name: 'Edit profile' }).locator('.avatar img').waitFor();
-    await p.keyboard.press('Escape');
+  await page.screenshot({ path: path.join(out, 'main.png') });
+
+  await page.getByTitle('Settings').click();
+  await tab('Appearance');
+  await page.getByRole('radio', { name: 'Stacked', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.mouse.move(0, 0);
+  await wait(400);
+  await page.screenshot({ path: path.join(out, 'stacked.png') });
+  await page.getByTitle('Settings').click();
+  await tab('Appearance');
+  await page.getByRole('radio', { name: 'Modern', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await page.locator('.sidebar .user', { hasText: 'v0id' }).click();
+  await page.getByRole('dialog', { name: 'Profile of v0id' }).locator('.html', { hasText: 'streamer' }).waitFor();
+  await wait(500);
+  await page.screenshot({ path: path.join(out, 'profile.png') });
+  await page.keyboard.press('Escape');
+
+  await page.getByTitle('Settings').click();
+  await tab('Voice');
+  await wait(800);
+  await page.screenshot({ path: path.join(out, 'voice-settings.png') });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+  // Every color scheme, main view with the member list
+  for (const t of ['light', 'midnight', 'frost', 'win95', 'dark']) {
+    await page.getByTitle('Settings').click();
+    await tab('Appearance');
+    await page.locator(`[data-theme-preview="${t}"]`).click();
+    await page.waitForFunction(theme => (document.documentElement.dataset.theme || 'dark') === theme, t);
+    // Clicking scrolled the list to the scheme; the picture shows it from the top
+    await page.locator('.modal .body').evaluate(el => { el.scrollTop = 0; });
+    if (t === 'dark') {
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: path.join(out, 'settings-appearance.png'), animations: 'disabled' });
+    }
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.mouse.move(0, 0);
+    await wait(400);
+    if (t !== 'dark') await page.screenshot({ path: path.join(out, `theme-${t}.png`) });
   }
-  return { instance, page: p };
-}
 
-// Watches v0id's screen until the picture plays, trying again if the first attempt does not connect
-async function watchStream(p: typeof page) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await p.locator('.sidebar').getByRole('button', { name: 'Watch the screen of v0id', exact: true }).click({ timeout: 20000 });
-    await answer(p, 'Continue');
-    const ok = await p.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 }).then(() => true, () => false);
-    if (ok) return;
+  await page.getByTitle('Settings').click();
+  await tab('Appearance');
+  await page.getByRole('radio', { name: 'Rooms', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.mouse.move(0, 0);
+  await wait(400);
+  await page.screenshot({ path: path.join(out, 'rooms.png') });
+  // Use the same connected test client at phone width.
+  await page.setViewportSize({ width: 390, height: 844 });
+  if (await page.locator('.scrim').count()) await page.locator('.scrim').first().click();
+  await page.getByRole('navigation', { name: 'Screens' }).getByRole('button', { name: 'Chat', exact: true }).click();
+  await wait(500);
+  await page.screenshot({ path: path.join(out, 'mobile.png') });
+
+  // ─── Screen sharing: v0id streams a game from a window of their own, three people watch ──
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'You', exact: true }).click();
+  await page.getByRole('button', { name: /^Appearance Colors and interface$/ }).click();
+  await tab('Appearance');
+  await page.getByRole('radio', { name: 'Standard', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const work = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-shots-'));
+  // The bots step aside so windows can use their names
+  for (const c of [v0id, cipher, gl1tch]) c.disconnect();
+  await wait(800);
+
+  // Waits for a dialog's button, which may take a moment to appear, and presses it when it does
+  const answer = (p: typeof page, name: string, ms = 3000) =>
+    p.getByRole('button', { name, exact: true }).waitFor({ timeout: ms }).then(() => p.getByRole('button', { name, exact: true }).click()).catch(() => {});
+
+  // Another copy of the app, signed in under `name`, in Lobby, with a picture when colors are given
+  async function client(name: string, colors?: [number[], number[]], stageHeight?: number) {
+    const instance = await launchClient();
+    apps.push(instance);
+    const p = await instance.firstWindow();
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.getByRole('button', { name: /Create a new identity/ }).click();
+    await p.getByLabel('Name', { exact: true }).fill(name);
+    await p.getByRole('button', { name: 'Create', exact: true }).click();
+    await p.getByRole('button', { name: 'Skip for now' }).click();
+    await p.getByRole('button', { name: 'Done' }).click();
+    // The steps below use the server list directly
+    await p.getByRole('button', { name: 'Show servers' }).click();
+    // A taller meeting view than the default, so the stream fills the picture
+    if (stageHeight) await p.evaluate(h => localStorage.setItem('mumh5.stageHeightMeeting', String(h)), stageHeight);
+    await p.getByTitle('Settings').click();
+    { const b = (await p.getByRole('tab', { name: 'Appearance' }).boundingBox())!; await p.mouse.click(b.x + b.width / 2, b.y + b.height / 2); }
+    await p.getByRole('radio', { name: 'Modern', exact: true }).click();
+    await p.getByRole('button', { name: 'Done', exact: true }).click();
+    await p.getByTitle('Add a server').click();
+    if (web) await p.getByLabel('Server', { exact: true }).selectOption(target!);
+    else { await p.getByLabel('Address').fill(host); await p.getByLabel('Port').fill(port); }
+    await p.getByLabel('Username').fill(name);
+    await p.getByLabel('Label').fill('Community');
+    await p.getByRole('button', { name: 'Save and connect' }).click();
+    await p.getByText(/Connected/).first().waitFor();
+    await p.locator('.channel .name', { hasText: 'Lobby' }).dblclick();
+    await p.locator('.me .who span', { hasText: 'Lobby' }).waitFor();
+    if (colors) {
+      const file = path.join(work, `${name}.png`);
+      writeFileSync(file, neon(256, colors[0], colors[1]));
+      await p.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+      await p.getByRole('dialog', { name: 'Edit profile' }).getByLabel('Picture file').setInputFiles(file);
+      await p.getByRole('dialog', { name: 'Edit profile' }).locator('.avatar img').waitFor();
+      await p.keyboard.press('Escape');
+    }
+    return { instance, page: p };
   }
-  await p.screenshot({ path: path.join(work, 'viewer.png') });
-  throw new Error(`The stream did not arrive; a picture of the viewer is in ${work}`);
+
+  // Watches v0id's screen until the picture plays, trying again if the first attempt does not connect
+  async function watchStream(p: typeof page) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await p.locator('.sidebar').getByRole('button', { name: 'Watch the screen of v0id', exact: true }).click({ timeout: 20000 });
+      await answer(p, 'Continue');
+      const ok = await p.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 }).then(() => true, () => false);
+      if (ok) return;
+    }
+    await p.screenshot({ path: path.join(work, 'viewer.png') });
+    throw new Error(`The stream did not arrive; a picture of the viewer is in ${work}`);
+  }
+
+  const streamer = await client('v0id', [[255, 46, 136], [120, 40, 255]], 640);
+  const viewers = [await client('cipher', [[0, 229, 255], [20, 60, 160]]), await client('gl1tch')];
+  const page2 = streamer.page;
+  await page2.evaluate(SCENE);
+  await page2.locator('.me').getByRole('button', { name: 'Share your screen or camera' }).click();
+  await answer(page2, 'Continue');
+  const picker = page2.getByRole('dialog', { name: 'Share your screen' });
+  if (web) await picker.getByRole('button', { name: 'Choose a screen or window...' }).click();
+  else {
+    for (let i = 0; i < 6 && !(await picker.locator('.sources button').count()); i++) {
+      await Promise.race([picker.locator('.sources button').first().waitFor({ timeout: 30000 }), picker.getByText('Nothing found').waitFor({ timeout: 30000 })]).catch(() => {});
+      if (await picker.getByText('Nothing found').count()) await picker.getByRole('button', { name: 'Refresh' }).click();
+    }
+    await picker.locator('.sources button').first().click();
+  }
+  await page2.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  await picker.getByLabel('Quality').selectOption('high').catch(() => {});
+  await picker.getByRole('button', { name: 'Start sharing' }).click();
+  await page2.locator('.stage .status', { hasText: 'watching' }).first().waitFor();
+
+  for (const p of [page, ...viewers.map(v => v.page)]) await watchStream(p);
+  await page2.locator('.stage .status', { hasText: '3 watching' }).first().waitFor({ timeout: 15000 });
+  await page2.mouse.move(0, 0);
+  await wait(1500);
+  await page2.screenshot({ path: path.join(out, 'sharing.png') });
+
+  console.log(`Screenshots written to ${out}`);
+  assert.deepEqual(pageErrors, [], 'no uncaught browser errors');
+} finally {
+  for (const instance of apps.reverse()) await instance.close().catch(() => {});
+  for (const client of clients) client.disconnect();
+  await browser?.close();
+  proxy?.kill();
 }
-
-const streamer = await client('v0id', [[255, 46, 136], [120, 40, 255]], 640);
-const viewers = [await client('cipher', [[0, 229, 255], [20, 60, 160]]), await client('gl1tch')];
-const page2 = streamer.page;
-await page2.evaluate(SCENE);
-await page2.locator('.me').getByRole('button', { name: 'Share your screen or camera' }).click();
-await answer(page2, 'Continue');
-const picker = page2.getByRole('dialog', { name: 'Share your screen' });
-for (let i = 0; i < 6 && !(await picker.locator('.sources button').count()); i++) {
-  await Promise.race([picker.locator('.sources button').first().waitFor({ timeout: 30000 }), picker.getByText('Nothing found').waitFor({ timeout: 30000 })]).catch(() => {});
-  if (await picker.getByText('Nothing found').count()) await picker.getByRole('button', { name: 'Refresh' }).click();
-}
-await picker.locator('.sources button').first().click();
-await page2.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
-await picker.getByLabel('Quality').selectOption('high').catch(() => {});
-await picker.getByRole('button', { name: 'Start sharing' }).click();
-await page2.locator('.stage .status', { hasText: 'watching' }).first().waitFor();
-
-for (const p of [page, ...viewers.map(v => v.page)]) await watchStream(p);
-await page2.locator('.stage .status', { hasText: '3 watching' }).first().waitFor({ timeout: 15000 });
-await page2.mouse.move(1300, 800);
-await wait(1500);
-await page2.screenshot({ path: path.join(out, 'sharing.png') });
-
-for (const c of [streamer, ...viewers]) await c.instance.close();
-await app.close();
-nullbyte.disconnect();
-console.log(`Screenshots written to ${out}`);
-process.exit(0);
