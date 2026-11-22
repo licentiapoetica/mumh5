@@ -3,8 +3,9 @@ import type { ChatEntry, Session, ViewKey } from './session.svelte.ts';
 import { dataKeys, deleteBlob, getData, putData, updateData } from './blobstore.ts';
 import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
 import { store } from './settings.svelte.ts';
+import { copyReactions, readReactions, type Reaction } from '../core/reactions.ts';
 
-export interface SavedMessage { id: string; time: number; author: string; self: boolean; raw: string }
+export interface SavedMessage { id: string; time: number; author: string; self: boolean; raw: string; reactions?: Reaction[] }
 interface Conversation { route: string; name: string; messages: SavedMessage[]; hidden?: boolean }
 interface State {
   client: Session['client']; key: string; epoch: string; loaded: boolean;
@@ -77,7 +78,11 @@ class ChatHistory {
       if (Array.isArray(kept)) for (const c of kept) {
         if (!c || typeof c.route !== 'string' || typeof c.name !== 'string' || !Array.isArray(c.messages)) continue;
         const messages: SavedMessage[] = c.messages.filter((m: SavedMessage) => m && typeof m.id === 'string' && Number.isFinite(m.time)
-          && currentChatMessage(m.time, Date.now(), retention()) && typeof m.author === 'string' && typeof m.self === 'boolean' && typeof m.raw === 'string');
+          && currentChatMessage(m.time, Date.now(), retention()) && typeof m.author === 'string' && typeof m.self === 'boolean' && typeof m.raw === 'string')
+          .map((m: SavedMessage) => {
+            const reactions = readReactions(m.reactions);
+            return { id: m.id, time: m.time, author: m.author, self: m.self, raw: m.raw, ...(reactions.length ? { reactions } : {}) };
+          });
         st.data.set(c.route, { route: c.route, name: c.name, messages, hidden: c.hidden === true });
       }
     } catch { /* unavailable storage: keep the current session usable */ }
@@ -128,6 +133,25 @@ class ChatHistory {
         for (const m of c.messages) s.restoreChat(key as ViewKey, m);
       }
       if (message) c.messages = [...c.messages, message];
+    });
+  }
+
+  // Keeps the reactions of a saved message as they are now
+  reacted(s: Session, key: string, entry: ChatEntry): void {
+    const st = this.states.get(s);
+    const id = entry.historyId;
+    if (!st || st.client !== s.client || !id) return;
+    const reactions = copyReactions(entry.reactions);
+    const route = st.routes.get(key);
+    this.change(st, () => {
+      const own = route ? st.data.get(route) : undefined;
+      for (const c of own ? [own] : st.data.values()) {
+        const m = c.messages.find(m => m.id === id);
+        if (!m) continue;
+        if (reactions.length) m.reactions = reactions;
+        else delete m.reactions;
+        return;
+      }
     });
   }
 

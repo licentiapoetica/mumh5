@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_KINDS, applyReaction, decodeReact, encodeReact, findReacted, isEmoji, messageRef, reactorKey, reactorNames, textRef, type ReactSignal, type Reaction } from '../src/core/reactions.ts';
+import { MAX_KINDS, applyReaction, readReactions, decodeReact, encodeReact, findReacted, isEmoji, messageRef, reactorKey, reactorNames, textRef, type ReactSignal, type Reaction } from '../src/core/reactions.ts';
 
 const enc = (v: unknown) => new TextEncoder().encode(JSON.stringify(v));
 const sig: ReactSignal = { c: 3, r: messageRef('hello'), s: 7, a: 12, e: '\u{1F44D}\u{1F3FD}', on: true };
@@ -84,4 +84,17 @@ test('names and keys', () => {
   assert.equal(reactorNames(['a', 'b', 'c']), 'a, b and c');
   assert.equal(reactorNames(['a', 'b', 'c', 'd']), 'a, b, c and 1 other');
   assert.equal(reactorNames(['a', 'b', 'c', 'd', 'e']), 'a, b, c and 2 others');
+});
+
+test('kept reactions are read back without anything malformed', () => {
+  const thumbs = '\u{1F44D}';
+  const good: Reaction[] = [{ emoji: thumbs, who: [{ k: 'abc', name: 'alice' }, { k: 'n:bob', name: 'bob' }] }];
+  assert.deepEqual(readReactions(good), good);
+  assert.deepEqual(readReactions([...good, { emoji: thumbs, who: [{ k: 'x', name: 'x' }] }]), good, 'one entry per emoji');
+  assert.deepEqual(readReactions([{ emoji: thumbs, who: [{ k: 'abc', name: 'alice', extra: '<b>' }, { k: 'abc', name: 'again' }, { k: 1, name: 'n' }] }]),
+    [{ emoji: thumbs, who: [{ k: 'abc', name: 'alice' }] }]);
+  for (const bad of [null, 'x', {}, [{ emoji: '<b>', who: [{ k: 'a', name: 'a' }] }], [{ emoji: thumbs, who: [] }], [{ emoji: thumbs, who: 'a' }]]) {
+    assert.deepEqual(readReactions(bad), [], JSON.stringify(bad));
+  }
+  assert.equal(readReactions(Array.from({ length: MAX_KINDS + 5 }, (_, i) => ({ emoji: String.fromCodePoint(0x1F600 + i), who: [{ k: 'a', name: 'a' }] }))).length, MAX_KINDS);
 });

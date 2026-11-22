@@ -31,6 +31,7 @@ class Reactions {
     const next = applyReaction(entry.reactions, emoji, me, want);
     if (!next) return;
     entry.reactions = next;
+    s.reacted(key, entry);
 
     const [kind, id] = key.split(':');
     const target = Number(id);
@@ -48,10 +49,13 @@ class Reactions {
     const user = s.client?.users.get(sender);
     const sig = decodeReact(data);
     if (!user || !sig) return;
-    const entry = findReacted(s.logs[sig.c == null ? `dm:${sender}` : `ch:${sig.c}`] ?? [], sig, Date.now());
+    const key = sig.c == null ? `dm:${sender}` : `ch:${sig.c}`;
+    const entry = findReacted(s.logs[key] ?? [], sig, Date.now());
     if (!entry) return;
     const next = applyReaction(entry.reactions, sig.e, { k: reactorKey(user), name: store.displayName(user) }, sig.on);
-    if (next) entry.reactions = next;
+    if (!next) return;
+    entry.reactions = next;
+    s.reacted(key, entry);
   }
 
   closed(s: Session): void {

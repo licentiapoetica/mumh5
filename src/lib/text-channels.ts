@@ -8,6 +8,14 @@ import { getData, updateData } from './blobstore.ts';
 import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
 import { store } from './settings.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
+import { copyReactions, readReactions, type Reaction } from '../core/reactions.ts';
+
+// Stored reactions are checked again; a message without any keeps no x
+function withReactions(m: TextMsg): TextMsg {
+  const { x, ...rest } = m;
+  const reactions = readReactions(x);
+  return reactions.length ? { ...rest, x: reactions } : rest;
+}
 
 const fresh = (m: TextMsg, now = Date.now()) => currentChatMessage(m.t, now, historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000);
 
@@ -67,7 +75,7 @@ class TextChannels {
       const kept = store.settings.saveChatHistory ? await getData<Record<number, TextMsg[]>>(st.storeKey) : undefined;
       if (s.client !== client) return;
       for (const [id, list] of Object.entries(kept ?? {})) {
-        if (Array.isArray(list)) st.msgs.set(Number(id), mergeMsgs(st.msgs.get(Number(id)) ?? [], list.filter(m => fresh(m)), Infinity).all);
+        if (Array.isArray(list)) st.msgs.set(Number(id), mergeMsgs(st.msgs.get(Number(id)) ?? [], list.filter(m => m && fresh(m)).map(withReactions), Infinity).all);
       }
     } catch { /* no storage: start empty */ }
     if (s.client !== client) return;
@@ -227,6 +235,17 @@ class TextChannels {
     return added;
   }
 
+  // Keeps the reactions of a message as they are now
+  reacted(s: Session, channelId: number, id: string, reactions: readonly Reaction[]): void {
+    const st = this.states.get(s);
+    const list = st?.msgs.get(channelId);
+    const i = list?.findIndex(m => m.i === id) ?? -1;
+    if (!st || !list || i < 0) return;
+    const { x: _, ...m } = list[i];
+    list[i] = reactions.length ? { ...m, x: copyReactions(reactions) } : m;
+    this.saveSoon(st);
+  }
+
   expire(s: Session, now = Date.now()): void {
     const st = this.states.get(s);
     if (!st) return;
@@ -257,7 +276,11 @@ class TextChannels {
       await updateData<Record<number, TextMsg[]>>(st.storeKey, saved => {
         if (!store.settings.saveChatHistory) return;
         const kept = saved ?? {};
-        for (const [c, list] of st.msgs) kept[c] = mergeMsgs(Array.isArray(kept[c]) ? kept[c] : [], list, Infinity).all;
+        for (const [c, list] of st.msgs) {
+          // Ours replace the stored copies, which may have older reactions
+          const ours = new Map(list.map(m => [m.i, m]));
+          kept[c] = mergeMsgs(Array.isArray(kept[c]) ? kept[c] : [], list, Infinity).all.map(m => ours.get(m.i) ?? m);
+        }
         for (const c of Object.keys(kept)) if (Array.isArray(kept[Number(c)])) kept[Number(c)] = kept[Number(c)].filter(m => fresh(m));
         return kept;
       });

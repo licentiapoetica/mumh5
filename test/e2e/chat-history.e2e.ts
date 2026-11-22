@@ -90,6 +90,70 @@ try {
   await page.locator('.msg', { hasText: 'saved private message' }).waitFor();
   console.log('ok: private and channel history survives reload; private chats follow identity, not session ID');
 
+  // Reactions on saved messages: yours and someone else's, in a private chat and a channel
+  const thumbs = '\u{1F44D}', party = '\u{1F389}';
+  await page.evaluate(async ({ thumbs, party }) => {
+    const sessionPath = '/src/lib/session.svelte.ts', reactPath = '/src/core/reactions.ts', libPath = '/src/lib/reactions.ts';
+    const { session, sessions } = await import(sessionPath);
+    const { encodeReact, messageRef, REACT_DATA_ID } = await import(reactPath);
+    const { reactions } = await import(libPath);
+    session.client.serverVersionNum = 0x010500;
+    const dm = session.logs['dm:22'].find((e: any) => e.html.includes('saved private message'));
+    session.react('dm:22', dm.id, thumbs);
+    reactions.receive(sessions.active, 22, REACT_DATA_ID, encodeReact({ c: null, r: messageRef('<b>saved private message</b>'), s: 2, a: (Date.now() - dm.time) / 1000, e: party, on: true }));
+    const ch = session.logs['ch:0'].find((e: any) => e.html.includes('saved channel message'));
+    session.react('ch:0', ch.id, party);
+  }, { thumbs, party });
+  await flush();
+  await page.reload(); await connect(22);
+  const reacted = await page.evaluate(async () => {
+    const module = '/src/lib/session.svelte.ts';
+    const { session } = await import(module);
+    const pick = (key: string, text: string) => session.logs[key].find((e: any) => e.html.includes(text)).reactions
+      .map((r: any) => ({ emoji: r.emoji, who: r.who.map((w: any) => w.k) }));
+    return { dm: pick('dm:22', 'saved private message'), ch: pick('ch:0', 'saved channel message'), reply: pick('dm:22', 'saved private reply') };
+  });
+  assert.deepEqual(reacted.dm, [{ emoji: thumbs, who: ['alice-identity'] }, { emoji: party, who: ['bob-identity'] }]);
+  assert.deepEqual(reacted.ch, [{ emoji: party, who: ['alice-identity'] }]);
+  assert.deepEqual(reacted.reply, []);
+  await page.evaluate(async ({ thumbs }) => {
+    const module = '/src/lib/session.svelte.ts';
+    const { session } = await import(module);
+    session.client.serverVersionNum = 0x010500;
+    const dm = session.logs['dm:22'].find((e: any) => e.html.includes('saved private message'));
+    session.react('dm:22', dm.id, thumbs, false);
+  }, { thumbs });
+  await flush();
+  await page.reload(); await connect(22);
+  assert.deepEqual(await page.evaluate(async () => {
+    const module = '/src/lib/session.svelte.ts';
+    const { session } = await import(module);
+    return session.logs['dm:22'].find((e: any) => e.html.includes('saved private message')).reactions.map((r: any) => r.emoji);
+  }), [party], 'a reaction taken back stays gone after reload');
+  // Text channels keep their messages in a store of their own
+  const textChannel = (react: boolean) => page.evaluate(async ({ react, thumbs }) => {
+    const sessionPath = '/src/lib/session.svelte.ts', textPath = '/src/lib/text-channels.ts', signalPath = '/src/core/text-signal.ts', storagePath = '/src/lib/blobstore.ts';
+    const { session, sessions } = await import(sessionPath);
+    const { textChannels } = await import(textPath);
+    const { TEXT_MARK } = await import(signalPath);
+    if (react) await (await import(storagePath)).putData('text:localhost:64738', { 5: [{ i: 'kept-note', c: 5, t: Date.now() - 60_000, n: 'Bob', k: 'bob-identity', h: 'text channel note' }] });
+    session.client.serverVersionNum = 0x010500;
+    session.client.channels.set(5, { id: 5, parent: 0, name: 'Notes', description: TEXT_MARK, descriptionHash: null,
+      position: 0, temporary: false, links: new Set(), maxUsers: 0, canEnter: true });
+    session.tick++;
+    await textChannels.entered(sessions.active);
+    const note = () => session.logs['ch:5'].find((e: any) => e.html.includes('text channel note'));
+    if (react) {
+      session.react('ch:5', note().id, thumbs);
+      await textChannels.persist(sessions.active);
+    }
+    return note().reactions.map((r: any) => ({ emoji: r.emoji, who: r.who.map((w: any) => w.k) }));
+  }, { react, thumbs });
+  await textChannel(true);
+  await page.reload(); await connect(22);
+  assert.deepEqual(await textChannel(false), [{ emoji: thumbs, who: ['alice-identity'] }]);
+  console.log('ok: reactions on saved messages survive reload, in chats and text channels');
+
   await page.reload(); await connect(0);
   saved = await snapshot();
   const offline = saved.keys.find(key => key.startsWith('dm:-'))!;
