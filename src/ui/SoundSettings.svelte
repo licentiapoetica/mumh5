@@ -2,7 +2,6 @@
   import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { sounds, SOUND_EVENTS, type PackReport, type SoundEvent } from '../lib/audio/sounds.svelte.ts';
-  import { PACK_PATHS } from '../core/sound-events.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { notifyPermission, askNotifyPermission } from '../lib/notify.ts';
 
@@ -126,7 +125,7 @@
       {:else}
         <select class="clip" aria-label="Clip for {e.name}" title={sounds.clipFor(e.id) ?? 'Short tone'} value={sounds.selectedClip(e.id)}
           onchange={x => sounds.selectClip(e.id, x.currentTarget.value)}>
-          <option value="">Automatic: {PACK_PATHS[e.id]?.split('/').at(-1) ?? 'short tone'}</option>
+          <option value="">Automatic: {sounds.automaticClip(e.id)?.split('/').at(-1) ?? 'short tone'}</option>
           {#each sounds.packClips as clip (clip)}<option value={clip}>{clip}</option>{/each}
         </select>
       {/if}

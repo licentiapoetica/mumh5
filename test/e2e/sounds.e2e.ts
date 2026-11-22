@@ -47,12 +47,12 @@ try {
     await (await import(module)).sounds.play(event, force);
   }, { event, force });
   const log = () => page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
-  const sourceHash = () => page.evaluate(async () => {
+  const sourceHash = (event = 'mute') => page.evaluate(async event => {
     const module = '/src/lib/audio/sounds.svelte.ts';
-    const source = await (await import(module)).sounds.source('mute');
+    const source = await (await import(module)).sounds.source(event);
     const bytes = await ((window as any).__soundBlobs.get(source) as Blob).arrayBuffer();
     return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
-  });
+  }, event);
   const hash = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
   await open();
   assert.equal(packFetches.length, 1, 'opening Sounds loads it once');
@@ -308,6 +308,20 @@ try {
   await page.reload();
   await open();
   await muteClip.selectOption('');
+  await library.selectOption('');
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+
+  // A pack's own clip reaches events the standard pack has no clip for; the others keep their tone.
+  const toneBefore = await sourceHash('shareStopped');
+  const own = clips.get('AudioNotification/SelfDeaf.wav')!;
+  const variants = zipSync({ 'MessageNotification/Poked.wav': own, 'UserNotification/ScreenShareStarted.wav': own });
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({ name: 'variants.zip', mimeType: 'application/zip', buffer: Buffer.from(variants) });
+  await page.locator('.help strong').getByText('variants.zip', { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
+  assert.equal(await sourceHash('poke'), hash(own), 'poke plays the pack clip');
+  assert.equal(await sourceHash('shareStarted'), hash(own), 'screen share plays the pack clip');
+  assert.equal(await sourceHash('shareStopped'), toneBefore, 'a clip the pack lacks keeps its tone');
+  assert.equal(await page.getByLabel('Clip for Someone poked you', { exact: true }).locator('option').first().textContent(), 'Automatic: Poked.wav');
   await library.selectOption('');
   await page.waitForFunction(() => !document.querySelector('fieldset[disabled]'));
 

@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { zipSync } from 'fflate';
-import { listAudioPack, readAudioPack, readPackClip, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
-import { PACK_PATHS, QUIET_EVENTS, SOUND_EVENTS, normalizeSoundSettings, upgradeSoundSettings } from '../src/core/sound-events.ts';
+import { isPackClip, listAudioPack, readAudioPack, readPackClip, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../src/core/audio-pack.ts';
+import { PACK_PATHS, PACK_VARIANTS, QUIET_EVENTS, SOUND_EVENTS, normalizeSoundSettings, upgradeSoundSettings } from '../src/core/sound-events.ts';
 import { DEFAULT_AUDIO_PACK_LIMITS, MIB, parseAudioPackLimits } from '../src/core/audio-pack-limits.ts';
 
 const standard = new URL('../src/assets/default-audio-pack.zip', import.meta.url);
@@ -41,6 +41,19 @@ test('the supplied standard ZIP contains all automatic event mappings and 134 WA
   for (const path of Object.values(PACK_PATHS)) assert.ok(clips.has(path), path);
   assert.ok(clips.has('PermissionNotification/Denied/ChannelFull.wav'));
   assert.ok(!clips.has('manifest.json'));
+});
+
+test('every event without its own standard clip has a valid pack variant', async () => {
+  const clips = readAudioPack(await readFile(standard));
+  const shared = new Set(['connectionLost', 'userMovedOut']);
+  const expected = SOUND_EVENTS.filter(e => !PACK_PATHS[e.id] || shared.has(e.id)).map(e => e.id).sort();
+  assert.deepEqual(Object.keys(PACK_VARIANTS).sort(), expected);
+  const paths = Object.values(PACK_VARIANTS);
+  assert.equal(new Set(paths).size, paths.length);
+  for (const path of paths) {
+    assert.ok(isPackClip(path), path);
+    assert.ok(!clips.has(path), path);
+  }
 });
 
 test('ZIP hierarchy maps exact paths without mute/unmute or join/leave collisions', async () => {
