@@ -133,6 +133,8 @@ try {
   const backgroundDesign = page.getByRole('group', { name: 'Background design' });
   await backgroundDesign.getByRole('button', { name: 'Grid', exact: true }).click();
   await page.locator('.home > .background-art[data-design="grid"]').waitFor();
+  // The own pipette is for Wayland only, where Chromium's picks from the wrong place; the test display is X11
+  assert.equal(await page.getByRole('button', { name: 'Pick the design color from the screen' }).count(), 0);
   await backgroundDesign.getByRole('button', { name: 'None', exact: true }).click();
   assert.equal(await page.locator('.background-art').count(), 0);
   console.log('ok: background design applies and clears from Appearance');

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Background from './Background.svelte';
+  import PickColor from './PickColor.svelte';
   import type { BackgroundDesign, BackgroundFit } from '../lib/settings.svelte.ts';
   import {
     BACKGROUND_TYPES, MARK_RANGE, SPACING_RANGE, editedBackground, patternSize, setBackgroundStyle, type BackgroundArea
@@ -64,8 +65,11 @@
 {#if style.design !== 'none'}
   {#if style.design !== 'image'}
     <label for={id('color')}>{label('Design color')}</label>
-    <input id={id('color')} type="color" value={style.color}
-      oninput={e => setBackgroundStyle(area, { color: e.currentTarget.value })} />
+    <div class="color-row">
+      <input id={id('color')} type="color" value={style.color}
+        oninput={e => setBackgroundStyle(area, { color: e.currentTarget.value })} />
+      <PickColor label="Pick the design color from the screen" onpick={color => setBackgroundStyle(area, { color })} />
+    </div>
   {/if}
   {#if pattern}
     <label for={id('mark')}>{style.design === 'dots' ? 'Dot size' : 'Line width'} <span>{size.mark} px</span></label>
@@ -92,6 +96,7 @@
   label, select, input[type="range"] { max-width: 320px; }
   label span { float: right; color: var(--text-dim); }
   input[type="color"] { width: 64px; padding: 4px; }
+  .color-row { display: flex; align-items: center; gap: 8px; }
   .preview { display: flex; flex-direction: column; justify-content: center; min-height: 120px; margin-top: 10px; padding: 20px; border: 1px solid var(--line); background: var(--bg-2); }
   .preview span { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
 </style>

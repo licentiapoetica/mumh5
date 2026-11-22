@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import PickColor from './PickColor.svelte';
 
   // Formatting controls shared by the description editor and the message input.
   // Buttons keep the text selection (mousedown is suppressed) and act through the callbacks.
@@ -26,6 +27,8 @@
     <span class="swatch" style:background={color}></span>
     <input type="color" bind:value={color} disabled={source} onchange={() => exec('foreColor', color)} aria-label="Text color" />
   </label>
+  <PickColor cls="tool" size={16} disabled={source} label="Pick the text color from the screen"
+    onpick={c => { color = c; exec('foreColor', c); }} />
   <span class="sep"></span>
   <button class="tool" title="Bulleted list" aria-label="Bulleted list" disabled={source} onmousedown={keep} onclick={() => exec('insertUnorderedList')}><Icon name="list" size={16} /></button>
   <button class="tool" title="Numbered list" aria-label="Numbered list" disabled={source} onmousedown={keep} onclick={() => exec('insertOrderedList')}><Icon name="list-ordered" size={16} /></button>

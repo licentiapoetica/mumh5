@@ -12,6 +12,7 @@ import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
 import { udpChannel } from './udp-voice.ts';
 import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
+import { pickColor } from './portal-color.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 
@@ -19,10 +20,15 @@ const devUrl = process.env.VITE_DEV_SERVER_URL;
 // The lock is per profile. Dev runs stay exempt so they can be open beside an installed build.
 if (app.isPackaged && !app.requestSingleInstanceLock()) app.exit(0);
 
+const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
+  (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+
 // Screen sharing connects mumh5 users directly. Chromium would hide this computer's addresses
 // behind names that only resolve on the local network, so two people on IPv6 could not reach
 // each other without a helper server. Only this app's own page runs here.
-app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+// EyeDropper: on Wayland the pipette in color fields picks from the wrong place; mumh5 offers the
+// desktop's picker beside them instead (portal-color.ts), so that one is hidden.
+app.commandLine.appendSwitch('disable-features', ['WebRtcHideLocalIpsWithMdns', ...(onWayland() ? ['EyeDropper'] : [])].join(','));
 
 let identityStore: IdentityStore | null = null;
 const identities = () => (identityStore ??= new IdentityStore(app.getPath('userData')));
@@ -167,8 +173,6 @@ ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url
 // `chosen` tells the renderer not to ask a second time.
 let screenSources: Electron.DesktopCapturerSource[] = [];
 let pickedSource: string | null = null;
-const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
-  (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
 
 // Sound: PipeWire on Linux (one program or everything but this app), system loopback on Windows
 const shareAudio = new ShareAudio(() => app.getAppMetrics().map(m => m.pid));
@@ -177,6 +181,10 @@ ipcMain.handle('share:info', async () => ({
   audio: process.platform === 'win32' ? 'loopback' : (await pipewireAvailable()) ? 'pipewire' : 'none',
   micLabel: VIRTUAL_MIC_LABEL
 }));
+// Colors: Chromium's pipette cannot read the screen on Wayland, so there the desktop's own picker is offered
+ipcMain.handle('color:canPick', () => onWayland());
+let picking: Promise<string | null> | null = null;
+ipcMain.handle('color:pick', () => (picking ??= pickColor().finally(() => { picking = null; })));
 ipcMain.handle('share:audioApps', () => shareAudio.apps().catch(() => []));
 ipcMain.handle('share:audioStart', (_e, target: AudioTarget) =>
   shareAudio.start(target?.kind === 'app' ? { kind: 'app', name: String(target.name) } : { kind: 'all' }));
