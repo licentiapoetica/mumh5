@@ -24,6 +24,14 @@
   // Media loads after insertion and grows the list; keep the bottom pinned
   function onload() { if (pinned && list) list.scrollTop = list.scrollHeight; }
 
+  // Reactions, edits and other late DOM changes grow a message without a new entry
+  $effect(() => {
+    if (!list) return;
+    const mo = new MutationObserver(() => { if (pinned) list.scrollTop = list.scrollHeight; });
+    mo.observe(list, { childList: true, subtree: true, characterData: true });
+    return () => mo.disconnect();
+  });
+
   function ondrop(e: DragEvent) {
     e.preventDefault();
     dragging = 0;
