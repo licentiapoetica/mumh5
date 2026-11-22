@@ -1,12 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { session } from '../lib/session.svelte.ts';
-  import { store } from '../lib/settings.svelte.ts';
   import { userLists } from '../lib/user-selection.svelte.ts';
 
   let { list, visibleIds }: { list: string; visibleIds?: number[] } = $props();
   let destination = $state('');
-  let query = $state('');
   let panel = $state<HTMLDivElement>();
 
   onMount(() => {
@@ -34,7 +32,6 @@
     walk(null, '');
     return out;
   });
-  const matches = $derived(channels.filter(c => c.name.toLowerCase().includes(query.trim().toLowerCase())));
   const target = $derived(channels.find(c => String(c.id) === destination));
   const movable = $derived(!!target && selected.some(u => u.channelId !== target.id));
   const result = $derived(session.userMove);
@@ -67,12 +64,10 @@
       <button disabled={session.movingUsers} onclick={clear} title="Clear selection (Escape)">{result && !selected.length ? 'Done' : 'Clear'}</button>
     </div>
     {#if selected.length}
-      <!-- The actions come first: on short lists the bar scrolls and the rest sits below -->
       <div class="move">
         <select aria-label="Move selected people to" bind:value={destination} disabled={session.movingUsers}>
           <option value="" disabled>Move to...</option>
-          {#if target && !matches.some(c => c.id === target.id)}<option value={String(target.id)}>{target.name} (selected)</option>{/if}
-          {#each matches as c (c.id)}
+          {#each channels as c (c.id)}
             {@const same = selected.every(u => u.channelId === c.id)}
             <option value={String(c.id)} disabled={same}>{c.name}{same ? ' (already here)' : ''}</option>
           {/each}
@@ -80,19 +75,7 @@
         <button class="btn primary" disabled={!movable || session.movingUsers} onclick={move}>Move {selected.length} {selected.length === 1 ? 'person' : 'people'}</button>
       </div>
       {#if includesSelf}<p>You will join the destination too. Locked channels may ask you for a password.</p>{/if}
-      <input type="search" aria-label="Find a destination channel" placeholder="Find a channel" bind:value={query} disabled={session.movingUsers} />
-      {#if !matches.length}<p>No matching channels.</p>{/if}
-      {#if target && !matches.some(c => c.id === target.id)}<p>Destination: {target.name}</p>{/if}
       {#if hidden}<p>{hidden} selected {hidden === 1 ? 'person is' : 'people are'} outside this view.</p>{/if}
-      <details>
-        <summary>Review selected people</summary>
-        <ul class="review">
-          {#each selected as u (u.session)}
-            <li><span>{store.displayName(u)}{u.session === session.self?.session ? ' (you)' : ''}<small>{session.channel(u.channelId)?.name || 'Root'}</small></span>
-              <button disabled={session.movingUsers} aria-label="Remove {store.displayName(u)} from selection" onclick={() => session.toggleUser(u.session)}>Remove</button></li>
-          {/each}
-        </ul>
-      </details>
     {:else if session.selectingUsers}
       <p>Tap people to select them.</p>
     {/if}
@@ -120,7 +103,7 @@
   .move select { flex: 1 1 100px; }
   .move .btn { flex: none; min-height: var(--control-h); padding: 4px 10px; }
   p { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
-  select, input { width: 100%; min-width: 0; height: var(--control-h); padding: 0 6px; font-size: 12px; }
+  select { width: 100%; min-width: 0; height: var(--control-h); padding: 0 6px; font-size: 12px; }
   button:not(.btn) { min-height: var(--control-h); padding: 4px; color: var(--text-dim); }
   button:not(.btn):hover { color: var(--text); background: var(--bg-hover); }
   summary { cursor: pointer; }

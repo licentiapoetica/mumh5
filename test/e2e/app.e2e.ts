@@ -1861,15 +1861,13 @@ try {
       await page.keyboard.press('Space');
       assert.equal(await selected(), 2);
       assert.equal(await page.getByRole('dialog', { name: /Profile of move-/ }).count(), 0);
-      await page.locator('.selection').getByText('Review selected people', { exact: true }).click();
-      await page.locator('.selection').getByLabel('Remove move-a from selection').click();
-      assert.equal(await selected(), 1);
-      await page.locator('.selection').getByLabel('Find a destination channel').fill('no-such-channel');
-      await page.locator('.selection').getByText('No matching channels.', { exact: true }).waitFor();
+      await mover('a').click();
+      assert.equal(await selected(), 1, 'a second click deselects');
+      await page.locator('.selection').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0);
       assert.equal(await page.locator('.sidebar').getByRole('button', { name: 'Select people', exact: true }).evaluate(el => el === document.activeElement), true);
-      console.log('ok: modifier and explicit selection, group moves, review, search and keyboard focus');
+      console.log('ok: modifier and explicit selection, group moves and keyboard focus');
     } finally {
       for (const client of movers) client.disconnect();
     }
