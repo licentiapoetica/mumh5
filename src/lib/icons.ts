@@ -6,6 +6,8 @@ export const ICON_PATHS: Record<string, string> = {
   'headphones-off': 'M3 14v-2a9 9 0 0 1 18 0v2M21 14v7h-4v-7zM3 14v7h4v-7zM3 3l18 18',
   settings: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
   plus: 'M12 5v14M5 12h14',
+  play: 'M7 4l14 8-14 8z',
+  pause: 'M8 4v16M16 4v16',
   home: 'M3 11l9-8 9 8M5 9v12h14V9M10 21v-6h4v6',
   sidebar: 'M3 4h18v16H3zM9 4v16',
   switch: 'M4 8h13l-3-3M20 16H7l3 3',

@@ -1,5 +1,6 @@
 <script lang="ts">
   import MediaCard from './MediaCard.svelte';
+  import MediaPlayer from './MediaPlayer.svelte';
   import { store } from '../lib/settings.svelte.ts';
 
   let { kind, url, name }: { kind: 'image' | 'video' | 'audio'; url: string; name: string } = $props();
@@ -25,10 +26,8 @@
     </div>
   {:else if !failed && kind === 'image'}
     <img src={url} alt={name} referrerpolicy="no-referrer" onerror={() => (failed = true)} />
-  {:else if !failed && kind === 'video'}
-    <video src={url} aria-label={name} controls preload="metadata" autoplay={clicked} onerror={() => (failed = true)}><track kind="captions" /></video>
   {:else if !failed}
-    <audio src={url} aria-label={name} controls preload="metadata" autoplay={clicked} onerror={() => (failed = true)}></audio>
+    <MediaPlayer kind={kind === 'video' ? 'video' : 'audio'} {url} {name} autoplay={clicked} onerror={() => (failed = true)} />
   {/if}
 </MediaCard>
 

@@ -93,6 +93,18 @@ try {
   assert.ok(pixels.blue && pixels.height <= 300, 'PDF preview renders real page pixels in a small window');
   await page.waitForFunction(() => (document.querySelector('audio')?.duration ?? 0) >= 1);
   await page.waitForFunction(() => (document.querySelector('video')?.videoWidth ?? 0) > 0);
+  for (const name of ['song.wav', 'movie.webm']) {
+    const player = card(name);
+    assert.equal(await player.locator('audio[controls], video[controls]').count(), 0, 'browser controls are replaced by themed controls');
+    await player.getByRole('button', { name: `Play ${name}`, exact: true }).click();
+    await player.getByRole('button', { name: `Pause ${name}`, exact: true }).click();
+    await player.getByRole('button', { name: `Mute ${name}`, exact: true }).click();
+    assert.equal(await player.locator('audio, video').evaluate(el => (el as HTMLMediaElement).muted), true);
+    await player.getByRole('slider', { name: `Volume for ${name}`, exact: true }).fill('0.4');
+    assert.equal(await player.locator('audio, video').evaluate(el => (el as HTMLMediaElement).volume), 0.4);
+  }
+  await card('song.wav').getByRole('slider', { name: 'Seek in song.wav', exact: true }).fill('0.5');
+  await page.waitForFunction(() => document.querySelector('audio')!.currentTime >= 0.49);
   for (const name of ['song.wav', 'photo.png', 'movie.webm', 'report.pdf', 'notes.docx', 'unsafe.html', 'pasted.png']) {
     await card(name).getByRole('link', { name: `Download ${name}`, exact: true }).waitFor();
   }

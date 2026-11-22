@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import MediaCard from './MediaCard.svelte';
+  import MediaPlayer from './MediaPlayer.svelte';
   import PdfPreview from './PdfPreview.svelte';
   import { files, fileKind, type Transfer } from '../lib/files.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
@@ -46,10 +47,8 @@
   {/snippet}
   {#if ready && kind === 'image'}
     <img src={t!.url} alt={meta.n} />
-  {:else if ready && kind === 'video'}
-    <video src={t!.url} aria-label={meta.n} controls preload="metadata"><track kind="captions" /></video>
-  {:else if ready && kind === 'audio'}
-    <audio src={t!.url} aria-label={meta.n} controls preload="metadata"></audio>
+  {:else if ready && (kind === 'video' || kind === 'audio')}
+    <MediaPlayer {kind} url={t!.url} name={meta.n} />
   {:else if ready && kind === 'pdf'}
     <PdfPreview url={t!.url} name={meta.n} />
   {:else if !ready && poster}
