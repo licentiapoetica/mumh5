@@ -46,7 +46,7 @@
       </button>
       <span class="time">{time(currentTime)} <span>/ {time(length)}</span></span>
       <button class="control" onclick={() => (muted = !muted)} aria-label="{muted ? 'Unmute' : 'Mute'} {name}" title={muted ? 'Unmute' : 'Mute'}>
-        <Icon name={muted || !volume ? 'headphones-off' : 'headphones'} size={16} />
+        <Icon name={muted || !volume ? 'volume-off' : 'volume'} size={16} />
       </button>
       <input class="volume" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume for {name}" />
       {#if kind === 'video'}<button class="control" onclick={fullscreen} aria-label="Fullscreen {name}" title="Fullscreen"><Icon name="expand" size={16} /></button>{/if}
