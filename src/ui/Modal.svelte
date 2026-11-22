@@ -41,6 +41,12 @@
   footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; background: var(--bg-0); border-top: 1px solid var(--line); }
   /* Steps without buttons leave no empty bar */
   footer:empty { display: none; }
+  /* Phones: one full-width button per row, the main action on top, notes above the buttons */
+  @media (max-width: 480px) {
+    footer { flex-direction: column-reverse; align-items: stretch; padding: 12px 16px; }
+    footer > :global(span:empty) { display: none; }
+    footer > :global(:not(button)) { order: 1; text-align: center; }
+  }
   @keyframes fade { from { opacity: 0; } }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 </style>
