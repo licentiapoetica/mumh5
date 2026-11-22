@@ -126,7 +126,8 @@ On a phone or in a narrow window, everything fits on one screen:
 - Emoji reactions on messages: the button on a message, its right-click menu, or a click on a reaction to add or take back yours. Only mumh5 users see them
 - Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 (plus a system notification and a blinking tray icon while the window is in the background) and arrives as a private message in other Mumble clients
 - Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
-- Inline pictures, video and audio for shared files
+- Shared files, pictures, video and audio use one card with the filename, preview or player, and download action
+- PDFs show a small first-page preview; other documents use the same file card
 - YouTube links as click-to-play players (off by default)
 - Link previews with title, description and picture
 - Incoming HTML is sanitized, and pictures from unknown hosts are never loaded

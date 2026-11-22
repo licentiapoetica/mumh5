@@ -545,13 +545,16 @@ try {
   await mediaMsg.getByText(`Picture from ${mediaHost}, click to show`).waitFor();
   await page.waitForTimeout(300);
   assert.deepEqual(mediaHits, [], 'nothing fetched before a click');
-  await mediaMsg.locator('.ask', { hasText: 'pic.png' }).locator('.load').click();
+  await mediaMsg.locator('.media-card', { hasText: 'pic.png' }).locator('.load').click();
   await page.waitForFunction(() => (document.querySelector('.msg .embed img[alt="pic.png"]') as HTMLImageElement)?.naturalWidth === 300);
   assert.deepEqual(mediaHits, ['/pic.png'], 'only the clicked picture is fetched');
   // "Always from this host" lists it in the settings; its media then loads at once
-  await mediaMsg.locator('.ask', { hasText: 'clip.wav' }).getByRole('button', { name: 'Always from this host' }).click();
+  await mediaMsg.locator('.media-card', { hasText: 'clip.wav' }).getByRole('button', { name: 'Always from this host' }).click();
   await page.waitForFunction(() => ((document.querySelector('.msg .embed audio') as HTMLAudioElement)?.duration ?? 0) > 0.9);
   assert.equal(await mediaMsg.locator('.ask').count(), 0);
+  assert.equal(await mediaMsg.locator('.media-card').count(), 2, 'linked media keeps one uniform card per item');
+  await mediaMsg.getByRole('link', { name: 'Download pic.png', exact: true }).waitFor();
+  await mediaMsg.getByRole('link', { name: 'Download clip.wav', exact: true }).waitFor();
   assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).embedHosts as string[])).includes(mediaHost));
   mediaServer.close();
   console.log('ok: media links load when clicked, or at once from a listed host');
@@ -2020,7 +2023,7 @@ try {
   assert.ok(shown[0] && (shown[1] as number) > 300, `image shown large: ${shown}`);
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
-  await page.locator('.chat .msg .html img').last().click();
+  await page.locator('.chat .msg .embed img').last().click();
   await viewer.waitFor();
   await viewer.getByRole('button', { name: 'Close image' }).click({ position: { x: 5, y: 5 } });
   await viewer.waitFor({ state: 'detached' });
