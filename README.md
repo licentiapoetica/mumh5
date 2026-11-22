@@ -123,7 +123,7 @@ On a phone or in a narrow window, everything fits on one screen:
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
-- Direct messages stay below channels in their own scrollable section, use at most half the list area, and can collapse along with the whole channel and chat area
+- Direct messages are listed under the channels where the list sits beside the chat, and are tabs above the chat in the stacked layout and on narrow screens, next to a tab for the channel
 - Saving chat history on this device is opt-in in Settings, Chat and files. Retention is configurable in hours and defaults to 24 hours; expired messages are deleted locally on opening the app and while it runs. Private chats follow user identities across reconnects. Closing a chat hides it; Delete history removes it. Turning saving off deletes saved history. Nothing is stored on the server.
 - Emoji reactions on messages: the button on a message, its right-click menu, or a click on a reaction to add or take back yours. Only mumh5 users see them
 - Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 (plus a system notification and a blinking tray icon while the window is in the background) and arrives as a private message in other Mumble clients

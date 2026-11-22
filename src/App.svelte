@@ -66,6 +66,8 @@
   const home = $derived(session.status === 'idle');
   const railHidden = $derived(store.settings.railHidden);
   // The phone drawer holds the server list and the channels together, hidden or not
+  // Private chats: tabs above the chat where the channel list is not always beside it, a list in it otherwise
+  const chatTabs = $derived(arrangement === 'stacked' || layout === 'narrow');
   const inDrawer = $derived(layout === 'narrow' && arrangement === 'side' && !home);
   // Home on request lies over the server view: unmounting it would lose drafts and stop stream audio
   const homeOver = $derived(sessions.homeShown && !home);
@@ -154,7 +156,7 @@
     onsettings={() => (ui.settingsOpen = true)} />
 {/snippet}
 {#snippet chat()}
-  <Chat showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
+  <Chat tabs={chatTabs} showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
     serverButton={railHidden && arrangement === 'classic' && !classicLeft} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
@@ -188,7 +190,7 @@
     {#if !railHidden}{@render rail()}{/if}
     <div class="stack" bind:this={stackEl}>
       <div class="tree" style:height="{treeHeight}px">
-        <Sidebar fill onnavigate={() => {}} />
+        <Sidebar fill chats={false} onnavigate={() => {}} />
         <ResizeHandle bind:width={treeHeight} edge="bottom" min={120} max={treeMax} initial={280}
           storageKey="mumh5.treeHeight" label="Resize channel list" />
       </div>
@@ -198,7 +200,7 @@
     {#if layout !== 'narrow' || navOpen}
       <div class="nav" class:drawer={layout === 'narrow'}>
         {#if !railHidden || layout === 'narrow'}{@render rail()}{/if}
-        <Sidebar resizable={layout !== 'narrow'} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+        <Sidebar resizable={layout !== 'narrow'} chats={!chatTabs} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
       </div>
       {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
     {/if}
