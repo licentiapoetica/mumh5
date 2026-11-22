@@ -78,7 +78,8 @@ test('queued changes to the same reaction send only its final state', t => {
   t.mock.timers.tick(2_000);
   assert.equal(sent.length, 5);
   assert.equal(sent[4].sig.on, false);
-  assert.deepEqual(entry.reactions, []);
+  // deepEqual with [] would narrow entry.reactions to never[] for the checks below
+  assert.equal(entry.reactions.length, 0);
   assert.deepEqual(saved.slice(-2), [{ key: 'ch:0', emojis: [THUMBS] }, { key: 'ch:0', emojis: [] }]);
   // One that arrives is kept too
   reactions.receive(s, 2, REACT_DATA_ID, new TextEncoder().encode(JSON.stringify({ c: 0, r: messageRef('hello'), s: 2, a: 0, e: THUMBS, on: true })));
