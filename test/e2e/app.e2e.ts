@@ -1854,9 +1854,8 @@ try {
       await mover('a').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0, 'Escape on a selected row clears the selection');
-      // Explicit selection works with plain clicks and keyboard activation.
-      await page.locator('.sidebar').getByRole('button', { name: 'Select people', exact: true }).click();
-      await mover('a').click();
+      // Once one person is selected, plain clicks and keyboard activation select more.
+      await mover('a').click({ modifiers: ['Control'] });
       await mover('b').focus();
       await page.keyboard.press('Space');
       assert.equal(await selected(), 2);
@@ -1866,7 +1865,7 @@ try {
       await page.locator('.selection').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0);
-      assert.equal(await page.locator('.sidebar').getByRole('button', { name: 'Select people', exact: true }).evaluate(el => el === document.activeElement), true);
+      assert.equal(await page.locator('.selection').count(), 0, 'Escape closes the bar');
       console.log('ok: modifier and explicit selection, group moves and keyboard focus');
     } finally {
       for (const client of movers) client.disconnect();
@@ -2281,8 +2280,7 @@ try {
     // People show in their room without opening it; the dock names the room you are in
     await rooms.locator('.room.here .person', { hasText: 'bob' }).waitFor();
     await page.locator('.dock', { hasText: 'Root' }).waitFor();
-    await rooms.getByRole('button', { name: 'Select people', exact: true }).click();
-    await rooms.locator('.person', { hasText: 'bob' }).click();
+    await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
     await rooms.locator('.person', { hasText: newName }).click();
     assert.ok(await rooms.locator('.person[aria-pressed="true"]').count() >= 2);
     if (admin) {

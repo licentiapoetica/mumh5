@@ -1,5 +1,4 @@
 <script lang="ts">
-  import UserSelectionStart from '../ui/UserSelectionStart.svelte';
   import UserSelectMark from '../ui/UserSelectMark.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
@@ -145,7 +144,6 @@
 
   <div class="scroll" data-user-list="rooms" role="presentation" oncontextmenu={listMenu}>
     {#if connected}
-      <UserSelectionStart list="rooms" />
       {#if textRooms.length}
         <h2>Text channels</h2>
         <ul>

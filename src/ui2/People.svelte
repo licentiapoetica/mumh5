@@ -1,5 +1,4 @@
 <script lang="ts">
-  import UserSelectionStart from '../ui/UserSelectionStart.svelte';
   import UserSelectMark from '../ui/UserSelectMark.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
@@ -44,7 +43,6 @@
       <input type="search" placeholder="Find a person" aria-label="Find a person" bind:value={query} />
     </label>
     <div class="scroll" data-user-list="people">
-      <UserSelectionStart list="people" />
       {#each groups as g (g.id)}
         <h2>{g.name}{#if g.id === self?.channelId} <em>your room</em>{/if} <span>{g.users.length}</span></h2>
         <ul>

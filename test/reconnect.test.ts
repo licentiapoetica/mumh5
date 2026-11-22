@@ -457,7 +457,7 @@ test('modifier selection, explicit selection and channel selection share one mod
   s.toggleUser(8); // Used by the modifier-click shortcut and person menu.
   assert.equal(s.selectingUsers, true);
   assert.deepEqual(s.selectedUsers, [8]);
-  s.beginUserSelection(); // Used by the Select people button.
+  s.beginUserSelection(); // Used by every entry point, as toggleUser and the channel menu show.
   assert.deepEqual(s.selectedUsers, [8], 'entering the same mode preserves the existing selection');
   s.toggleUser(9); // Subsequent plain row clicks use the same toggle.
   assert.deepEqual(s.selectedUsers, [8, 9]);

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import UserSelectionStart from './UserSelectionStart.svelte';
   import UserSelectMark from './UserSelectMark.svelte';
   import Avatar from './Avatar.svelte';
   import Icon from './Icon.svelte';
@@ -44,7 +43,6 @@
       </ul>
     {/if}
   {/snippet}
-  <UserSelectionStart list="members" />
   {@render group('In channel', here)}
   {@render group('Elsewhere', elsewhere)}
   <UserSelection list="members" />

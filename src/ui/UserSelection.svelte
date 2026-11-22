@@ -41,7 +41,6 @@
 
   function clear() {
     session.clearUserSelection();
-    document.querySelector<HTMLButtonElement>(`[data-selection-start="${list}"]`)?.focus();
   }
   function move() {
     if (!movable || !target) return;

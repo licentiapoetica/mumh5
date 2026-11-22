@@ -1,5 +1,4 @@
 <script lang="ts">
-  import UserSelectionStart from './UserSelectionStart.svelte';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import ChannelNode from './ChannelNode.svelte';
@@ -91,7 +90,6 @@
 
   <div class="scroll" data-user-list="tree" role="presentation" oncontextmenu={listMenu}>
     {#if session.status === 'connected'}
-      <UserSelectionStart list="tree" />
       <ul class="tree">
         {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
       </ul>
