@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from './Background.svelte';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import ChannelNode from './ChannelNode.svelte';
@@ -89,31 +90,35 @@
     {/if}
   </header>
 
-  <div class="scroll" data-user-list="tree" role="presentation" oncontextmenu={listMenu}>
-    {#if session.status === 'connected'}
-      <ul class="tree">
-        {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
-      </ul>
-      {#if chats && dms.length}
-        <h3>Direct messages</h3>
+  <!-- The background starts under the header with the connection wave -->
+  <div class="tree-bg" data-background>
+    <Background area="tree" />
+    <div class="scroll" data-user-list="tree" role="presentation" oncontextmenu={listMenu}>
+      {#if session.status === 'connected'}
         <ul class="tree">
-          {#each dms as dm (dm.key)}
-            <li class="dm-row" data-menu-row class:viewing={session.view === dm.key}
-              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }, { label: 'Delete history', action: () => session.deleteDm(dm.key) }]); }}>
-              <button class="dm"
-                onclick={() => { session.selectView(dm.key); onnavigate(); }}>
-                <Avatar name={dm.name} size={22} src={session.avatar(dm.user?.session)} />
-                <span class="label" class:offline={!dm.user}>{dm.name}</span>
-                {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
-              </button>
-              <button class="close" title="Close conversation" aria-label="Close conversation with {dm.name}"
-                onclick={() => session.closeDm(dm.key)}><Icon name="x" size={14} /></button>
-            </li>
-          {/each}
+          {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
         </ul>
+        {#if chats && dms.length}
+          <h3>Direct messages</h3>
+          <ul class="tree">
+            {#each dms as dm (dm.key)}
+              <li class="dm-row" data-menu-row class:viewing={session.view === dm.key}
+                oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }, { label: 'Delete history', action: () => session.deleteDm(dm.key) }]); }}>
+                <button class="dm"
+                  onclick={() => { session.selectView(dm.key); onnavigate(); }}>
+                  <Avatar name={dm.name} size={22} src={session.avatar(dm.user?.session)} />
+                  <span class="label" class:offline={!dm.user}>{dm.name}</span>
+                  {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
+                </button>
+                <button class="close" title="Close conversation" aria-label="Close conversation with {dm.name}"
+                  onclick={() => session.closeDm(dm.key)}><Icon name="x" size={14} /></button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <UserSelection list="tree" visibleIds={visiblePeople} />
       {/if}
-      <UserSelection list="tree" visibleIds={visiblePeople} />
-    {/if}
+    </div>
   </div>
 
   {#if self && sessions.voiceSession && sessions.voiceSession !== sessions.active}
@@ -141,6 +146,7 @@
   .mark :global(svg) { flex: none; }
   .status { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
   .dot { width: 7px; height: 7px; background: var(--speaking); }
+  .tree-bg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .scroll { flex: 1; overflow-y: auto; padding: 8px; }
   ul { list-style: none; margin: 0; padding: 0; }
   h3 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); margin: 18px 8px 6px; }

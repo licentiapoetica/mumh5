@@ -22,7 +22,7 @@ try {
     await page.getByRole('button', { name: 'Configure', exact: true }).click();
     await page.getByRole('tab', { name: 'Appearance' }).click();
   };
-  const design = (name: string) => page.getByRole('group', { name: 'Background design' }).getByRole('button', { name, exact: true });
+  const design = (name: string) => page.getByRole('group', { name: 'Background design', exact: true }).getByRole('button', { name, exact: true });
   const imageInput = () => page.getByLabel('Background image', { exact: true });
   const homeArt = page.locator('.home > .background-art');
   const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!));
@@ -54,6 +54,16 @@ try {
     assert.equal(await homeArt.getAttribute('data-design'), name.toLowerCase());
   }
   await shot('background-design-settings');
+  // Dots and grid take a size and spacing; a new design starts from its own.
+  await page.getByLabel('Dot size').fill('3');
+  await page.getByLabel('Spacing').fill('40');
+  assert.equal(await homeArt.evaluate(el => getComputedStyle(el).backgroundSize), '40px 40px');
+  assert.match(await homeArt.evaluate(el => getComputedStyle(el).backgroundImage), /3px/);
+  assert.deepEqual([(await saved()).backgroundMark, (await saved()).backgroundSpacing], [3, 40]);
+  await design('Grid').click();
+  assert.equal(await homeArt.evaluate(el => getComputedStyle(el).backgroundSize), '32px 32px');
+  await design('Dots').click();
+  assert.equal(await homeArt.evaluate(el => getComputedStyle(el).backgroundSize), '20px 20px');
 
   await design('Image').click();
   await page.getByRole('button', { name: 'Choose image', exact: true }).waitFor({ state: 'visible' });
@@ -123,8 +133,19 @@ try {
     assert.match(await homeArt.evaluate(el => getComputedStyle(el).backgroundImage), /blob:/);
   }
   await page.getByRole('radio', { name: 'Rooms', exact: true }).click();
+  // The channel list (the room list here) has none by default, the chat's or its own design.
+  const treeMode = (name: string) => page.getByRole('group', { name: 'Channel list background', exact: true }).getByRole('button', { name, exact: true });
+  await treeMode('Own design').click();
+  await page.getByRole('group', { name: 'Channel list background design', exact: true }).getByRole('button', { name: 'Dots', exact: true }).click();
+  assert.equal((await saved()).treeBackgroundStyle.design, 'dots');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.chat2 > .background-art').waitFor();
+  const treeArt = page.locator('.rooms .tree-bg > .background-art[data-design="dots"]');
+  await treeArt.waitFor();
+  // It starts under the bar with the connection wave, not behind it.
+  const topBar = await page.locator('.rooms .top').boundingBox();
+  assert.ok((await treeArt.boundingBox())!.y >= topBar!.y + topBar!.height);
+  assert.match(await page.locator('.chat2 > .background-art').evaluate(el => getComputedStyle(el).backgroundImage), /blob:/);
   await shot('background-rooms');
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
@@ -136,6 +157,7 @@ try {
   await page.locator('.you').getByRole('button', { name: /^Appearance/ }).click();
   await page.getByRole('button', { name: 'Remove image', exact: true }).click();
   await design('None').waitFor();
+  await treeMode('None').click();
   await page.waitForFunction(() => !document.querySelector('.background-art'));
   assert.equal((await saved()).backgroundDesign, 'none');
   assert.equal(await page.evaluate(async () => {
