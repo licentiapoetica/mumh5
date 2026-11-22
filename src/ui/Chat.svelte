@@ -72,7 +72,7 @@
   {#if session.status === 'connected'}<VoiceStage always={showStage} {videoOnly} />{/if}
 
 
-  {#if tabs}<ChatTabs />{/if}
+  {#if tabs}<ChatTabs always={videoOnly} />{/if}
   <div class="logbox" style:height={logFixed ? `${logHeight}px` : undefined}>
   {#if streamAbove}
     <ResizeHandle bind:width={logHeight} edge="top" min={LOG_MIN} max={logMax} initial={220}
@@ -102,8 +102,8 @@
   .chat.video-only .logbox { min-height: 124px; flex-shrink: 0; }
   /* Stacked layout: the shortest chat plus the message box (as tall as it is now) always fit, and
      the picture's bar and minimum too when one is shown; the channel list gives way instead */
-  .chat.video-only { min-height: calc(124px + var(--composer-h, 64px)); }
-  .chat.video-only:has(:global(.stage.solo .spot:not(.popped))) { min-height: calc(36px + 120px + 124px + var(--composer-h, 64px)); }
+  .chat.video-only { --tabs-h: calc(var(--control-h) + 3px); min-height: calc(124px + var(--composer-h, 64px) + var(--tabs-h)); }
+  .chat.video-only:has(:global(.stage.solo .spot:not(.popped))) { min-height: calc(36px + 120px + 124px + var(--composer-h, 64px) + var(--tabs-h)); }
   .logbox { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   /* Dragged to a height of its own: the stream above takes what is left */
   /* Its own height, but it gives way (down to its minimum) when the window gets shorter */

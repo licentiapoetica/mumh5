@@ -5,6 +5,7 @@ import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { chatHistory, type SavedMessage } from './chat-history.ts';
 import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
+import { chatAuthorKey, chatAuthorKeys } from '../core/chat-author.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
 import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, roleMembers, rolesFromAcl, rolesOf, roleTint, setMember, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
@@ -38,6 +39,7 @@ export interface ChatEntry {
   kind: 'text' | 'system';
   author: string;
   authorSession: number | null;
+  authorIdentity?: string;
   self: boolean;
   html: string;
   embeds: Embed[];
@@ -115,6 +117,11 @@ export class Session {
   selectedChannel = $state<number | null>(null);
 
   client: MumbleClient | null = null;
+  // Rebuild once per client update, rather than searching every user for every message.
+  private chatAuthors = $derived.by(() => {
+    void this.tick;
+    return new Map([...(this.client?.users.values() ?? [])].flatMap(u => chatAuthorKeys(u).map(k => [k, u.session] as const)));
+  });
   // Incremented per connect so a slow, superseded attempt can tell it is stale
   private attempt = 0;
   // Blob hashes already requested, so a preview does not ask the server repeatedly
@@ -166,6 +173,11 @@ export class Session {
     void this.tick;
     const u = this.client?.users.get(session);
     return u && { ...u };
+  }
+
+  chatAuthor(entry: ChatEntry): User | undefined {
+    const id = entry.self ? this.self?.session : entry.authorIdentity ? this.chatAuthors.get(entry.authorIdentity) : undefined;
+    return id != null ? this.user(id) : undefined;
   }
 
   childrenOf(parent: number | null): Channel[] {
@@ -1005,6 +1017,8 @@ export class Session {
     if (!this.logs[key]) this.logs[key] = [];
     const log = this.logs[key];
     const time = opts.time ?? Date.now();
+    const author = entry.authorSession != null ? this.client?.users.get(entry.authorSession) : undefined;
+    if (!entry.authorIdentity && author) entry = { ...entry, authorIdentity: chatAuthorKey(author) };
     let at = log.length;
     while (at > 0 && log[at - 1].time > time) at--;
     log.splice(at, 0, { ...entry, reactions: opts.reactions ?? [], id: nextId++, time, historyId: opts.historyId });
@@ -1029,11 +1043,11 @@ export class Session {
     textChannels.expire(this, now);
   }
 
-  // Stored HTML is sanitized again; old session numbers never become live recipients.
+  // Stored HTML is sanitized again; authors reconnect by identity, never by old session numbers.
   restoreChat(key: ViewKey, message: SavedMessage): void {
     const render: (raw: string, hosts: string[], inlineImages?: boolean) => ReturnType<typeof renderIncoming> = renderIncoming;
     if (!currentChatMessage(message.time, Date.now(), historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000) || this.logs[key]?.some(e => e.historyId === message.id)) return;
-    this.push(key, { kind: 'text', author: message.author, authorSession: null, self: message.self,
+    this.push(key, { kind: 'text', author: message.author, authorSession: null, authorIdentity: message.authorIdentity, self: message.self,
       ref: messageRef(message.raw), ...render(message.raw, store.trustedHosts, true) },
       { time: message.time, quiet: true, historyId: message.id, reactions: message.reactions && copyReactions(message.reactions) });
   }
@@ -1045,6 +1059,7 @@ export class Session {
     const online = sender != null ? client.users.get(sender) : self ? client.self : m.k ? [...client.users.values()].find(u => u.hash === m.k) : undefined;
     this.push(`ch:${m.c}`, {
       kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self, ref: textRef(m.i),
+      authorIdentity: online ? chatAuthorKey(online) : m.k ? `hash:${m.k}` : undefined,
       ...renderIncoming(m.h, store.trustedHosts, true)
     }, { time: m.t, quiet, reactions: m.x && copyReactions(m.x) });
   }
