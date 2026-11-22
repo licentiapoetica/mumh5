@@ -123,10 +123,13 @@ On a phone or in a narrow window, everything fits on one screen:
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
+- Direct messages are listed under the channels where the list sits beside the chat, and are tabs above the chat in the stacked layout and on narrow screens, next to a tab for the channel
+- Saving chat history on this device is opt-in in Settings, Chat and files. Retention is configurable in hours and defaults to 24 hours; expired messages are deleted locally on opening the app and while it runs. Private chats follow user identities across reconnects. Closing a chat hides it; Delete history removes it. Turning saving off deletes saved history. Nothing is stored on the server.
 - Emoji reactions on messages: the button on a message, its right-click menu, or a click on a reaction to add or take back yours. Only mumh5 users see them
 - Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 (plus a system notification and a blinking tray icon while the window is in the background) and arrives as a private message in other Mumble clients
 - Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
-- Inline pictures, video and audio for shared files
+- Shared files, pictures, video and audio use one card with the filename, preview or player, and download or open action
+- PDFs show a small first-page preview; other documents use the same file card
 - YouTube links as click-to-play players (off by default)
 - Link previews with title, description and picture
 - Incoming HTML is sanitized, and pictures from unknown hosts are never loaded
@@ -135,7 +138,7 @@ On a phone or in a narrow window, everything fits on one screen:
 ### Text channels
 - A channel marked as a text channel is read and written without joining it, from any voice channel
 - It is a normal Mumble channel on the server, created and removed with the usual channel permissions
-- The server keeps no messages. Each client keeps the last 200 per channel and passes the last 50 to people who connect later
+- The server keeps no messages. Clients can opt in to local history with configurable retention (24 hours by default), and pass the last 50 recent messages to people who connect later
 - Everyone on the server who uses mumh5 can read them; there are no private text channels yet
 - Needs a server from version 1.4 that allows HTML
 
@@ -161,7 +164,7 @@ On a phone or in a narrow window, everything fits on one screen:
 - ZIP packs have notification folders directly at the root, for example `AudioNotification/SelfMute.wav`, `MessageNotification/PrivateTextMessage.wav` and `PermissionNotification/Denied/ChannelFull.wav`. `manifest.json` and `README.md` are optional. WAV clips are mapped by exact path; missing clips use the standard pack. All clips are available in each event's selector. App-specific events without a matching clip use short tones
 - ZIP packs are limited to 32 MB compressed, 64 MB of audio expanded, 512 entries and 4 MB per clip. Notification folders are saved uncompressed and limited to 32 MB. The standard pack is fetched when the first sound plays or Settings > Sounds opens, so it is not part of the browser build's offline files. TeamSpeak 3 folders (`settings.ini`) and loose audio files are also supported
 - Desktop sound preferences and the library list are in `sounds.json` beside identities and other user settings (`~/.config/mumh5` on Linux); library archives are in `sounds/packs/` in that directory. Existing custom sounds migrate there on first use, and a previously imported ZIP becomes a library entry. The browser keeps preferences locally and audio in IndexedDB
-- Importing or switching packs sets individual files aside so the selected pack takes effect, without deleting them ("Use my file" brings one back), and keeps your event on/off choices and clip selections. "Reset all to built-in" deletes those files. "Use quiet defaults" restores the three default events, which are also what new installs start with; existing installs keep the sounds they had. Sounds use the selected voice output device and play one at a time, without a backlog. Mic changes, connection loss, direct messages and pokes replace the clip playing; other events are skipped while one plays
+- Importing or switching packs sets individual files aside so the selected pack takes effect, without deleting them ("Use my file" brings one back), and keeps your event on/off choices and clip selections. "Reset all to built-in" deletes those files. "Use quiet defaults" restores the three default events, which are also what new installs start with; existing installs keep the sounds they had. Sounds use the selected voice output device and play one at a time, without a backlog. Every new enabled notification stops the current clip and starts from the beginning, including repeated events
 
 ### Servers and identity
 - Server list with custom icons, your own order, connection status and unread counts
@@ -192,6 +195,7 @@ With Docker, the same thing is one command; settings go in a `.env` file next to
 
 ```bash
 echo 'MUMH5_SERVERS=mumble.example.com=My server' > .env
+echo 'MUMH5_DEFAULT_SERVER=mumble.example.com' >> .env   # optional: already in everyone's server list
 docker compose up -d --build
 ```
 
@@ -202,6 +206,7 @@ For screen sharing, open these in the firewall (and forward them on a router in 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MUMH5_SERVERS` | none | Mumble servers people may connect to: `host[:port][=Label]`, comma-separated. Required unless `MUMH5_ALLOW_ANY=1` |
+| `MUMH5_DEFAULT_SERVER` | none | One server, `host[:port][=Label]`, added to the saved servers of each visitor on their first visit (again only if you change it). Allowed without listing it in `MUMH5_SERVERS`. The visitor picks a name on the first connect |
 | `MUMH5_ALLOW_ANY` | off | Allow any server on the public internet. Private and loopback addresses stay blocked, except servers listed in `MUMH5_SERVERS` (for a Mumble server on the same machine: `MUMH5_SERVERS=localhost`), or all of them with `MUMH5_ALLOW_PRIVATE=1` |
 | `MUMH5_PORT`, `MUMH5_BIND` | `8080`, `127.0.0.1` | Where the proxy listens |
 | `MUMH5_ORIGINS` | same host | Origins allowed to use the API, comma-separated, when the page is hosted elsewhere |

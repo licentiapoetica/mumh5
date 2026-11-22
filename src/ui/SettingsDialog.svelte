@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { historyHours } from '../core/chat-retention.ts';
   import Modal from './Modal.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
   import IdentityList from './IdentityList.svelte';
@@ -94,6 +95,14 @@
     <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> Show hints when the pointer rests on buttons and icons</label>
     <p class="help">Hints are the small labels that appear on hover. Screen readers get the names either way.</p>
   {:else if tab === 'files'}
+    <h3>Chat history</h3>
+    <label class="check"><input type="checkbox" bind:checked={s.saveChatHistory} onchange={() => store.saveSettings()} /> Save chat history on this device</label>
+    <p class="help">Off by default. Saved messages stay on this device and are never stored on the server. Turning this off deletes saved history and keeps the current chat visible.</p>
+    <label for="s-history-hours">Delete messages older than (hours)</label>
+    <input id="s-history-hours" type="number" min="1" max="8760" step="1" disabled={!s.saveChatHistory} bind:value={s.chatHistoryHours}
+      onchange={() => { s.chatHistoryHours = historyHours(s.chatHistoryHours); store.saveSettings(); }} />
+    <p class="help">Default: 24 hours. Closing a private conversation hides it; Delete history removes its saved messages.</p>
+    <h3>Files</h3>
     <p class="help">Files go through the Mumble server to other mumh5 users, about 12 MB a minute from each person who has the file on a server with default limits. Regular Mumble users see the name and the preview picture. Small pictures go inline for everyone.</p>
     <label for="s-auto">Download files by themselves up to</label>
     <select id="s-auto" value={String(s.autoDownload)} onchange={e => { s.autoDownload = Number(e.currentTarget.value); saveFiles(); }}>

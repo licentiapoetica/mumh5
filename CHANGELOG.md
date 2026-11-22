@@ -6,6 +6,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ### Added
 
+- Browser version: `MUMH5_DEFAULT_SERVER` (also in `docker-compose.yml`) puts one server into the saved servers of every visitor on their first visit. Removing it sticks; the first connect asks for a name.
 - Emoji reactions on messages, in channels, text channels and direct messages: the button that appears on a message (or a tap on phones, or Add reaction in its right-click menu) opens the emoji picker, and a click on a reaction adds or takes back yours. They reach other mumh5 users as plugin data, so the Mumble desktop client does not show them, and they are not kept after leaving, in text channels either.
 - Profile cards: a click on someone (in the channel list, the member list, the chat or a voice tile) opens their card next to them, like in Discord: picture, name, channel, description and Send message. On phones it is a sheet at the bottom. Your own card has Edit description, Change name and your picture.
 - Profile pictures, as Mumble textures, so they go through the server like everything else and the desktop Mumble client has them too. Your picture is cut square, made small enough for the server's image limit, kept on this computer and sent to every server you connect to, since servers keep pictures only for registered users.

@@ -18,7 +18,7 @@ export function selectUser(node: HTMLButtonElement, options: { id: number; onsel
     if ((e.target as Element).closest('[role="button"]')) return;
     options.onselect?.();
     used();
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    if (session.selectingUsers || e.shiftKey || e.ctrlKey || e.metaKey) {
       session.toggleUser(options.id);
       ui.profile = null;
       e.preventDefault();
@@ -26,11 +26,11 @@ export function selectUser(node: HTMLButtonElement, options: { id: number; onsel
     }
   };
   const double = (e: MouseEvent) => {
-    if (e.shiftKey || e.ctrlKey || e.metaKey) e.stopImmediatePropagation();
+    if (session.selectingUsers || e.shiftKey || e.ctrlKey || e.metaKey) e.stopImmediatePropagation();
   };
   const key = (e: KeyboardEvent) => {
     // An open profile takes this Escape for itself
-    if (e.key === 'Escape' && !ui.profile && session.selectedUsers.length) session.clearUserSelection();
+    if (e.key === 'Escape' && !ui.profile && (session.selectedUsers.length || session.selectingUsers)) session.clearUserSelection();
   };
   const start = (e: DragEvent) => {
     options.onselect?.();
@@ -50,6 +50,7 @@ export function selectUser(node: HTMLButtonElement, options: { id: number; onsel
   node.addEventListener('keydown', key);
   node.addEventListener('dragstart', start);
   node.addEventListener('dragend', end);
+  node.addEventListener('contextmenu', used, true);
   return {
     update(next: typeof options) { options = next; node.dataset.selectUser = String(options.id); },
     destroy() {
@@ -58,6 +59,7 @@ export function selectUser(node: HTMLButtonElement, options: { id: number; onsel
       node.removeEventListener('keydown', key);
       node.removeEventListener('dragstart', start);
       node.removeEventListener('dragend', end);
+      node.removeEventListener('contextmenu', used, true);
     }
   };
 }

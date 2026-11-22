@@ -16,6 +16,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
   headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
 try {
   const page = await browser.newPage();
+  await page.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
   const failures: string[] = [];
   page.on('pageerror', e => { failures.push(e.message); console.error(e.message); });
   await page.addInitScript(() => {
@@ -82,15 +83,53 @@ try {
   assert.deepEqual(await log(), ['privateMessage'], 'standard WAV really starts playing');
   await page.getByRole('checkbox', { name: 'Someone joined your channel', exact: true }).check();
   await play('userJoined');
-  assert.deepEqual(await log(), ['privateMessage'], 'routine events wait for no one and do not overlap');
+  assert.deepEqual(await log(), ['privateMessage', 'userJoined'], 'a routine event replaces ongoing speech');
   await play('poke');
-  assert.deepEqual(await log(), ['privateMessage', 'poke'], 'an alert replaces the clip playing');
+  assert.deepEqual(await log(), ['privateMessage', 'userJoined', 'poke'], 'an alert replaces the clip playing');
   await page.getByRole('checkbox', { name: 'You muted', exact: true }).check();
   await page.getByRole('checkbox', { name: 'You unmuted', exact: true }).check();
   await play('mute');
   await play('unmute');
   await play('mute');
   assert.deepEqual((await log()).slice(-3), ['mute', 'unmute', 'mute'], 'the last mic sound always matches the state');
+  // Repeated events restart; silent events leave the current notification alone.
+  const repeat = await page.evaluate(async () => {
+    const module = '/src/lib/audio/sounds.svelte.ts';
+    const { sounds } = await import(module);
+    const previous = sounds.active;
+    await sounds.play('privateMessage');
+    const first = sounds.active;
+    await sounds.play('privateMessage');
+    const second = sounds.active;
+    await sounds.play('connected');
+    return { previousPaused: previous.paused, firstPaused: first.paused,
+      replaced: first !== second, silentPreserved: sounds.active === second && !second.paused };
+  });
+  assert.deepEqual(repeat, { previousPaused: true, firstPaused: true, replaced: true, silentPreserved: true });
+  // A slow source must not reclaim the slot after a newer notification has started.
+  const race = await page.evaluate(async () => {
+    const module = '/src/lib/audio/sounds.svelte.ts';
+    const { sounds } = await import(module);
+    const source = sounds.source.bind(sounds);
+    let release: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    let entered: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    sounds.source = async (event: string) => {
+      if (event === 'userJoined') { entered(); await blocked; }
+      return source(event);
+    };
+    const older = sounds.play('userJoined');
+    await started;
+    const pausedImmediately = !sounds.active;
+    await sounds.play('poke');
+    const newest = sounds.active;
+    release!();
+    await older;
+    sounds.source = source;
+    return { pausedImmediately, latestWon: sounds.active === newest && !newest.paused };
+  });
+  assert.deepEqual(race, { pausedImmediately: true, latestWon: true });
   // A clip that is paused by the system or fails while playing frees the slot
   for (const type of ['pause', 'error']) {
     const busy = await page.evaluate(async type => {

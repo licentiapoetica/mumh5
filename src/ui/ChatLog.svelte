@@ -22,7 +22,7 @@
   });
 
   // Media loads after insertion and grows the list; keep the bottom pinned
-  function onload() { if (pinned) list.scrollTop = list.scrollHeight; }
+  function onload() { if (pinned && list) list.scrollTop = list.scrollHeight; }
 
   function ondrop(e: DragEvent) {
     e.preventDefault();
@@ -61,7 +61,7 @@
   ondragenter={e => { if (e.dataTransfer?.types.includes('Files')) dragging++; }}
   ondragleave={() => (dragging = Math.max(0, dragging - 1))}
   ondragover={e => e.preventDefault()} {ondrop}>
-  <div class="list" bind:this={list} onscroll={() => (pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 40)}
+  <div class="list" bind:this={list} onscroll={e => { const el = e.currentTarget; pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}
     onloadcapture={onload} onloadedmetadatacapture={onload}>
     {#if !entries.length}{@render empty()}{/if}
     {#each entries as entry, i (entry.id)}

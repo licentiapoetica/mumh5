@@ -80,7 +80,7 @@
   <main>
     <div class="screen">
       {#if screen === 'rooms'}<Rooms {onadd} {onedit} {onbrowse} onchat={() => (chosen = 'chat')} />
-      {:else if screen === 'chat'}<ChatScreen back={!wide} onback={() => (chosen = 'rooms')} />
+      {:else if screen === 'chat'}<ChatScreen back={!wide} tabs={!wide} onback={() => (chosen = 'rooms')} />
       {:else if screen === 'voice'}<VoiceScreen onrooms={() => (chosen = 'rooms')} onchat={() => (chosen = 'chat')} />
       {:else if screen === 'people'}<People onchat={() => (chosen = 'chat')} />
       {:else}<You {onadd} {onedit} {onbrowse} />{/if}

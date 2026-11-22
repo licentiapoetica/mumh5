@@ -20,9 +20,10 @@ const stubs = `
     return { secure: Promise.resolve({ fingerprint: control.fingerprint, authorized: false }),
       send() {}, close() {}, onData: null, onClose: null };
   }
-  export const store = { pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
-  const service = { closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
+  export const store = { displayName: u => u.name, settings: { saveChatHistory: false, chatHistoryHours: 24 }, pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
+  const service = { isText() { return false; }, channelRemoved() {}, closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
   export const share = service, textChannels = service, files = service, reactions = service;
+  export const chatHistory = { entered() {}, record() {}, hide() {}, forget() {}, userChanged() {}, userLeft() {}, closed() {} };
   export const voice = { settings: { forceTcp: false }, attach(c) { control.attached = c; }, detach() { control.attached = null; } };
   export const sounds = { play() {} };
   export const ownAvatar = { loaded: Promise.resolve(), bytes: null };
@@ -31,7 +32,7 @@ const stubs = `
   export const makeInlineImage = () => {}, originalImage = () => {}, videoPoster = () => {};
 `;
 const result = await build({
-  stdin: { contents: `export * from ${JSON.stringify(sessionPath)}; export { control, store } from 'test:stubs';`, resolveDir: process.cwd() },
+  stdin: { contents: `export * from ${JSON.stringify(sessionPath)}; export { control, store, ui } from 'test:stubs';`, resolveDir: process.cwd() },
   bundle: true, write: false, format: 'esm', platform: 'node',
   plugins: [{
     name: 'session-test',
@@ -45,11 +46,12 @@ const result = await build({
     }
   }]
 });
-const { Session, sessions, control, store } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`) as {
+const { Session, sessions, control, store, ui } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`) as {
   Session: new () => SessionType;
   sessions: { voiceId: string | null; activeId: string | null; open(s: SavedServer): void; connectOnStart(list: SavedServer[]): void; close(id: string): void; byServer(id: string): SessionType | undefined };
   control: { opens: number; failure: boolean; fingerprint: string; hold: Promise<void> | null; attached: unknown };
   store: { pins: Record<string, string> };
+  ui: { prompt: import('../src/lib/ui.svelte.ts').PromptRequest | null };
 };
 const server = (autoReconnect?: boolean, id = 'test'): SavedServer => ({
   id, label: id, host: 'localhost', port: 64738, username: 'Tester', password: '', autoReconnect
@@ -338,4 +340,137 @@ test('connect at start opens only the servers marked for it and shows the first'
   assert.equal(sessions.byServer('other')?.status, 'connecting');
   assert.equal(sessions.byServer('test')?.status, 'connecting');
   assert.equal(sessions.activeId, 'other');
+});
+
+// Bulk moves use the same connection lifecycle: requests are not confirmations.
+async function moveSession(t: TestContext) {
+  const s = setup(t);
+  await s.connect(server());
+  const client = s.client!;
+  client.channels.set(0, { id: 0, name: 'Root', description: '' } as never);
+  client.channels.set(4, { id: 4, name: 'Games', description: '' } as never);
+  client.session = 7;
+  for (const id of [7, 8, 9]) client.users.set(id, { session: id, name: `Person ${id}`, channelId: 0 } as never);
+  const sent: number[] = [];
+  client.setUserState = id => { sent.push(id); };
+  s.selectChannelUsers(0);
+  s.selectedUsers = [8, 9];
+  return { s, client, sent };
+}
+
+test('bulk move waits for server updates, retains refusals and permits retry', async t => {
+  const { s, client, sent } = await moveSession(t);
+  s.moveUsers([8, 9], 4);
+  assert.deepEqual(sent, [8, 9]);
+  assert.deepEqual(s.selectedUsers, [8, 9]);
+  assert.equal(s.movingUsers, true);
+  s.clearUserSelection();
+  s.toggleUser(7);
+  s.moveUsers([8], 0);
+  assert.deepEqual(s.selectedUsers, [8, 9], 'in-flight selection is stable');
+  const moved = client.users.get(8)!;
+  moved.channelId = 4;
+  client.emit('user', moved, ['channelId'], 7, false);
+  assert.deepEqual(s.selectedUsers, [9]);
+  client.emit('permissionDenied', { type: 1, permission: 32, channelId: 0, session: 9, reason: '', name: '' });
+  assert.equal(s.movingUsers, false);
+  assert.deepEqual(s.userMove!.people.map(p => p.status), ['moved', 'failed']);
+  assert.deepEqual(s.selectedUsers, [9]);
+  s.moveUsers([9], 4);
+  assert.deepEqual(sent, [8, 9, 9]);
+  client.users.get(9)!.channelId = 4;
+  client.emit('user', client.users.get(9)!, ['channelId'], 7, false);
+  assert.equal(s.movingUsers, false);
+  assert.deepEqual(s.selectedUsers, []);
+  assert.equal(s.selectingUsers, false);
+  t.mock.timers.tick(15_000);
+  assert.equal(s.userMove!.people[0].status, 'moved', 'the previous timer cannot corrupt a retry');
+});
+
+test('bulk move timeouts retain selection and unrelated denials are not attributed', async t => {
+  const { s, client } = await moveSession(t);
+  s.moveUsers([8, 9], 4);
+  client.emit('permissionDenied', { type: 1, permission: 32, channelId: 0, session: 7, reason: '', name: '' });
+  assert.ok(s.userMove!.people.every(p => p.status === 'pending'));
+  t.mock.timers.tick(15_000);
+  assert.equal(s.movingUsers, false);
+  assert.deepEqual(s.selectedUsers, [8, 9]);
+  assert.ok(s.userMove!.people.every(p => p.status === 'failed' && p.reason.includes('No confirmation')));
+});
+
+test('bulk moves handle removed users, removed destinations and connection loss', async t => {
+  const { s, client } = await moveSession(t);
+  s.moveUsers([8, 9], 4);
+  const departed = client.users.get(8)!;
+  client.users.delete(8);
+  client.emit('userRemove', departed, null, '', false);
+  assert.deepEqual(s.selectedUsers, [9]);
+  assert.equal(s.userMove!.people[0].status, 'failed');
+  client.channels.delete(4);
+  client.emit('channelRemove', 4);
+  assert.equal(s.movingUsers, false);
+  assert.match(s.userMove!.people[1].reason, /removed/);
+  client.channels.set(4, { id: 4, name: 'Games' } as never);
+  s.moveUsers([9], 4);
+  client.emit('close', 'Connection lost');
+  assert.equal(s.userMove, null);
+  assert.deepEqual(s.selectedUsers, []);
+  assert.equal(s.selectingUsers, false);
+  t.mock.timers.tick(15_000);
+  assert.equal(s.userMove, null);
+});
+
+test('bulk move password prompts wait for a decision and cancel only your own join', async t => {
+  const { s, client } = await moveSession(t);
+  client.channels.get(4)!.canEnter = false;
+  s.selectedUsers = [7, 8];
+  s.moveUsers([7, 8], 4);
+  assert.equal(s.userMove!.people[0].status, 'password');
+  const prompt = ui.prompt!;
+  assert.ok(prompt);
+  t.mock.timers.tick(15_001);
+  assert.equal(s.userMove!.people[0].status, 'password', 'waiting for input is not a timeout');
+  assert.equal(s.userMove!.people[1].status, 'failed');
+  prompt.oncancel!();
+  assert.equal(s.movingUsers, false);
+  assert.deepEqual(s.selectedUsers, [7, 8]);
+  assert.match(s.userMove!.people[0].reason, /cancelled/);
+});
+
+test('bulk move password submission resumes confirmation tracking', async t => {
+  const { s, client } = await moveSession(t);
+  client.channels.get(4)!.canEnter = false;
+  s.selectedUsers = [7];
+  s.moveUsers([7], 4);
+  const prompt = ui.prompt!;
+  prompt.onsubmit('secret');
+  prompt.oncancel!(); // The app closes a submitted prompt through the same callback.
+  assert.equal(s.userMove!.people[0].status, 'pending');
+  client.users.get(7)!.channelId = 4;
+  client.emit('user', client.users.get(7)!, ['channelId'], 7, false);
+  assert.equal(s.userMove!.people[0].status, 'moved');
+  assert.deepEqual(s.selectedUsers, []);
+});
+
+test('modifier selection, explicit selection and channel selection share one mode', async t => {
+  const s = setup(t);
+  assert.equal(s.selectingUsers, false);
+  s.toggleUser(8); // Used by the modifier-click shortcut and person menu.
+  assert.equal(s.selectingUsers, true);
+  assert.deepEqual(s.selectedUsers, [8]);
+  s.beginUserSelection(); // Used by every entry point, as toggleUser and the channel menu show.
+  assert.deepEqual(s.selectedUsers, [8], 'entering the same mode preserves the existing selection');
+  s.toggleUser(9); // Subsequent plain row clicks use the same toggle.
+  assert.deepEqual(s.selectedUsers, [8, 9]);
+  s.toggleUser(8);
+  s.toggleUser(9);
+  assert.equal(s.selectingUsers, true, 'deselecting the last person stays in selection mode');
+  assert.deepEqual(s.selectedUsers, []);
+  s.clearUserSelection();
+  assert.equal(s.selectingUsers, false, 'Cancel and Escape leave the shared mode');
+  s.beginUserSelection();
+  s.toggleUser(8);
+  assert.deepEqual(s.selectedUsers, [8]);
+  s.clearUserSelection();
+  assert.deepEqual(s.selectedUsers, []);
 });

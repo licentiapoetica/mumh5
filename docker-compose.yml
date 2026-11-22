@@ -1,5 +1,6 @@
 # The mumh5 web proxy. Settings come from a .env file next to this one, for example:
 #   MUMH5_SERVERS=mumble.example.com=My server
+#   MUMH5_DEFAULT_SERVER=mumble.example.com
 #   MUMH5_TRUST_PROXY=1
 services:
   mumh5:
@@ -14,6 +15,7 @@ services:
     # one because older docker-compose versions cannot mark an env_file as optional.
     environment:
       MUMH5_SERVERS: ${MUMH5_SERVERS:-}
+      MUMH5_DEFAULT_SERVER: ${MUMH5_DEFAULT_SERVER:-}
       MUMH5_ALLOW_ANY: ${MUMH5_ALLOW_ANY:-}
       MUMH5_ALLOW_PRIVATE: ${MUMH5_ALLOW_PRIVATE:-}
       MUMH5_PORT: ${MUMH5_PORT:-8080}

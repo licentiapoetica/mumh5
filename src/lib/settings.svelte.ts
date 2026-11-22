@@ -19,6 +19,8 @@ export interface Settings {
   mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
   sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
   autoDownload: number;    // fetch announced files up to this many MB by themselves; 0: never
+  saveChatHistory: boolean;
+  chatHistoryHours: number;
   compact: boolean;
   youtube: 'off' | 'click' | 'thumbnail'; // YouTube links: plain, click-to-play card, card with thumbnail
   // Link previews: fetched by this computer (reveals IP to the linked site), or none
@@ -88,6 +90,8 @@ const defaults: Settings = {
   mediaLinks: 'click',
   sendThumbnails: true,
   autoDownload: 20,
+  saveChatHistory: false,
+  chatHistoryHours: 24,
   compact: false,
   youtube: 'off',
   linkPreviews: 'off',
@@ -172,6 +176,17 @@ class SettingsStore {
     if (icon) s.icon = icon;
     else delete s.icon;
     save('mumh5.servers', $state.snapshot(this.servers));
+  }
+
+  // The server a hosted web app names (MUMH5_DEFAULT_SERVER), added once per browser, so
+  // removing it sticks; a new default on the site is added again. No name yet: connecting asks.
+  addDefaultServer(d: { host: string; port: number; label: string }) {
+    const key = `${d.host}:${d.port}`;
+    if (load('mumh5.defaultServer', { added: '' }).added === key) return;
+    save('mumh5.defaultServer', { added: key });
+    this.refreshServers();
+    if (this.servers.some(s => s.host.toLowerCase() === d.host && s.port === d.port)) return;
+    this.upsertServer({ id: crypto.randomUUID(), label: d.label, host: d.host, port: d.port, username: this.servers.at(-1)?.username ?? '', password: '' });
   }
 
   removeServer(id: string) {

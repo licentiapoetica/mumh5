@@ -75,7 +75,8 @@ export function safeType(type: string): string {
   return /^(image\/(png|jpeg|gif|webp|avif|bmp)|video\/[\w.+-]+|audio\/[\w.+-]+)$/.test(type) ? type : 'application/octet-stream';
 }
 
-export function fileKind(meta: FileMeta): 'image' | 'video' | 'audio' | null {
+export function fileKind(meta: FileMeta): 'image' | 'video' | 'audio' | 'pdf' | null {
+  if (meta.m.toLowerCase() === 'application/pdf' || /\.pdf$/i.test(meta.n)) return 'pdf';
   const t = safeType(meta.m);
   return t.startsWith('image/') ? 'image' : t.startsWith('video/') ? 'video' : t.startsWith('audio/') ? 'audio' : null;
 }

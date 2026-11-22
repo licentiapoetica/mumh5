@@ -3,6 +3,8 @@ import { MumbleClient, PERM, describeDenial, type Channel, type ChannelAcl, type
 import { native, desktop, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
+import { chatHistory, type SavedMessage } from './chat-history.ts';
+import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
 import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, roleMembers, rolesFromAcl, rolesOf, roleTint, setMember, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
@@ -23,6 +25,7 @@ import { ui } from './ui.svelte.ts';
 import { notifyPoke } from './notify.ts';
 import { voice } from './audio/voice.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
+import { planUserMove, movePending, confirmUserMove, failUserMove, remainingSelection, type UserMove } from '../core/user-move.ts';
 
 const codec = createCodec();
 const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
@@ -42,6 +45,7 @@ export interface ChatEntry {
   // Names the message for reactions (see core/reactions.ts); unset where it cannot have any
   ref?: string;
   reactions: Reaction[];
+  historyId?: string;
 }
 
 // A file being read before it is announced
@@ -77,6 +81,7 @@ export class Session {
   panel = $state<Panel>({ kind: 'members' });
   logs = $state<Record<string, ChatEntry[]>>({});
   unread = $state<Record<string, number>>({});
+  dmNames = $state<Record<string, string>>({});
   preparing = $state<FileJob[]>([]);
   certPrompt = $state<CertPrompt | null>(null);
   rtt = $state(0);
@@ -102,6 +107,10 @@ export class Session {
   // Channel tree expansion the user chose; channels not in here follow the default
   expanded = $state<Record<number, boolean>>({});
   selectedUsers = $state<number[]>([]);
+  selectingUsers = $state(false);
+  userMove = $state<UserMove | null>(null);
+  private userMoveTimer: ReturnType<typeof setTimeout> | undefined;
+  get movingUsers(): boolean { return movePending(this.userMove); }
   // Channel highlighted by a single click in the tree (a double click joins)
   selectedChannel = $state<number | null>(null);
 
@@ -182,26 +191,78 @@ export class Session {
     return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
   }
 
-  // Shift or Ctrl/Cmd adds or removes one person; a plain click opens the profile instead
+  beginUserSelection(): void {
+    if (this.movingUsers) return;
+    this.userMove = null;
+    this.selectingUsers = true;
+    ui.profile = null;
+  }
+
+  // Every entry point uses the same mode, including modifier-click and person menus.
   toggleUser(id: number): void {
+    if (this.movingUsers) return;
+    this.beginUserSelection();
     this.selectedUsers = this.selectedUsers.includes(id) ? this.selectedUsers.filter(s => s !== id) : [...this.selectedUsers, id];
   }
 
   clearUserSelection(): void {
+    if (this.movingUsers) return;
     if (this.selectedUsers.length) this.selectedUsers = [];
+    this.selectingUsers = false;
+    this.userMove = null;
+  }
+
+  selectChannelUsers(channelId: number): void {
+    if (this.movingUsers) return;
+    this.beginUserSelection();
+    this.selectedUsers = [...new Set([...this.selectedUsers, ...this.usersIn(channelId).map(u => u.session)])];
+  }
+
+  private updateUserMove(): void {
+    if (!this.userMove) return;
+    this.selectedUsers = remainingSelection(this.userMove, this.selectedUsers);
+    if (!this.movingUsers) {
+      clearTimeout(this.userMoveTimer);
+      if (!this.selectedUsers.length) this.selectingUsers = false;
+    }
+  }
+
+  private resetUserMove(): void {
+    clearTimeout(this.userMoveTimer);
+    this.userMove = null;
+  }
+
+  private timeUserMove(): void {
+    clearTimeout(this.userMoveTimer);
+    const batch = this.userMove;
+    if (!batch || !this.movingUsers) return;
+    this.userMoveTimer = setTimeout(() => {
+      if (this.userMove !== batch) return;
+      // Waiting for a password is a user decision, not a network timeout.
+      for (const person of batch.people) {
+        if (person.status === 'pending') failUserMove(batch, 'No confirmation received. Check their channel before retrying.', person.id);
+      }
+      this.updateUserMove();
+    }, 15000);
   }
 
   moveUsers(ids: number[], channelId: number): void {
-    if (!this.channel(channelId) || this.isText(channelId)) return;
-    for (const id of new Set(ids)) {
-      const user = this.user(id);
-      if (!user || user.channelId === channelId) continue;
-      if (id === this.self?.session) this.joinChannel(channelId);
-      // Skip people we know we may not move rather than collect a denial for each
-      else if (this.can(user.channelId, PERM.Move) !== false) this.moveUser(id, channelId);
+    const channel = this.channel(channelId);
+    if (!this.client || !channel || this.isText(channelId) || this.movingUsers) return;
+    const people = [...new Set(ids)].flatMap(id => {
+      const u = this.user(id);
+      return u ? [{ id, name: store.displayName(u), channelId: u.channelId }] : [];
+    });
+    if (!people.length) return;
+    this.userMove = planUserMove(people, channelId, channel.name || 'Root', this.self?.session,
+      id => this.can(id, PERM.Move));
+    this.timeUserMove();
+    for (const person of this.userMove.people) {
+      if (person.status !== 'pending') continue;
+      if (person.id === this.self?.session) this.joinChannel(channelId);
+      else this.moveUser(person.id, channelId);
     }
-    // A moved selection is done with; a single person dragged from outside it leaves it alone
-    if (ids.some(id => this.selectedUsers.includes(id))) this.clearUserSelection();
+    this.updateUserMove();
   }
 
   // Users in a channel and all of its subchannels
@@ -334,7 +395,7 @@ export class Session {
   viewTitle(key: string = this.view): string {
     const [kind, id] = key.split(':');
     if (kind === 'ch') return this.channel(Number(id))?.name || 'Root';
-    return this.user(Number(id))?.name ?? 'Offline user';
+    return this.user(Number(id))?.name ?? this.dmNames[key] ?? 'Offline user';
   }
 
   // Keys whose chat is on screen right now (main view and an open side chat)
@@ -450,6 +511,7 @@ export class Session {
 
   // keepVoice: an automatic reconnect follows, so voice is not handed to another server
   disconnect(keepVoice = false): void {
+    this.resetUserMove();
     this.clearUserSelection();
     this.clearRetry();
     this.reconnectAttempts = 0;
@@ -458,6 +520,7 @@ export class Session {
     const client = this.client;
     this.client = null;
     client?.disconnect();
+    chatHistory.closed(this);
     share.closed(this);
     textChannels.closed(this);
     files.closed(this);
@@ -514,6 +577,7 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      void chatHistory.entered(this);
       this.syncedAt = Date.now();
       const rejoin = this.lostChannel;
       const back = this.disconnectInfo != null || rejoin != null;
@@ -588,7 +652,12 @@ export class Session {
     });
     client.on('channelRemove', id => {
       if (!live()) return;
+      if (this.userMove?.channelId === id && this.movingUsers) {
+        failUserMove(this.userMove, 'The destination channel was removed.');
+        this.updateUserMove();
+      }
       if (this.panel.kind === 'channel' && this.panel.id === id) this.panel = { kind: 'members' };
+      chatHistory.forget(this, `ch:${id}`);
       textChannels.channelRemoved(this, id);
       // The chat on screen is gone: back to the channel we are in
       if (this.view === `ch:${id}`) this.view = `ch:${client.self?.channelId ?? 0}`;
@@ -601,6 +670,11 @@ export class Session {
 
     client.on('user', (user, changed, actor, isNew) => {
       if (!live()) return;
+      if (this.movingUsers && this.userMove) {
+        confirmUserMove(this.userMove, user.session, user.channelId);
+        this.updateUserMove();
+      }
+      chatHistory.userChanged(this, user);
       const self = client.self;
       const before = this.lastChannel.get(user.session);
       this.lastChannel.set(user.session, user.channelId);
@@ -645,6 +719,11 @@ export class Session {
 
     client.on('userRemove', (user, actor, reason, ban) => {
       if (!live()) return;
+      if (this.movingUsers && this.userMove) {
+        failUserMove(this.userMove, 'Disconnected before the move was confirmed.', user.session);
+        this.updateUserMove();
+      }
+      chatHistory.userLeft(this, user);
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
@@ -691,6 +770,15 @@ export class Session {
 
     client.on('permissionDenied', d => {
       if (!live()) return;
+      // Only attribute a refusal when the server names the person. Other denials
+      // remain in chat; an unconfirmed move times out without claiming success.
+      if (this.movingUsers && this.userMove && d.session != null
+        && !(d.session === client.session && d.permission === PERM.Enter && d.channelId === this.pendingJoin)
+        && (d.permission === PERM.Move || d.permission === PERM.Enter || d.type === 2 || d.type === 9)
+        && (d.channelId === this.userMove.channelId || this.userMove.people.some(p => p.id === d.session && p.channelId === d.channelId))) {
+        failUserMove(this.userMove, describeDenial(d, this.channel(d.channelId!)?.name), d.session);
+        this.updateUserMove();
+      }
       // A preview picture can exceed what the server accepts; the file alone still gets through
       const img = this.lastImageSend;
       if (d.type === 4 && img && Date.now() - img.at < 5000) {
@@ -728,6 +816,7 @@ export class Session {
 
     client.on('close', reason => {
       if (this.client !== client) return;
+      this.resetUserMove();
       this.clearUserSelection();
       if (this.removedBy) this.disconnectInfo = this.removedBy;
       else if (!this.disconnectInfo && reason !== 'Disconnected') this.disconnectInfo = { kind: 'lost', by: '', reason };
@@ -738,6 +827,7 @@ export class Session {
       }
       if (client.synced) this.lostChannel = client.self?.channelId ?? null;
       this.client = null;
+      chatHistory.closed(this);
       share.closed(this);
       this.sharing = {};
       textChannels.closed(this);
@@ -910,17 +1000,42 @@ export class Session {
   // ─── Chat ───────────────────────────────────────────────────────────────────
 
   // time: for messages from earlier, which go where they belong in the log. quiet: not counted as unread.
-  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean } = {}): void {
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean; raw?: string; historyId?: string } = {}): void {
     // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
     if (!this.logs[key]) this.logs[key] = [];
     const log = this.logs[key];
     const time = opts.time ?? Date.now();
     let at = log.length;
     while (at > 0 && log[at - 1].time > time) at--;
-    log.splice(at, 0, { ...entry, reactions: [], id: nextId++, time });
+    log.splice(at, 0, { ...entry, reactions: [], id: nextId++, time, historyId: opts.historyId });
+    if (opts.raw !== undefined && !opts.quiet) chatHistory.record(this, key, opts.raw, log[at]);
     if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
     // Files announced just now; ones from earlier wait for a click
     if (!opts.quiet && !entry.self) for (const e of entry.embeds) if (e.file) files.offered(this, e.file, entry.authorSession);
+  }
+
+  persistTextHistory(): Promise<void> { return textChannels.persist(this); }
+
+  expireChat(now = Date.now()): void {
+    for (const [key, entries] of Object.entries(this.logs)) {
+      const kept = entries.filter(e => currentChatMessage(e.time, now, historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000));
+      if (kept.length !== entries.length) this.logs[key] = kept;
+      if (this.unread[key]) {
+        const count = Math.min(this.unread[key], kept.filter(e => e.kind === 'text' && !e.self).length);
+        if (count) this.unread[key] = count;
+        else delete this.unread[key];
+      }
+    }
+    textChannels.expire(this, now);
+  }
+
+  // Stored HTML is sanitized again; old session numbers never become live recipients.
+  restoreChat(key: ViewKey, message: SavedMessage): void {
+    const render: (raw: string, hosts: string[], inlineImages?: boolean) => ReturnType<typeof renderIncoming> = renderIncoming;
+    if (!currentChatMessage(message.time, Date.now(), historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000) || this.logs[key]?.some(e => e.historyId === message.id)) return;
+    this.push(key, { kind: 'text', author: message.author, authorSession: null, self: message.self,
+      ref: messageRef(message.raw), ...render(message.raw, store.trustedHosts, true) },
+      { time: message.time, quiet: true, historyId: message.id });
   }
 
   // A text channel message: live, kept from earlier, or handed over by another client
@@ -930,7 +1045,7 @@ export class Session {
     const online = sender != null ? client.users.get(sender) : self ? client.self : m.k ? [...client.users.values()].find(u => u.hash === m.k) : undefined;
     this.push(`ch:${m.c}`, {
       kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self, ref: textRef(m.i),
-      ...renderIncoming(m.h, store.trustedHosts)
+      ...renderIncoming(m.h, store.trustedHosts, true)
     }, { time: m.t, quiet });
   }
 
@@ -947,11 +1062,11 @@ export class Session {
     else if (msg.channels.length || msg.trees.length) key = `ch:${msg.channels[0] ?? self?.channelId ?? 0}`;
     else key = `dm:${msg.actor}`;
 
-    const rendered = renderIncoming(msg.html, store.trustedHosts);
+    const rendered = renderIncoming(msg.html, store.trustedHosts, msg.actor != null);
     if (msg.actor == null) {
       this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
     } else {
-      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ref: messageRef(msg.html), ...rendered });
+      this.push(key, { kind: 'text', author: sender ? store.displayName(sender) : `#${msg.actor}`, authorSession: msg.actor, self: false, ref: messageRef(msg.html), ...rendered }, { raw: msg.html });
     }
   }
 
@@ -985,15 +1100,25 @@ export class Session {
   // reveal: false when the server moved you, which should not pull you off the home screen
   selectView(key: ViewKey, reveal = true): void {
     this.view = key;
+    if (key.startsWith('dm:')) {
+      if (!this.logs[key]) this.logs[key] = [];
+      chatHistory.record(this, key, '');
+    }
     delete this.unread[key];
     if (reveal) sessions.homeShown = false;
   }
 
-  // Removes a direct chat from the list; a new message from that person opens it again
+  // Hides a direct chat; opening it or receiving a message restores its retained history.
   closeDm(key: `dm:${number}`): void {
+    chatHistory.hide(this, key);
     delete this.logs[key];
     delete this.unread[key];
     if (this.view === key) this.view = `ch:${this.self?.channelId ?? 0}`;
+  }
+
+  deleteDm(key: `dm:${number}`): void {
+    chatHistory.forget(this, key);
+    this.closeDm(key);
   }
 
   // The view follows once the server confirms the move (see the 'user' handler). Murmur
@@ -1041,11 +1166,27 @@ export class Session {
 
   // A client cannot tell a password from a channel that is simply closed to it
   private askPassword(id: number, wrong = false): void {
+    const client = this.client;
     const name = this.client?.channels.get(id)?.name || 'Root';
+    const batch = this.userMove?.channelId === id ? this.userMove : null;
+    const person = batch?.people.find(p => p.id === this.self?.session && (p.status === 'pending' || p.status === 'password'));
+    if (person) person.status = 'password';
+    let submitted = false;
     ui.prompt = {
       title: `Join ${name}`, label: 'Channel password', confirm: 'Join', input: 'password',
       text: wrong ? 'Wrong password, or this channel is closed to you.' : 'This channel is locked.',
-      onsubmit: password => this.enterWithPassword(id, password)
+      onsubmit: password => {
+        if (!password || this.client !== client || (person && this.userMove !== batch)) return;
+        submitted = true;
+        if (person && this.userMove === batch) { person.status = 'pending'; this.timeUserMove(); }
+        this.enterWithPassword(id, password);
+      },
+      oncancel: () => {
+        if (!submitted && person && this.userMove === batch) {
+          failUserMove(batch!, 'You cancelled joining the channel.', person.id);
+          this.updateUserMove();
+        }
+      }
     };
   }
 
@@ -1216,6 +1357,7 @@ export class Session {
   sendHtml(html: string, key: string = this.view): boolean {
     const client = this.client;
     if (!client || this.status !== 'connected') return false;
+    if (key.startsWith('dm:') && !this.user(Number(key.slice(3)))) return false;
     if (key.startsWith('ch:') && this.isText(Number(key.slice(3)))) {
       if (html.length > MAX_HTML) {
         this.system(key, `Message too long for a text channel (${html.length} / ${MAX_HTML} characters)`);
@@ -1231,10 +1373,12 @@ export class Session {
       this.system(key, `Message too long for this server (${html.length} / ${limit} characters)`);
       return false;
     }
+    const entryId = nextId;
     client.sendText(this.target(key), html);
     sounds.play('messageSent');
-    const rendered = renderIncoming(html, store.trustedHosts);
+    const rendered = renderIncoming(html, store.trustedHosts, true);
     this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
+    chatHistory.record(this, key, html, this.logs[key].find(e => e.id === entryId));
     return true;
   }
 
@@ -1265,24 +1409,25 @@ export class Session {
   // ask for it, through the server (see files.svelte.ts); other clients get a preview picture.
   async sendFiles(list: File[], key: string = this.view): Promise<void> {
     const client = this.client;
-    if (!client) return;
+    if (!client || (key.startsWith('dm:') && !this.user(Number(key.slice(3))))) return;
     const textKey = key.startsWith('ch:') && this.isText(Number(key.slice(3)));
     const cfg = client.config;
     // 0 means no limit; stay reasonable anyway
     const limit = textKey ? MAX_HTML : cfg.imageMessageLength || 1024 * 1024;
     for (const file of list) {
+      const alt = escapeHtml(file.name);
       if (!textKey && cfg.allowHtml === false) {
         this.system(key, 'This server does not allow pictures or files in messages. Text channels can still carry files.');
         return;
       }
       if (file.type.startsWith('image/')) {
-        const uri = await originalImage(file, limit - 64);
-        if (uri) { this.sendHtml(`<img src="${uri}"/>`, key); continue; }
+        const uri = await originalImage(file, limit - 64 - alt.length);
+        if (uri) { this.sendHtml(`<img src="${uri}" alt="${alt}"/>`, key); continue; }
       }
       if (!files.supported(this)) {
         // Old servers: no requests between clients, so pictures go scaled and other files not at all
-        const uri = file.type.startsWith('image/') ? await makeInlineImage(file, limit - 64) : null;
-        if (uri) this.sendHtml(`<img src="${uri}"/>`, key);
+        const uri = file.type.startsWith('image/') ? await makeInlineImage(file, limit - 64 - alt.length) : null;
+        if (uri) this.sendHtml(`<img src="${uri}" alt="${alt}"/>`, key);
         else this.system(key, `${escapeHtml(file.name)}: sending files needs a server running Mumble 1.4 or newer`);
         continue;
       }
@@ -1386,6 +1531,11 @@ class Sessions {
 
   // Show a server, connecting if needed
   open(server: SavedServer): void {
+    // A server added for you (the site's default) has no name yet; pick one first
+    if (!server.username.trim()) {
+      ui.editServer = server;
+      return;
+    }
     let s = this.byServer(server.id);
     this.activeId = server.id;
     this.homeShown = false;

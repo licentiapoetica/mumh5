@@ -99,7 +99,7 @@
           <div class="embed"><LinkPreview url={m.url} /></div>
         {:else if m.kind === 'youtube'}
           {#if store.settings.youtube !== 'off'}<div class="embed"><YouTubeEmbed videoId={m.videoId!} start={m.start} url={m.url} /></div>{/if}
-        {:else if store.settings.mediaLinks !== 'off' || store.trustedHosts.includes(new URL(m.url).host.toLowerCase())}
+        {:else if m.url.startsWith('data:image/') || store.settings.mediaLinks !== 'off' || store.trustedHosts.includes(new URL(m.url).host.toLowerCase())}
           <div class="embed"><MediaLink kind={m.kind} url={m.url} name={m.name} /></div>
         {/if}
       {/each}
