@@ -27,7 +27,74 @@
   let reactButton = $state<HTMLButtonElement>();
   const me = $derived(session.self ? reactorKey(session.self) : '');
   const mine = (r: Reaction) => r.who.some(w => w.k === me);
-  const reactedBy = (r: Reaction) => reactorNames(r.who.map(w => (w.k === me ? 'You' : w.name)).sort((a, b) => Number(b === 'You') - Number(a === 'You')));
+  const names = (r: Reaction) => r.who.map(w => (w.k === me ? 'You' : w.name)).sort((a, b) => Number(b === 'You') - Number(a === 'You'));
+  const reactedBy = (r: Reaction) => reactorNames(names(r));
+
+  // Who reacted: a popover on hover (short delay), keyboard focus and touch long-press.
+  // Native title tooltips do not show reliably in Electron and never on touch.
+  const tipId = $props.id();
+  let tip = $state<{ emoji: string; rect: DOMRect } | null>(null);
+  let tipEl = $state<HTMLElement>();
+  let tipPos = $state({ x: 0, y: 0 });
+  let showTimer: ReturnType<typeof setTimeout> | undefined;
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let pressed = false; // a long-press opened the popover, so the click that follows is not a toggle
+  const tipReaction = $derived(tip ? entry.reactions.find(r => r.emoji === tip!.emoji) : undefined);
+
+  function showTip(chip: HTMLElement, emoji: string, delay: number) {
+    clearTimeout(hideTimer);
+    clearTimeout(showTimer);
+    showTimer = setTimeout(() => { tip = { emoji, rect: chip.getBoundingClientRect() }; }, delay);
+  }
+  function hideTip(delay = 0) {
+    clearTimeout(showTimer);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { tip = null; }, delay);
+  }
+  function chipDown(e: PointerEvent, emoji: string) {
+    if (e.pointerType !== 'touch') return;
+    pressed = false;
+    clearTimeout(showTimer);
+    const chip = e.currentTarget as HTMLElement;
+    showTimer = setTimeout(() => { pressed = true; tip = { emoji, rect: chip.getBoundingClientRect() }; }, 500);
+  }
+  function chipClick(emoji: string) {
+    if (pressed) { pressed = false; return; }
+    ontoggle?.(emoji);
+  }
+
+  // Above the chip, below it when there is no room, always inside the window
+  $effect(() => {
+    if (!tip || !tipEl) return;
+    const { rect } = tip;
+    const w = tipEl.offsetWidth, h = tipEl.offsetHeight, gap = 6, edge = 8;
+    const above = rect.top - gap - h >= edge;
+    const y = above ? rect.top - gap - h : Math.min(rect.bottom + gap, window.innerHeight - h - edge);
+    const x = Math.max(edge, Math.min(rect.left, window.innerWidth - w - edge));
+    tipPos = { x, y: Math.max(edge, y) };
+  });
+  // Escape or a tap elsewhere closes it; a scroll moves the chip away from it
+  $effect(() => {
+    if (!tip) return;
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') hideTip(); };
+    const down = (e: PointerEvent) => {
+      if (!(e.target as Element).closest?.('.reaction:not(.add), .reactors')) hideTip();
+    };
+    window.addEventListener('keydown', key);
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('scroll', () => hideTip(), { capture: true, once: true });
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('pointerdown', down, true);
+    };
+  });
+  $effect(() => () => { clearTimeout(showTimer); clearTimeout(hideTimer); });
+
+  // Moved to body so no transformed or clipped ancestor affects fixed placement
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
 
   // Add reaction in the desktop app's right-click menu (lib/text-menu.ts)
   $effect(() => {
@@ -112,7 +179,16 @@
         <div class="reactions">
           {#each entry.reactions as r (r.emoji)}
             <button class="reaction" class:mine={mine(r)} aria-pressed={mine(r)} disabled={!ontoggle}
-              title="{reactedBy(r)} reacted with {r.emoji}" onclick={() => ontoggle?.(r.emoji)}>
+              aria-label="{r.emoji} {r.who.length}, {reactedBy(r)} reacted" aria-describedby={tip?.emoji === r.emoji ? tipId : undefined}
+              onclick={() => chipClick(r.emoji)}
+              onpointerenter={e => { if (e.pointerType === 'mouse') showTip(e.currentTarget, r.emoji, 350); }}
+              onpointerleave={e => { if (e.pointerType === 'mouse') hideTip(120); }}
+              onpointerdown={e => chipDown(e, r.emoji)}
+              onpointerup={e => { if (e.pointerType === 'touch') clearTimeout(showTimer); }}
+              onpointercancel={() => clearTimeout(showTimer)}
+              oncontextmenu={e => { if (pressed) e.preventDefault(); }}
+              onfocus={e => { if (e.currentTarget.matches(':focus-visible')) showTip(e.currentTarget, r.emoji, 0); }}
+              onblur={() => hideTip()}>
               <span class="e">{r.emoji}</span><span class="n">{r.who.length}</span>
             </button>
           {/each}
@@ -123,6 +199,13 @@
       {/if}
     </div>
   </article>
+  {#if tip && tipReaction}
+    <div class="reactors" id={tipId} role="tooltip" use:portal style="left:{tipPos.x}px;top:{tipPos.y}px"
+      onpointerenter={() => clearTimeout(hideTimer)} onpointerleave={() => hideTip(120)}>
+      <div class="rh"><span class="e">{tipReaction.emoji}</span><span class="n">{tipReaction.who.length}</span></div>
+      <ul>{#each names(tipReaction) as n}<li>{n}</li>{/each}</ul>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -140,6 +223,12 @@
   .reaction:disabled { cursor: default; }
   .reaction .e { font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-size: 15px; }
   .reaction .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .reactors { position: fixed; z-index: 1000; min-width: 120px; max-width: min(260px, calc(100vw - 16px)); max-height: min(40vh, 280px); overflow-y: auto; padding: 6px 0; font-size: 13px; color: var(--text); background: var(--bg-1); border: 1px solid var(--line-strong); }
+  .reactors .rh { display: flex; align-items: center; gap: 6px; padding: 0 10px 4px; color: var(--text-dim); }
+  .reactors .e { font-size: 18px; font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; }
+  .reactors .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .reactors ul { margin: 0; padding: 0; list-style: none; }
+  .reactors li { padding: 2px 10px; overflow-wrap: anywhere; }
   .reaction.add { visibility: hidden; padding: 0 6px; }
   .msg:hover .reaction.add, .msg:focus-within .reaction.add, .msg.active .reaction.add { visibility: visible; }
   .msg.grouped { margin-top: 0; padding-top: 1px; padding-bottom: 1px; }
