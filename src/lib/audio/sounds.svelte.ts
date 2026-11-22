@@ -4,7 +4,7 @@ import { desktop, isWeb } from '../native.ts';
 import { putBlob, getBlob, deleteBlob } from '../blobstore.ts';
 import { zipSync } from 'fflate';
 import { isPackClip, listAudioPack, readAudioPack, readPackClip } from '../../core/audio-pack.ts';
-import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
+import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, defaultSoundSettings, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
 import { proxyInfo } from '../web.svelte.ts';
 import { DEFAULT_AUDIO_PACK_LIMITS, audioSize, type AudioPackLimits } from '../../core/audio-pack-limits.ts';
 import { renderTones } from './tones.ts';
@@ -232,6 +232,21 @@ class Sounds {
 
   setOn(ev: SoundEvent, on: boolean): void {
     this.settings.on[ev] = on;
+    void this.persist();
+  }
+
+  // The choices on the Sounds tab; packs, own files and picked clips stay
+  choicesAtDefaults(): boolean {
+    const d = defaultSoundSettings();
+    return this.settings.enabled === d.enabled && this.settings.volume === d.volume && !Object.keys(this.settings.on).length;
+  }
+
+  resetChoices(): void {
+    const d = defaultSoundSettings();
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    Object.assign(this.settings, { enabled: d.enabled, volume: d.volume, on: {} });
+    this.stop();
     void this.persist();
   }
 

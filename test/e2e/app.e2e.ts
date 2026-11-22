@@ -136,6 +136,23 @@ try {
   await backgroundDesign.getByRole('button', { name: 'None', exact: true }).click();
   assert.equal(await page.locator('.background-art').count(), 0);
   console.log('ok: background design applies and clears from Appearance');
+  // A heading resets the settings below it, the button at the end the whole tab, both after asking
+  const theme = () => page.evaluate(() => document.documentElement.dataset.theme ?? 'dark');
+  const confirmReset = () => page.getByRole('button', { name: 'Reset', exact: true }).click();
+  await page.getByRole('radio', { name: 'Light', exact: true }).click();
+  await backgroundDesign.getByRole('button', { name: 'Dots', exact: true }).click();
+  await page.locator('.home > .background-art[data-design="dots"]').waitFor();
+  await page.getByRole('button', { name: 'Reset background', exact: true }).click();
+  await confirmReset();
+  assert.equal(await page.locator('.background-art').count(), 0);
+  assert.equal(await theme(), 'light', 'other headings keep their settings');
+  assert.equal(await page.getByRole('button', { name: 'Reset background', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Reset appearance', exact: true }).click();
+  await confirmReset();
+  assert.equal(await theme(), 'dark');
+  assert.equal(await page.evaluate(() => 'theme' in JSON.parse(localStorage.getItem('mumh5.settings')!)), false, 'defaults are not saved');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).railHidden), false, 'window state is not reset');
+  console.log('ok: appearance resets per heading and as a whole');
   await page.getByRole('radio', { name: 'Modern' }).click();
   await page.getByRole('tab', { name: 'Sounds' }).click();
   // Audio packs: a fresh profile is quiet, and an imported pack joins the library
@@ -626,7 +643,8 @@ try {
   await page.getByLabel('STUN server address').blur();
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), 'stun.example.org:3478');
   await stun.selectOption('');
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer), '');
+  // Values equal to the default are not saved
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).stunServer ?? ''), '');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: STUN server choices');
 
