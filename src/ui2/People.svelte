@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
   import RoleBadges from '../ui/RoleBadges.svelte';
@@ -31,7 +32,8 @@
   const talking = (s: number) => !!voice.talking[s] || (s === self?.session && voice.transmitting);
 </script>
 
-<section class="people" aria-label="People">
+<section data-background class="people" aria-label="People">
+  <Background />
   <header>
     <h1>People</h1>
     <span>{session.status === 'connected' ? `${total} online` : 'Not connected'}</span>
