@@ -353,7 +353,8 @@
   .badge { flex: none; min-width: 18px; text-align: center; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 18px; }
   .user { position: relative; gap: 8px; min-height: 28px; text-align: left; user-select: none; }
   .state.voice { position: absolute; top: 50%; transform: translateY(-50%); }
-  .user.self .label { color: var(--text); }
+  /* Your own name in bold, as in the desktop client */
+  .user.self .label { color: var(--text); font-weight: 600; }
   .label.talking { color: var(--speaking); }
   .reg { flex: none; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); }
   .state { color: var(--text-faint); display: inline-flex; }

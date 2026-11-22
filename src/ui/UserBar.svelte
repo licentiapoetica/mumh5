@@ -11,7 +11,7 @@
   import { share } from '../lib/share.svelte.ts';
 
   // You and your buttons, under the channel list and on the start screen.
-  // toolbar: the buttons alone in one row along the top (stacked layout, like the desktop client)
+  // toolbar: the buttons in one row along the top (stacked layout, like the desktop client), you at the far end
   // inline: you and the buttons side by side in one row (the start screen, which is wide)
   let { toolbar = false, inline = false }: { toolbar?: boolean; inline?: boolean } = $props();
 
@@ -92,6 +92,19 @@
       disabled={session.status !== 'connected'} onclick={toggleAll}>
       <Icon name="filter" size={18} />
     </button>
+    {#if toolbar && self}
+      <!-- Who you are, at the far end of the toolbar; the name gives way to the buttons when narrow -->
+      <span class="you">
+        <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
+          oncontextmenu={e => menu.show(e, userMenu(self))}>
+          <span class="who">
+            <strong>{self.name}</strong>
+            <span>{session.channel(self.channelId)?.name || 'Root'}</span>
+          </span>
+          <Avatar name={self.name} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} />
+        </button>
+      </span>
+    {/if}
   </div>
 </footer>
 
@@ -107,6 +120,10 @@
   .me.toolbar { order: -1; min-height: var(--footer-h); justify-content: center; padding-block: 8px 7px; border-top: 0; border-bottom: 1px solid var(--line); }
   .me.toolbar .tools { justify-content: flex-start; gap: 2px; }
   .me.toolbar .sep { margin: 0 6px; }
+  /* Basis 0 so it never pushes the buttons onto a second row; the avatar alone stays */
+  .me.toolbar .you { flex: 1 1 0; min-width: 32px; display: flex; justify-content: flex-end; margin-left: 8px; }
+  .me.toolbar .you .profile { max-width: 100%; gap: 8px; padding: 2px 4px; }
+  .me.toolbar .you .who { text-align: right; }
   .me.inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 6px 16px; }
   .me.inline .profile, .me.inline .offline-who { flex: 0 1 220px; }
   .me.inline .tools { justify-content: flex-start; gap: 2px; }
