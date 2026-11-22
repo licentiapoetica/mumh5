@@ -135,11 +135,16 @@
   .sidebar.fill { width: 100%; height: 100%; }
   header { position: relative; isolation: isolate; height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
   header.with-server { padding-left: 8px; }
-  header.with-server .title { padding-left: 2px; }
+  /* Reaches the server button, so no dead gap between the two */
+  header.with-server .title { margin-left: -8px; padding-left: 10px; }
   header.with-server > :global(.server-btn) { margin-top: 1px; }
-  .title { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding-left: 16px; text-align: left; transition: background 120ms var(--ease); }
+  .title { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding-left: 16px; text-align: left; }
   .title:disabled { opacity: 1; }
-  .title:hover:not(:disabled) { background: rgb(255 255 255 / 0.05); }
+  /* :where keeps this weaker than the themes that draw their own buttons */
+  header > .icon-btn:where(:hover, :active) { background: transparent; color: var(--danger); }
+  /* The button's click area fills its corner, up to the title and the header's edges */
+  header > .icon-btn { position: relative; }
+  header > .icon-btn::after { content: ''; position: absolute; left: -8px; right: -10px; top: calc(50% - (var(--header-h) - 1px) / 2); height: calc(var(--header-h) - 1px); }
   .title strong { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
   .server-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mark { flex: none; width: 7px; display: flex; justify-content: center; }
