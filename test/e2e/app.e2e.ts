@@ -565,18 +565,17 @@ try {
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;
   bob.sendText({ users: [alice.session] }, 'psst');
-  await page.locator('.sidebar').getByText('Direct messages').waitFor();
-  await page.locator('.dm', { hasText: 'bob' }).click();
+  // Stacked layout: private chats are tabs above the chat
+  const chatTabs = page.getByRole('tablist', { name: 'Open chats' });
+  await chatTabs.getByRole('tab', { name: /bob/ }).click();
   await page.locator('.msg', { hasText: 'psst' }).waitFor();
   console.log('ok: direct message shown in its own view');
   const soundLog = () => page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
   const played = await soundLog();
   for (const ev of ['connected', 'message', 'privateMessage']) assert.ok(played.includes(ev), `sound for ${ev}: ${played}`);
   console.log('ok: sounds for connect, channel and direct messages');
-  const dmRow = page.locator('.dm-row', { hasText: 'bob' });
-  await dmRow.hover();
-  await dmRow.getByRole('button', { name: 'Close conversation with bob' }).click();
-  await page.locator('.sidebar').getByText('Direct messages').waitFor({ state: 'detached' });
+  await chatTabs.getByRole('button', { name: 'Close conversation with bob' }).click();
+  await chatTabs.waitFor({ state: 'detached' });
   await page.locator('.msg', { hasText: 'psst' }).waitFor({ state: 'detached' });
   console.log('ok: direct message closed');
   await page.locator('.channel .name').first().dblclick();
@@ -1909,6 +1908,10 @@ try {
     console.log('ok: toolbar expands and collapses all channels repeatedly, root has no caret, header text lines up');
 
     // ─── Text channels: read and written without joining, between mumh5 clients ───
+    await page.getByRole('button', { name: 'Configure', exact: true }).click();
+    await page.getByRole('tab', { name: 'Chat and files', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Save chat history on this device', exact: true }).check();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     // Bob plays a second mumh5 client by speaking the plugin data protocol
     const assembler = new TextAssembler();
     const signals: { type: number; text?: string }[] = [];

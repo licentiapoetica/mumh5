@@ -27,4 +27,21 @@ export const getBlob = (key: string) => run<Blob | undefined>('readonly', s => s
 // Plain data that outgrows localStorage (text channel messages)
 export const putData = (key: string, value: unknown) => run('readwrite', s => s.put(value, key));
 export const getData = <T>(key: string) => run<T | undefined>('readonly', s => s.get(key));
+export const dataKeys = () => run<IDBValidKey[]>('readonly', s => s.getAllKeys());
+// Keep read/modify/write operations in one transaction so expiry cannot erase a
+// concurrently saved message. Returning undefined leaves the existing value alone.
+export function updateData<T>(key: string, update: (value: T | undefined) => T | undefined): Promise<void> {
+  return open().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite'), store = tx.objectStore(STORE);
+    const request = store.get(key);
+    request.onsuccess = () => {
+      try {
+        const next = update(request.result);
+        if (next !== undefined) store.put(next, key);
+      } catch { tx.abort(); }
+    };
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onabort = tx.onerror = () => { db.close(); reject(tx.error ?? new Error('Could not update stored data')); };
+  }));
+}
 export const deleteBlob =(key: string) => run('readwrite', s => s.delete(key));

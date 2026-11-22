@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import ServerButton from './ServerButton.svelte';
   import ChatLog from './ChatLog.svelte';
+  import ChatTabs from './ChatTabs.svelte';
   import Composer from './Composer.svelte';
   import VoiceStage from './VoiceStage.svelte';
   import ResizeHandle from './ResizeHandle.svelte';
@@ -12,7 +13,8 @@
 
   // showStage: voice tiles above the chat when the window is too narrow for the member list
   // videoOnly: streams as a plain picture without the tiles (stacked layout)
-  let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false, serverButton = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean; serverButton?: boolean } = $props();
+  // tabs: private chats as tabs above the log (stacked and narrow; elsewhere the channel list has them)
+  let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false, serverButton = false, tabs = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean; serverButton?: boolean; tabs?: boolean } = $props();
 
   // Stacked layout with a stream above the chat: the chat's height can be dragged larger than
   // its minimum; the picture gets the rest. Unset until dragged, then the picture decides.
@@ -34,7 +36,8 @@
   // As tall as the chat can get without squeezing the picture under its minimum
   const logMax = () => {
     const composer = chatEl?.querySelector<HTMLElement>('.composer')?.offsetHeight ?? 0;
-    return Math.max(LOG_MIN, (chatEl?.clientHeight ?? window.innerHeight) - composer - STREAM_MIN);
+    const strip = chatEl?.querySelector<HTMLElement>('.chat-tabs')?.offsetHeight ?? 0;
+    return Math.max(LOG_MIN, (chatEl?.clientHeight ?? window.innerHeight) - composer - strip - STREAM_MIN);
   };
   const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
   // Not while the picture is in a window of its own: then only a bar is left above the chat
@@ -69,6 +72,7 @@
   {#if session.status === 'connected'}<VoiceStage always={showStage} {videoOnly} />{/if}
 
 
+  {#if tabs}<ChatTabs />{/if}
   <div class="logbox" style:height={logFixed ? `${logHeight}px` : undefined}>
   {#if streamAbove}
     <ResizeHandle bind:width={logHeight} edge="top" min={LOG_MIN} max={logMax} initial={220}

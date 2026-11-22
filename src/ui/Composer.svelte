@@ -23,7 +23,7 @@
   let snippet = $state(false);
   // The formatting toolbar is opt-in and remembered
   let formatting = $state(loadFormatting());
-  const disabled = $derived(session.status !== 'connected');
+  const disabled = $derived(session.status !== 'connected' || (target.startsWith('dm:') && !session.user(Number(target.slice(3)))));
   const preparing = $derived(session.preparing.filter(u => u.key === target));
 
   function loadFormatting(): boolean {

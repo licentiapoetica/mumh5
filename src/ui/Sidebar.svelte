@@ -18,8 +18,9 @@
   // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
   // fill: take the whole area (stacked layout, where the parent sizes it)
   // serverButton: the current server leads the header while the server list is hidden
-  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false }:
-    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean } = $props();
+  // chats: list private chats here; where the chat shows them as tabs it is off
+  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false, chats = true }:
+    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean; chats?: boolean } = $props();
 
   const MIN_W = 200, DEFAULT_W = 260;
   const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
@@ -48,7 +49,7 @@
   }
 
   const dms = $derived(
-    Object.keys(session.logs).filter(k => k.startsWith('dm:')).map(k => ({ key: k as `dm:${number}`, user: session.user(Number(k.slice(3))) }))
+    Object.keys(session.logs).filter(k => k.startsWith('dm:')).map(k => ({ key: k as `dm:${number}`, user: session.user(Number(k.slice(3))), name: session.viewTitle(k) }))
   );
 </script>
 
@@ -81,19 +82,19 @@
       <ul class="tree">
         {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
       </ul>
-      {#if dms.length}
+      {#if chats && dms.length}
         <h3>Direct messages</h3>
         <ul class="tree">
           {#each dms as dm (dm.key)}
             <li class="dm-row" data-menu-row class:viewing={session.view === dm.key}
-              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
+              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }, { label: 'Delete history', action: () => session.deleteDm(dm.key) }]); }}>
               <button class="dm"
                 onclick={() => { session.selectView(dm.key); onnavigate(); }}>
-                <Avatar name={dm.user?.name ?? '?'} size={22} src={session.avatar(dm.user?.session)} />
-                <span class="label" class:offline={!dm.user}>{dm.user?.name ?? 'Offline user'}</span>
+                <Avatar name={dm.name} size={22} src={session.avatar(dm.user?.session)} />
+                <span class="label" class:offline={!dm.user}>{dm.name}</span>
                 {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
               </button>
-              <button class="close" title="Close conversation" aria-label="Close conversation with {dm.user?.name ?? 'offline user'}"
+              <button class="close" title="Close conversation" aria-label="Close conversation with {dm.name}"
                 onclick={() => session.closeDm(dm.key)}><Icon name="x" size={14} /></button>
             </li>
           {/each}
