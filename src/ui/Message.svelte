@@ -82,8 +82,11 @@
     };
     window.addEventListener('keydown', key);
     window.addEventListener('pointerdown', down, true);
-    window.addEventListener('scroll', () => hideTip(), { capture: true, once: true });
+    // Scrolling the popover's own list must not close it
+    const scrolled = (e: Event) => { if (!(e.target as Element).closest?.('.reactors')) hideTip(); };
+    window.addEventListener('scroll', scrolled, true);
     return () => {
+      window.removeEventListener('scroll', scrolled, true);
       window.removeEventListener('keydown', key);
       window.removeEventListener('pointerdown', down, true);
     };
