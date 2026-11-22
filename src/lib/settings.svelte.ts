@@ -43,6 +43,10 @@ export interface Settings {
   interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
   autoCameras: boolean;   // show other people's cameras as they come on
+  cameraDevice: string;   // the webcam; empty is the system's default
+  cameraSize: '480' | '720' | '1080';
+  cameraFps: number;
+  cameraMirror: boolean;  // show our own camera mirrored to ourselves, never to others
   shareVolume: number;    // volume of streams we watch, 0 to 1
   relayServer: string;    // a mumh5 web proxy whose STUN and relay to use for screen sharing
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
@@ -111,6 +115,10 @@ const defaults: Settings = {
   interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,
+  cameraDevice: '',
+  cameraSize: '720',
+  cameraFps: 30,
+  cameraMirror: true,
   shareVolume: 1,
   relayServer: '',
   stunServer: '',
@@ -125,7 +133,7 @@ const defaults: Settings = {
 
 // Where in Settings each setting is reset; parts of Appearance are its headings.
 // kept: not picked in Settings (window state, notices already seen).
-export type SettingsPart = 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
+export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
   | 'appearance.roles' | 'appearance.people' | 'appearance.interface' | 'appearance.layout'
   | 'appearance.background' | 'appearance.tree' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
@@ -140,7 +148,8 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   arrangement: 'appearance.layout', classicSide: 'appearance.layout',
   railHidden: 'kept',
   interface: 'appearance.interface',
-  shareQuality: 'sharing', autoCameras: 'sharing', shareVolume: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
+  cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
+  shareQuality: 'sharing', shareVolume: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',
   hints: 'accessibility',
   updateCheck: 'about',

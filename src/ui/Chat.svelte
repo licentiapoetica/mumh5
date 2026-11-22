@@ -37,7 +37,9 @@
   const logMax = () => {
     const composer = chatEl?.querySelector<HTMLElement>('.composer')?.offsetHeight ?? 0;
     const strip = chatEl?.querySelector<HTMLElement>('.chat-tabs')?.offsetHeight ?? 0;
-    return Math.max(LOG_MIN, (chatEl?.clientHeight ?? window.innerHeight) - composer - strip - STREAM_MIN);
+    // The row of other cameras under the picture
+    const cams = chatEl?.querySelector<HTMLElement>('.stage.solo .tiles.strip')?.offsetHeight ?? 0;
+    return Math.max(LOG_MIN, (chatEl?.clientHeight ?? window.innerHeight) - composer - strip - STREAM_MIN - cams);
   };
   const here = (s: { server?: { id: string } | null } | null | undefined) => !!s && s.server?.id === session.server?.id;
   // Not while the picture is in a window of its own: then only a bar is left above the chat
@@ -104,6 +106,7 @@
      the picture's bar and minimum too when one is shown; the channel list gives way instead */
   .chat.video-only { --tabs-h: calc(var(--control-h) + 3px); min-height: calc(124px + var(--composer-h, 64px) + var(--tabs-h)); }
   .chat.video-only:has(:global(.stage.solo .spot:not(.popped))) { min-height: calc(36px + 120px + 124px + var(--composer-h, 64px) + var(--tabs-h)); }
+  .chat.video-only:has(:global(.stage.solo .spot:not(.popped))):has(:global(.stage.solo .tiles.strip)) { min-height: calc(36px + 120px + 92px + 124px + var(--composer-h, 64px) + var(--tabs-h)); }
   .logbox { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
   /* Dragged to a height of its own: the stream above takes what is left */
   /* Its own height, but it gives way (down to its minimum) when the window gets shorter */
@@ -111,6 +114,7 @@
   .chat.log-fixed :global(.stage.solo), .chat.log-fixed :global(.stage.solo .spot), .chat.log-fixed :global(.stage.solo .pic) { flex: 1 1 0; min-height: 0; }
   /* The picture is never squeezed away: its bar and at least 120 px stay (STREAM_MIN) */
   .chat.video-only :global(.stage.solo:has(.spot:not(.popped))), .chat.video-only :global(.stage.solo .spot:not(.popped)) { min-height: 156px; }
+  .chat.video-only :global(.stage.solo:has(.spot:not(.popped)):has(.tiles.strip)) { min-height: 248px; }
   .chat.log-fixed :global(.stage.solo .spot .pic > video) { flex: 1 1 0; max-height: none; }
   .chat { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
   /* Solid, so the background starts under it like under the voice tiles */

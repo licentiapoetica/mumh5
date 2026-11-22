@@ -419,15 +419,48 @@ try {
   await camsShown(bob.page, 1);
   assert.equal(await bob.page.getByRole('region', { name: 'Screen share' }).count(), 0, 'a camera does not take over the stage by itself');
 
-  // Bob turns his camera on too: both now see both, each one their own mirrored
-  await bob.page.locator('.me').getByRole('button', { name: 'Share your screen or camera' }).click();
-  const bobDialog = bob.page.getByRole('dialog', { name: 'Share your screen' });
-  await bobDialog.getByRole('tab', { name: 'Camera' }).click();
-  await bob.page.waitForFunction(() => (document.querySelector('.preview video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
-  await bobDialog.getByRole('button', { name: 'Start sharing' }).click();
+  // Settings, Video: the camera stays off until the preview is asked for, and the choices are used
+  const previewHeight = (p: Page, h: number) => p.waitForFunction(
+    want => (document.querySelector('video[aria-label="Camera preview"]') as HTMLVideoElement | null)?.videoHeight === want, h, { timeout: 15000 });
+  await bob.page.getByTitle('Settings').click();
+  await bob.page.getByRole('tab', { name: 'Video' }).click();
+  assert.equal(await bob.page.getByLabel('Camera preview').evaluate(v => (v as HTMLVideoElement).srcObject), null, 'no camera before asking');
+  await bob.page.getByLabel('Resolution').selectOption('480');
+  await bob.page.getByLabel('Frame rate').selectOption('15');
+  await bob.page.getByRole('button', { name: 'Preview camera' }).click();
+  await previewHeight(bob.page, 480);
+  assert.ok(await bob.page.getByLabel('Device').locator('option').count() >= 3, 'default and both fake cameras listed');
+  await bob.page.getByLabel('Resolution').selectOption('720');
+  await previewHeight(bob.page, 720);
+  await bob.page.getByLabel('Resolution').selectOption('480');
+  await previewHeight(bob.page, 480);
+  await bob.page.getByRole('button', { name: 'Stop preview' }).click();
+  assert.equal(await bob.page.getByLabel('Camera preview').evaluate(v => (v as HTMLVideoElement).srcObject), null, 'preview released');
+  await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: Video settings preview the chosen camera and release it');
+
+  // The camera button turns it on directly: both now see both, each one their own mirrored
+  await bob.page.locator('.me').getByRole('button', { name: 'Turn on your camera' }).click();
   await camsShown(bob.page, 2);
   await camsShown(alice.page, 2);
+  assert.equal(await bob.page.locator('.me').getByRole('button', { name: 'Share your screen or camera' }).isDisabled(), true, 'one stream at a time');
   assert.equal(await bob.page.locator('.stage .tile.self video.mirror').count(), 1, 'own camera is mirrored');
+  const ownHeight = (h: number) => bob.page.waitForFunction(
+    want => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoHeight === want, h, { timeout: 15000 });
+  await ownHeight(480);
+  // Changes reach the running camera without restarting the stream
+  await bob.page.getByTitle('Settings').click();
+  await bob.page.getByRole('tab', { name: 'Video' }).click();
+  await bob.page.getByText('Your channel can see this').waitFor();
+  await bob.page.getByLabel('Resolution').selectOption('720');
+  await previewHeight(bob.page, 720);
+  await bob.page.getByLabel('Mirror my own picture').uncheck();
+  assert.equal(await bob.page.locator('.stage .tile.self video.mirror').count(), 0, 'mirror off');
+  await bob.page.getByLabel('Mirror my own picture').check();
+  await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
+  await ownHeight(720);
+  await camsShown(alice.page, 2);
+  console.log('ok: camera button, and settings applied to the running camera');
   // The picture keeps its shape in the tile at any tile size: whole, not cropped
   const shape = () => bob.page.evaluate(() => [...document.querySelectorAll('.stage .tile video')].map(v => {
     const el = v as HTMLVideoElement, r = el.getBoundingClientRect();
@@ -484,7 +517,23 @@ try {
   assert.equal(await bob.page.locator('.stage .tile', { hasText: aliceName }).locator('video').count(), 0, 'the enlarged camera is not also in its tile');
   assert.equal(await bob.page.locator('.stage .tile.self video').count(), 1, 'the other tiles keep theirs');
   const camStats = await nerd(bob.page, [/^relayed \(TURN\), reached over TCP/, /^0 direct, 0 through STUN, [1-9]\d* relayed/]);
+  const aboveChat = () => bob.page.evaluate(() =>
+    document.querySelector('.stage')!.getBoundingClientRect().bottom <= document.querySelector('.logbox')!.getBoundingClientRect().top + 1);
+  assert.ok(await aboveChat(), 'Modern: the large camera ends above the chat');
+  assert.equal(await bob.page.locator('.spot .pic > video').evaluate(v => getComputedStyle(v).transform), 'none', 'Modern: other people are not mirrored');
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/modern-large.png` });
   await bob.page.getByRole('region', { name: 'Screen share' }).getByRole('button', { name: 'Back to tiles' }).click();
+  // Your own camera enlarged is the same window, and follows the mirror setting
+  await bob.page.locator('.stage .tile.self').click();
+  await bob.page.getByRole('region', { name: 'Screen share' }).getByText('Your camera').waitFor();
+  await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  assert.match(await bob.page.locator('.spot .pic > video').evaluate(v => getComputedStyle(v).transform), /^matrix\(-1,/, 'Modern: own camera mirrored when enlarged');
+  await bob.page.setViewportSize({ width: 1280, height: 620 });
+  assert.ok(await aboveChat(), 'Modern: still above the chat in a short window');
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/modern-own-short.png` });
+  await bob.page.setViewportSize({ width: 1280, height: 800 });
+  await bob.page.getByRole('region', { name: 'Screen share' }).getByRole('button', { name: 'Back to tiles' }).click();
+  console.log('ok: Modern layout shows cameras in tiles and in the large window');
 
   // Everyone's cameras off at once keeps Bob's own camera on and drops the others; on again brings them back
   await bob.page.locator('.stage').getByRole('button', { name: 'Hide all cameras' }).click();
@@ -492,10 +541,71 @@ try {
   await alice.page.locator('.stage .status', { hasText: '0 watching' }).waitFor();
   await bob.page.locator('.stage').getByRole('button', { name: 'Show all cameras' }).click();
   await camsShown(bob.page, 2);
-  await bob.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();
+  await bob.page.locator('.me').getByRole('button', { name: 'Turn off your camera' }).click();
   await camsShown(alice.page, 1);
-  await alice.page.locator('.me').getByRole('button', { name: 'Stop sharing your camera' }).click();
+  await alice.page.locator('.me').getByRole('button', { name: 'Turn off your camera' }).click();
   await cam.waitFor({ state: 'detached' });
+
+  // The same button in the stacked layout's toolbar
+  const layout = async (name: string) => {
+    await bob.page.getByTitle('Configure').click();
+    await bob.page.getByRole('tab', { name: 'Appearance' }).click();
+    await bob.page.getByRole('radio', { name, exact: true }).click();
+    await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
+  };
+  await layout('Stacked');
+  await bob.page.locator('.me.toolbar').getByRole('button', { name: 'Turn on your camera' }).click();
+  // It plays in the screen sharing window, with that window's controls, and stays above the chat
+  const camWindow = bob.page.getByRole('region', { name: 'Screen share' });
+  await camWindow.getByText('Your camera').waitFor();
+  await bob.page.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  for (const name of ['Open in a separate window', 'Full screen']) await camWindow.getByRole('button', { name }).waitFor();
+  assert.match(await bob.page.locator('.spot .pic > video').evaluate(v => getComputedStyle(v).transform), /^matrix\(-1,/, 'own camera mirrored in the window');
+  const clear = () => bob.page.evaluate(() => {
+    const tabs = document.querySelector('.chat-tabs')!.getBoundingClientRect().top;
+    return [...document.querySelectorAll('.stage.solo, .stage.solo .spot, .stage.solo .tiles')].every(e => e.getBoundingClientRect().bottom <= tabs + 1);
+  });
+  assert.ok(await clear(), 'the window ends above the chat tabs');
+  // A second camera waits in a strip under the window; a click puts it in the window
+  await alice.page.locator('.me').getByRole('button', { name: 'Turn on your camera' }).click();
+  const stripTile = bob.page.locator('.stage.solo .tiles.strip .tile');
+  await stripTile.waitFor({ timeout: 30000 });
+  await bob.page.setViewportSize({ width: 1280, height: 620 });
+  assert.ok(await clear(), 'still above the chat tabs in a short window');
+  await stripTile.click();
+  await camWindow.getByText(aliceName).waitFor();
+  assert.equal(await bob.page.locator('.spot .pic > video').evaluate(v => getComputedStyle(v).transform), 'none', 'other people are not mirrored');
+  await alice.page.locator('.me').getByRole('button', { name: 'Turn off your camera' }).click();
+  await camWindow.getByText('Your camera').waitFor({ timeout: 15000 });
+  await bob.page.setViewportSize({ width: 1280, height: 800 });
+  await bob.page.locator('.me.toolbar').getByRole('button', { name: 'Turn off your camera' }).click();
+  await camWindow.waitFor({ state: 'detached' });
+  await layout('Modern');
+  console.log('ok: stacked layout plays cameras in the screen sharing window');
+
+  // Rooms: the same button on the voice screen, and all four large buttons fit a phone
+  await bob.page.getByTitle('Configure').click();
+  await bob.page.getByRole('tab', { name: 'Appearance' }).click();
+  await bob.page.getByRole('radio', { name: 'Rooms' }).click();
+  await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
+  await bob.page.setViewportSize({ width: 360, height: 720 });
+  const screens = bob.page.getByRole('navigation', { name: 'Screens' });
+  await screens.getByRole('button', { name: 'Voice' }).click();
+  const voiceScreen = bob.page.getByRole('region', { name: 'Voice', exact: true });
+  await voiceScreen.getByRole('button', { name: 'Turn on your camera' }).click();
+  await bob.page.waitForFunction(() => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
+  const buttonsFit = await bob.page.evaluate(() => [...document.querySelectorAll('.controls.large button')].map(b => b.getBoundingClientRect()).every(r => r.left >= 0 && r.right <= innerWidth));
+  assert.ok(buttonsFit, 'the large buttons fit a phone');
+  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/rooms-phone.png` });
+  await voiceScreen.getByRole('button', { name: 'Turn off your camera' }).click();
+  await bob.page.locator('.stage .tile.self video').waitFor({ state: 'detached' });
+  await bob.page.setViewportSize({ width: 1280, height: 800 });
+  await screens.getByRole('button', { name: 'You' }).click();
+  await bob.page.getByRole('region', { name: 'You' }).getByRole('button', { name: /^Appearance/ }).click();
+  await bob.page.getByRole('radio', { name: 'Standard' }).click();
+  await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
+  await bob.page.locator('.me').getByRole('button', { name: 'Turn on your camera' }).waitFor();
+  console.log('ok: camera button in Rooms, on a phone-sized window');
   await bob.page.evaluate(() => localStorage.removeItem('mumh5.iceDebug'));
   console.log(`ok: cameras of several people at once, in the tiles, through the relay (${camStats.match(/Picture \| [^|]+/)?.[0]})`);
   void liveCams;

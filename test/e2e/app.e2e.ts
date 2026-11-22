@@ -2428,6 +2428,7 @@ try {
     const voiceScreen = page.getByRole('region', { name: 'Voice', exact: true });
     await voiceScreen.locator('.tile', { hasText: 'bob' }).waitFor();
     await voiceScreen.getByRole('button', { name: /^Share your screen or camera$/ }).waitFor();
+    await voiceScreen.getByRole('button', { name: 'Turn on your camera' }).waitFor();
     assert.equal(await page.locator('.dock').count(), 0, 'no dock on the voice screen');
 
     // People: a profile opens over the screen, a message opens the chat

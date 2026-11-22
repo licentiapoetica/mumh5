@@ -2,6 +2,7 @@
   import { historyHours } from '../core/chat-retention.ts';
   import Modal from './Modal.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
+  import VideoSettings from './VideoSettings.svelte';
   import IdentityList from './IdentityList.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
   import SoundSettings from './SoundSettings.svelte';
@@ -14,8 +15,10 @@
   import { files } from '../lib/files.svelte.ts';
   import { formatBytes } from '../lib/html.ts';
   import { updates, build } from '../lib/updates.svelte.ts';
+  import { share } from '../lib/share.svelte.ts';
+  import { sessions } from '../lib/session.svelte.ts';
 
-  type Tab = 'voice' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
+  type Tab = 'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
   let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: Tab } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -53,6 +56,7 @@
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'voice', label: 'Voice' },
+    { id: 'video', label: 'Video' },
     { id: 'sharing', label: 'Screen sharing' },
     { id: 'sounds', label: 'Sounds' },
     { id: 'appearance', label: 'Appearance' },
@@ -67,6 +71,10 @@
       case 'voice': return {
         what: 'voice settings', changed: !voice.isDefault(), run: () => voice.reset(),
         note: 'Back to the defaults, devices included. Volumes and mutes you set for people are kept.'
+      };
+      case 'video': return {
+        what: 'video settings', changed: !store.isDefault('video'),
+        run: () => { store.resetSettings('video'); share.setCams(sessions.active, s.autoCameras); }
       };
       case 'sharing': return {
         what: 'screen sharing settings', changed: !store.isDefault('sharing'),
@@ -107,6 +115,8 @@
   <div class="pane" role="tabpanel">
   {#if tab === 'voice'}
     <VoiceSettings />
+  {:else if tab === 'video'}
+    <VideoSettings />
   {:else if tab === 'sharing'}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
