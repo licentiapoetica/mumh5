@@ -46,7 +46,7 @@
   const time = $derived(new Date(entry.time));
 
   // The author while still online: a click opens their card, right-click their menu
-  const authorId = $derived(entry.self ? session.self?.session : entry.authorSession);
+  const authorId = $derived(session.chatAuthor(entry)?.session);
   function authorMenu(e: MouseEvent) {
     const u = authorId != null ? session.user(authorId) : undefined;
     if (u) menu.show(e, userMenu(u));

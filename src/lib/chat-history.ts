@@ -2,10 +2,11 @@ import type { User } from '../core/client.ts';
 import type { ChatEntry, Session, ViewKey } from './session.svelte.ts';
 import { dataKeys, deleteBlob, getData, putData, updateData } from './blobstore.ts';
 import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
+import { persistentChatAuthor } from '../core/chat-author.ts';
 import { store } from './settings.svelte.ts';
 import { copyReactions, readReactions, type Reaction } from '../core/reactions.ts';
 
-export interface SavedMessage { id: string; time: number; author: string; self: boolean; raw: string; reactions?: Reaction[] }
+export interface SavedMessage { id: string; time: number; author: string; self: boolean; raw: string; reactions?: Reaction[]; authorIdentity?: string }
 interface Conversation { route: string; name: string; messages: SavedMessage[]; hidden?: boolean }
 interface State {
   client: Session['client']; key: string; epoch: string; loaded: boolean;
@@ -81,7 +82,11 @@ class ChatHistory {
           && currentChatMessage(m.time, Date.now(), retention()) && typeof m.author === 'string' && typeof m.self === 'boolean' && typeof m.raw === 'string')
           .map((m: SavedMessage) => {
             const reactions = readReactions(m.reactions);
-            return { id: m.id, time: m.time, author: m.author, self: m.self, raw: m.raw, ...(reactions.length ? { reactions } : {}) };
+            // Older DMs identify the incoming author through the conversation route.
+            // Channel archives without metadata cannot safely be matched by display name.
+            const authorIdentity = persistentChatAuthor(m.authorIdentity) ? m.authorIdentity
+              : !m.self && persistentChatAuthor(c.route) ? c.route : undefined;
+            return { id: m.id, time: m.time, author: m.author, self: m.self, raw: m.raw, authorIdentity, ...(reactions.length ? { reactions } : {}) };
           });
         st.data.set(c.route, { route: c.route, name: c.name, messages, hidden: c.hidden === true });
       }
@@ -122,7 +127,8 @@ class ChatHistory {
     st.routes.set(key, route); st.targets.set(route, key as ViewKey);
     const name = s.viewTitle(key);
     if (key.startsWith('dm:')) s.dmNames[key] = name;
-    const message: SavedMessage | undefined = entry ? { id: entry.historyId ??= crypto.randomUUID(), time: entry.time, author: entry.author, self: entry.self, raw } : undefined;
+    const message: SavedMessage | undefined = entry ? { id: entry.historyId ??= crypto.randomUUID(), time: entry.time, author: entry.author, self: entry.self, raw,
+      authorIdentity: persistentChatAuthor(entry.authorIdentity) ? entry.authorIdentity : undefined } : undefined;
     this.change(st, () => {
       let c = st.data.get(route);
       if (!c) { c = { route, name, messages: [] }; st.data.set(route, c); }

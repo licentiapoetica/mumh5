@@ -46,6 +46,24 @@ try {
     const historyPath = '/src/lib/chat-history.ts', sessionPath = '/src/lib/session.svelte.ts';
     await (await import(historyPath)).chatHistory.flush((await import(sessionPath)).sessions.active);
   });
+  const select = (key: string) => page.evaluate(async key => {
+    const path = '/src/lib/session.svelte.ts';
+    (await import(path)).session.selectView(key);
+  }, key);
+  const profile = async (text: string, name: string, id: number, target = '.author', rightClick = false) => {
+    await page.locator('.msg', { hasText: text }).locator(target).click({ button: rightClick ? 'right' : 'left' });
+    if (rightClick) await page.getByRole('menuitem', { name: 'View profile', exact: true }).click();
+    await page.getByRole('dialog', { name: `Profile of ${name}`, exact: true }).waitFor();
+    assert.equal(await page.evaluate(async () => {
+      const path = '/src/lib/ui.svelte.ts';
+      return (await import(path)).ui.profile?.session;
+    }), id, 'the historic author opens the current user, even when their session ID changes');
+    await page.keyboard.press('Escape');
+  };
+  const noProfile = async (text: string) => {
+    await page.locator('.msg', { hasText: text }).locator('.author').click();
+    assert.equal(await page.getByRole('dialog', { name: /^Profile of / }).count(), 0, 'unknown authors must not open someone else’s profile');
+  };
   await connect();
   await page.evaluate(async () => {
     const module = '/src/lib/session.svelte.ts';
@@ -74,6 +92,7 @@ try {
     session.sendText('saved private reply', 'dm:2');
     session.receive(session.client, { actor: 2, channels: [], trees: [], sessions: [1], html: '<b>saved private message</b>', time: Date.now() });
     session.sendText('saved channel message', 'ch:0');
+    session.receive(session.client, { actor: 2, channels: [0], trees: [], sessions: [], html: 'saved channel reply', time: Date.now() });
     for (let i = 0; i < 205; i++) session.receive(session.client, { actor: 2, channels: [], trees: [], sessions: [1], html: `history batch ${i}`, time: Date.now() });
   });
   await flush();
@@ -86,8 +105,14 @@ try {
   assert.equal(saved.keys.includes('dm:2'), false, 'old session ID belongs to another person');
   assert.equal(saved.names['dm:22'], 'Bob');
   assert.equal(saved.messages['dm:22'].length, 207, 'all messages within the retention window survive without a 200-message cap');
-  await page.locator('.dm', { hasText: 'Bob' }).click();
+  await select('dm:22');
   await page.locator('.msg', { hasText: 'saved private message' }).waitFor();
+  await profile('saved private message', 'Bob', 22);
+  await profile('saved private message', 'Bob', 22, '.face');
+  await profile('saved private message', 'Bob', 22, '.author', true);
+  await profile('saved private reply', 'Alice', 1);
+  await select('ch:0');
+  await profile('saved channel reply', 'Bob', 22);
   console.log('ok: private and channel history survives reload; private chats follow identity, not session ID');
 
   // Reactions on saved messages: yours and someone else's, in a private chat and a channel
@@ -152,6 +177,8 @@ try {
   await textChannel(true);
   await page.reload(); await connect(22);
   assert.deepEqual(await textChannel(false), [{ emoji: thumbs, who: ['alice-identity'] }]);
+  await select('ch:5');
+  await profile('text channel note', 'Bob', 22);
   console.log('ok: reactions on saved messages survive reload, in chats and text channels');
 
   await page.reload(); await connect(0);
@@ -159,13 +186,17 @@ try {
   const offline = saved.keys.find(key => key.startsWith('dm:-'))!;
   assert.ok(offline);
   assert.equal(saved.names[offline], 'Bob');
-  await page.locator('.dm', { hasText: 'Bob' }).click();
+  await select(offline);
   assert.equal(await page.locator('.composer [contenteditable="true"]').count(), 0, 'offline history cannot send to a reused session');
   const denied = await page.evaluate(async key => {
     const module = '/src/lib/session.svelte.ts';
     return (await import(module)).session.sendText('do not deliver', key);
   }, offline);
   assert.equal(denied, false);
+  await noProfile('saved private message');
+  await textChannel(false);
+  await select('ch:5');
+  await noProfile('text channel note');
   await page.evaluate(async () => {
     const sessionPath = '/src/lib/session.svelte.ts', historyPath = '/src/lib/chat-history.ts';
     const { session, sessions } = await import(sessionPath);
@@ -177,19 +208,83 @@ try {
   saved = await snapshot();
   assert.equal(saved.keys.includes(offline), false);
   assert.ok(saved.messages['dm:33'].some((m: string) => m.includes('saved private message')));
+  // A text history author loaded while offline must become clickable without reloading history.
+  await profile('text channel note', 'Bob', 33);
+  await select('dm:33');
+  await profile('saved private message', 'Bob', 33);
   await page.evaluate(async () => {
     const sessionPath = '/src/lib/session.svelte.ts', historyPath = '/src/lib/chat-history.ts';
     const { session, sessions } = await import(sessionPath);
     const bob = session.client.users.get(33);
     session.client.users.delete(33);
     (await import(historyPath)).chatHistory.userLeft(sessions.active, bob);
-    session.client.users.set(33, { ...bob, name: 'Impostor', hash: 'impostor-identity' });
+    session.client.users.set(33, { ...bob, name: 'Bob', hash: 'impostor-identity' });
     (await import(historyPath)).chatHistory.userChanged(sessions.active, session.client.users.get(33));
     session.tick++;
   });
   saved = await snapshot();
   assert.equal(saved.keys.includes('dm:33'), false, 'a reused session number cannot inherit a departed peer’s history');
+  await select('ch:0');
+  await noProfile('saved channel reply');
+  await select('ch:5');
+  await noProfile('text channel note');
   console.log('ok: offline conversations retain names and return to the right peer when they reconnect');
+
+  // Old private archives can recover authors from their identity route; old channel archives cannot.
+  await page.evaluate(async () => {
+    const storagePath = '/src/lib/blobstore.ts';
+    const { putData } = await import(storagePath);
+    const message = (id: string, raw: string) => ({ id, time: Date.now(), author: 'Bob', self: false, raw });
+    await putData(`chat-history:${JSON.stringify(['legacy-server', 64738, 'alice-identity'])}`, [
+      { route: 'hash:bob-identity', name: 'Bob', messages: [message('legacy-dm', 'legacy private message')] },
+      { route: 'channel:["Root"]', name: 'Root', messages: [message('legacy-channel', 'legacy channel message')] }
+    ]);
+  });
+  await page.reload(); await connect(22, 'alice-identity', 'legacy-server');
+  await select('dm:22');
+  await profile('legacy private message', 'Bob', 22);
+  await select('ch:0');
+  await noProfile('legacy channel message');
+  console.log('ok: historic author names, avatars and menus follow identity; legacy DMs recover their authors safely');
+
+  const extraAuthors = (first: boolean) => page.evaluate(async first => {
+    const path = '/src/lib/session.svelte.ts';
+    const { session } = await import(path);
+    const base = session.client.users.get(22);
+    const id = first ? 10 : 30;
+    session.client.users.set(id, { ...base, session: id, name: 'Registered', hash: first ? '' : 'registered-certificate', userId: 7 });
+    session.client.users.set(id + 1, { ...base, session: id + 1, name: 'Guest', hash: '', userId: null });
+    session.client.users.set(id + 2, { ...base, session: id + 2, name: 'Guest', hash: 'different-guest' });
+    session.tick++;
+    if (first) for (const [actor, html] of [[id, 'registered author message'], [id + 1, 'anonymous author message'], [id + 2, 'same name different author']] as const)
+      session.receive(session.client, { actor, channels: [0], trees: [], sessions: [], html, time: Date.now() });
+  }, first);
+  await extraAuthors(true);
+  await profile('registered author message', 'Registered', 10);
+  await profile('anonymous author message', 'Guest', 11);
+  await profile('same name different author', 'Guest', 12);
+  await page.evaluate(async () => {
+    const path = '/src/lib/session.svelte.ts';
+    const { session } = await import(path);
+    session.client.users.get(11).userId = 8;
+    session.tick++;
+  });
+  await profile('anonymous author message', 'Guest', 11);
+  // Even a guest's reused session number in the same connection must not retarget old messages.
+  await page.evaluate(async () => {
+    const path = '/src/lib/session.svelte.ts';
+    const { session } = await import(path);
+    session.client.users.set(11, { ...session.client.users.get(11) });
+    session.tick++;
+  });
+  await noProfile('anonymous author message');
+  await flush();
+  await page.reload(); await connect(22, 'alice-identity', 'legacy-server');
+  await extraAuthors(false);
+  await profile('registered author message', 'Registered', 30);
+  await noProfile('anonymous author message');
+  await profile('same name different author', 'Guest', 32);
+  console.log('ok: registered authors reconnect without a hash; anonymous authors cannot inherit names or reused sessions');
 
   await page.reload(); await connect(22, 'another-account');
   assert.equal((await snapshot()).keys.length, 0, 'different identities cannot see each other’s history');
