@@ -1809,6 +1809,12 @@ try {
       for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) await mover(suffix).click({ modifiers: ['Control'] });
       await page.locator('.sidebar').getByLabel('Move selected people to').selectOption('0');
       assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === lobby.id), 'choosing a destination does not submit');
+      // On a short window the bar takes at most half of the list, and the move row stays in it
+      await page.setViewportSize({ width: 900, height: 420 });
+      const area = await box('.sidebar .scroll'), bar = await box('.selection'), moveRow = await box('.selection .move');
+      assert.ok(bar.height <= Math.max(area.height / 2, 100) + 1, `selection bar leaves the list visible (${bar.height} of ${area.height})`);
+      assert.ok(moveRow.y + moveRow.height <= bar.y + bar.height, 'move row visible without scrolling the bar');
+      await page.setViewportSize({ width: 1280, height: 800 });
       await page.locator('.selection').getByRole('button', { name: 'Move 6 people', exact: true }).click();
       await allMoved(0);
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'Move to clears the selection');

@@ -66,8 +66,24 @@
       <span aria-live="polite">{selected.length} selected{includesSelf ? ', including you' : ''}</span>
       <button disabled={session.movingUsers} onclick={clear} title="Clear selection (Escape)">{result && !selected.length ? 'Done' : 'Clear'}</button>
     </div>
-    {#if hidden}<p>{hidden} selected {hidden === 1 ? 'person is' : 'people are'} outside this view.</p>{/if}
     {#if selected.length}
+      <!-- The actions come first: on short lists the bar scrolls and the rest sits below -->
+      <div class="move">
+        <select aria-label="Move selected people to" bind:value={destination} disabled={session.movingUsers}>
+          <option value="" disabled>Move to...</option>
+          {#if target && !matches.some(c => c.id === target.id)}<option value={String(target.id)}>{target.name} (selected)</option>{/if}
+          {#each matches as c (c.id)}
+            {@const same = selected.every(u => u.channelId === c.id)}
+            <option value={String(c.id)} disabled={same}>{c.name}{same ? ' (already here)' : ''}</option>
+          {/each}
+        </select>
+        <button class="btn primary" disabled={!movable || session.movingUsers} onclick={move}>Move {selected.length} {selected.length === 1 ? 'person' : 'people'}</button>
+      </div>
+      {#if includesSelf}<p>You will join the destination too. Locked channels may ask you for a password.</p>{/if}
+      <input type="search" aria-label="Find a destination channel" placeholder="Find a channel" bind:value={query} disabled={session.movingUsers} />
+      {#if !matches.length}<p>No matching channels.</p>{/if}
+      {#if target && !matches.some(c => c.id === target.id)}<p>Destination: {target.name}</p>{/if}
+      {#if hidden}<p>{hidden} selected {hidden === 1 ? 'person is' : 'people are'} outside this view.</p>{/if}
       <details>
         <summary>Review selected people</summary>
         <ul class="review">
@@ -77,19 +93,6 @@
           {/each}
         </ul>
       </details>
-      <input type="search" aria-label="Find a destination channel" placeholder="Find a channel" bind:value={query} disabled={session.movingUsers} />
-      <select aria-label="Move selected people to" bind:value={destination} disabled={session.movingUsers}>
-        <option value="" disabled>Move to...</option>
-        {#if target && !matches.some(c => c.id === target.id)}<option value={String(target.id)}>{target.name} (selected)</option>{/if}
-        {#each matches as c (c.id)}
-          {@const same = selected.every(u => u.channelId === c.id)}
-          <option value={String(c.id)} disabled={same}>{c.name}{same ? ' (already here)' : ''}</option>
-        {/each}
-      </select>
-      {#if !matches.length}<p>No matching channels.</p>{/if}
-      {#if target && !matches.some(c => c.id === target.id)}<p>Destination: {target.name}</p>{/if}
-      {#if includesSelf}<p>You will join the destination too. Locked channels may ask you for a password.</p>{/if}
-      <button class="btn primary" disabled={!movable || session.movingUsers} onclick={move}>Move {selected.length} {selected.length === 1 ? 'person' : 'people'}</button>
     {:else if session.selectingUsers}
       <p>Tap people to select them.</p>
     {/if}
@@ -107,12 +110,19 @@
 {/if}
 
 <style>
-  .selection { position: sticky; bottom: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; padding: 8px; background: var(--bg-2); border: 1px solid var(--line); font-size: 12px; max-height: 65vh; overflow-y: auto; }
+  /* It sticks over the list, so it takes at most half of the scroll area (the % is of that),
+     but never less than the count and the move row; the rest scrolls inside it */
+  .selection { position: sticky; bottom: 0; z-index: 1; display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; padding: 8px; background: var(--bg-2); border: 1px solid var(--line); font-size: 12px;
+    max-height: max(50%, calc(2 * var(--control-h) + 26px)); overflow-y: auto; }
+  .selection > * { flex: none; } /* scroll instead of squashing the fields */
   .summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .move { display: flex; flex-wrap: wrap; gap: 6px; }
+  .move select { flex: 1 1 100px; }
+  .move .btn { flex: none; min-height: var(--control-h); padding: 4px 10px; }
   p { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
   select, input { width: 100%; min-width: 0; height: var(--control-h); padding: 0 6px; font-size: 12px; }
-  button { min-height: var(--control-h); padding: 4px; color: var(--text-dim); }
-  button:hover { color: var(--text); background: var(--bg-hover); }
+  button:not(.btn) { min-height: var(--control-h); padding: 4px; color: var(--text-dim); }
+  button:not(.btn):hover { color: var(--text); background: var(--bg-hover); }
   summary { cursor: pointer; }
   .review { list-style: none; padding: 0; margin: 6px 0 0; max-height: 160px; overflow-y: auto; }
   .review li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); }
