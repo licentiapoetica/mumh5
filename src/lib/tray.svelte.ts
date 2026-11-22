@@ -4,10 +4,10 @@ import { session, sessions } from './session.svelte.ts';
 import { voice, type TransmitMode } from './audio/voice.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { store } from './settings.svelte.ts';
+import { INK, LAMP, lampStops } from './lamp.ts';
 
 type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened';
 
-const INK = '#141518'; // the app icon's black
 const GREY = '#7a7d87';
 const AMBER = '#f0b232';
 const DEFAULT_ACCENT = '#7c6cff';
@@ -41,20 +41,20 @@ function accentOf(theme: string): string {
 
 // A sphere like a lamp: dark glass with a rim in the color when off, lighter when on
 function drawLamp(ctx: CanvasRenderingContext2D, color: string, lit: boolean): void {
-  // Same soft gradient both ways, only lighter when on
-  const g = ctx.createRadialGradient(24, 20, 1, 32, 32, 30);
-  g.addColorStop(0, lit ? mix(color, '#ffffff', 0.3) : mix(color, INK, 0.45));
-  g.addColorStop(1, lit ? mix(color, '#000000', 0.15) : mix(color, INK, 0.85));
+  const g = ctx.createRadialGradient(LAMP.fx, LAMP.fy, LAMP.fr, LAMP.cx, LAMP.cy, LAMP.r);
+  lampStops(lit).forEach(([other, amount], i) => g.addColorStop(i, mix(color, other, amount)));
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(32, 32, 29, 0, Math.PI * 2);
+  ctx.arc(LAMP.cx, LAMP.cy, LAMP.radius, 0, Math.PI * 2);
   ctx.fill();
   if (!lit) {
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = color + 'd9';
+    ctx.lineWidth = LAMP.rimWidth;
+    ctx.globalAlpha = LAMP.rimOpacity;
+    ctx.strokeStyle = color;
     ctx.beginPath();
-    ctx.arc(32, 32, 27.5, 0, Math.PI * 2);
+    ctx.arc(LAMP.cx, LAMP.cy, LAMP.rimRadius, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 }
 

@@ -6,6 +6,10 @@ import { menu, type MenuItem } from './menu.svelte.ts';
 export function startTextMenu(): void {
   if (!desktop) return;
   const api = desktop;
+  // Electron's x and y ignore the page zoom, so the menu goes where the page saw the click.
+  // Capture, since this event always comes before Electron's report
+  let at = { x: 0, y: 0 };
+  addEventListener('contextmenu', e => { at = { x: e.clientX, y: e.clientY }; }, true);
 
   api.onContextMenu(p => {
     // Edit commands act on the focused element; keep it focused through the menu
@@ -53,7 +57,7 @@ export function startTextMenu(): void {
         ]);
       }
       // The message under the pointer, as plain text
-      const msg = document.elementFromPoint(p.x, p.y)?.closest('.msg, .system');
+      const msg = document.elementFromPoint(at.x, at.y)?.closest('.msg, .system');
       const text = msg?.querySelector('.html')?.textContent?.trim();
       add([
         ...(text ? [{ label: 'Copy message text', action: () => navigator.clipboard.writeText(text) }] : []),
@@ -62,6 +66,6 @@ export function startTextMenu(): void {
       ]);
     }
 
-    if (items.length) menu.showAt(p.x, p.y, items, true);
+    if (items.length) menu.showAt(at.x, at.y, items, true);
   });
 }
