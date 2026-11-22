@@ -1,4 +1,5 @@
 <script lang="ts">
+  import UserSelectMark from '../ui/UserSelectMark.svelte';
   import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
@@ -210,6 +211,7 @@
                       {@const onSphere = !!mark && store.settings.avatars === 'spheres'}
                       <li>
                         <button class="person" data-menu-row use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
+                          <UserSelectMark id={u.session} />
                           {#if mark && onSphere}
                             <span class="mark face" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={22} /></span>
                           {:else}
@@ -259,7 +261,7 @@
           {/each}
         </ul>
       {/if}
-      <UserSelection list="rooms" />
+      <UserSelection list="rooms" visibleIds={voiceRooms.filter(r => isOpen(r.channel.id)).flatMap(r => session.usersIn(r.channel.id).map(u => u.session))} />
     {:else if session.status === 'idle' && (session.disconnectInfo || session.reconnectDelay != null)}
       {@const d = session.disconnectInfo}
       <div class="ended" class:bad={d?.kind === 'kicked' || d?.kind === 'banned'}>

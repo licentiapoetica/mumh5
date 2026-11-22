@@ -1,4 +1,5 @@
 <script lang="ts">
+  import UserSelectMark from './UserSelectMark.svelte';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import RoleBadges from './RoleBadges.svelte';
@@ -274,6 +275,7 @@
             aria-pressed={session.selectedUsers.includes(u.session)}
             title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
+            <UserSelectMark id={u.session} />
             <!-- The icon takes a sphere's place; beside a picture it sits in the indent. Names stay aligned either way -->
             {#if mark && store.settings.avatars === 'spheres'}
               <span class="state face" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={18} /></span>

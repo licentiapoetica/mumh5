@@ -1789,8 +1789,10 @@ try {
       await mover('f').waitFor();
       // Shift and Ctrl/Cmd both add or remove one person; Shift does not select a range
       await mover('a').click({ modifiers: ['Shift'] });
-      await mover('f').click({ modifiers: ['Shift'] });
-      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'Shift-click picks one person at a time');
+      await page.locator('.sidebar').getByRole('button', { name: 'Cancel selection', exact: true }).waitFor();
+      assert.ok(await page.locator('.sidebar .user .user-check').count() > 0, 'modifier-click shows the same selection controls');
+      await mover('f').click();
+      assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'a plain click continues the selection started with Shift');
       for (const suffix of ['b', 'c']) await mover(suffix).click({ modifiers: ['Control'] });
       for (const suffix of ['d', 'e']) await mover(suffix).click({ modifiers: ['Shift'] });
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 6);
@@ -1810,9 +1812,18 @@ try {
       await mover('a').dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
       await allMoved(lobby.id);
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'a move clears the selection');
-      assert.equal(await page.locator('.selection').count(), 0, 'and the bar goes');
+      await page.locator('.selection [role="status"]').filter({ hasText: 'Moved 6 of 6' }).waitFor();
+      await page.locator('.selection').getByRole('button', { name: 'Done', exact: true }).click();
       for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) await mover(suffix).click({ modifiers: ['Control'] });
-      await page.locator('.sidebar').getByLabel('Move selected clients to').selectOption('0');
+      await page.locator('.sidebar').getByLabel('Move selected people to').selectOption('0');
+      assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === lobby.id), 'choosing a destination does not submit');
+      // On a short window the bar takes at most half of the list, and the move row stays in it
+      await page.setViewportSize({ width: 900, height: 420 });
+      const area = await box('.sidebar .scroll'), bar = await box('.selection'), moveRow = await box('.selection .move');
+      assert.ok(bar.height <= Math.max(area.height / 2, 100) + 1, `selection bar leaves the list visible (${bar.height} of ${area.height})`);
+      assert.ok(moveRow.y + moveRow.height <= bar.y + bar.height, 'move row visible without scrolling the bar');
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.locator('.selection').getByRole('button', { name: 'Move 6 people', exact: true }).click();
       await allMoved(0);
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'Move to clears the selection');
       for (const suffix of ['a', 'b']) await mover(suffix).click({ modifiers: ['Shift'] });
@@ -1830,7 +1841,7 @@ try {
       }), 'bob back in Root');
       const selected = () => page.locator('.sidebar .user[aria-pressed="true"]').count();
       assert.equal(await page.locator('.selection').count(), 1, `one selection bar (members panel open: ${await page.locator('aside.members').count() > 0})`);
-      await page.locator('.sidebar').getByLabel('Move selected clients to').focus();
+      await page.locator('.sidebar').getByLabel('Move selected people to').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0);
       assert.equal(await page.locator('.selection').count(), 0, 'no bar without a selection');
@@ -1841,16 +1852,29 @@ try {
       movers[2].disconnect();
       await mover('c').waitFor({ state: 'detached' });
       assert.equal(await selected(), 2, 'disconnected clients leave the selection');
-      await mover('f').click();
+      await mover('f').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'View profile', exact: true }).click();
       await page.getByRole('dialog', { name: 'Profile of move-f' }).waitFor();
-      assert.equal(await selected(), 2, 'a plain click opens the profile and keeps the selection');
+      assert.equal(await selected(), 2, 'the profile menu keeps the selection');
       await page.keyboard.press('Escape');
       await page.getByRole('dialog', { name: /Profile of move-/ }).waitFor({ state: 'detached' });
       assert.equal(await selected(), 2, 'Escape that closes a profile keeps the selection');
       await mover('a').focus();
       await page.keyboard.press('Escape');
       assert.equal(await selected(), 0, 'Escape on a selected row clears the selection');
-      console.log('ok: Shift and Ctrl/Cmd pick people one by one, group dragging, bulk move picker and clearing selection');
+      // Once one person is selected, plain clicks and keyboard activation select more.
+      await mover('a').click({ modifiers: ['Control'] });
+      await mover('b').focus();
+      await page.keyboard.press('Space');
+      assert.equal(await selected(), 2);
+      assert.equal(await page.getByRole('dialog', { name: /Profile of move-/ }).count(), 0);
+      await mover('a').click();
+      assert.equal(await selected(), 1, 'a second click deselects');
+      await page.locator('.selection').focus();
+      await page.keyboard.press('Escape');
+      assert.equal(await selected(), 0);
+      assert.equal(await page.locator('.selection').count(), 0, 'Escape closes the bar');
+      console.log('ok: modifier and explicit selection, group moves and keyboard focus');
     } finally {
       for (const client of movers) client.disconnect();
     }
@@ -2269,16 +2293,18 @@ try {
     await rooms.locator('.room.here .person', { hasText: 'bob' }).waitFor();
     await page.locator('.dock', { hasText: 'Root' }).waitFor();
     await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
-    await rooms.locator('.person', { hasText: newName }).click({ modifiers: ['Shift'] });
+    await rooms.locator('.person', { hasText: newName }).click();
     assert.ok(await rooms.locator('.person[aria-pressed="true"]').count() >= 2);
     if (admin) {
       const games = [...bob.channels.values()].find(c => c.name === 'Games')!;
-      await rooms.getByLabel('Move selected clients to').selectOption(String(games.id));
+      await rooms.getByLabel('Move selected people to').selectOption(String(games.id));
+      await rooms.getByRole('button', { name: 'Move 2 people', exact: true }).click();
       await until2('selected clients in Games', () => bob.self?.channelId === games.id && userState(newName)?.channelId === games.id);
       assert.equal(await rooms.locator('.person[aria-pressed="true"]').count(), 0, 'a move clears the selection');
       await rooms.locator('.person', { hasText: 'bob' }).click({ modifiers: ['Control'] });
       await rooms.locator('.person', { hasText: newName }).click({ modifiers: ['Shift'] });
-      await rooms.getByLabel('Move selected clients to').selectOption('0');
+      await rooms.getByLabel('Move selected people to').selectOption('0');
+      await rooms.getByRole('button', { name: 'Move 2 people', exact: true }).click();
       await until2('selected clients back in Root', () => bob.self?.channelId === 0 && userState(newName)?.channelId === 0);
     } else await rooms.getByRole('button', { name: 'Clear', exact: true }).click();
     assert.equal(await rooms.locator('.person[aria-pressed="true"]').count(), 0);

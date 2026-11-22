@@ -28,6 +28,18 @@
 
   const roots = $derived(session.childrenOf(null));
   const self = $derived(session.self);
+  const visiblePeople = $derived.by(() => {
+    const ids: number[] = [];
+    const walk = (parent: number | null) => {
+      for (const c of session.childrenOf(parent)) {
+        if (!session.isExpanded(c.id)) continue;
+        ids.push(...session.usersIn(c.id).map(u => u.session));
+        walk(c.id);
+      }
+    };
+    walk(null);
+    return ids;
+  });
   const cert = $derived(session.serverCert);
   const trusted = $derived(!!cert?.authorized);
   // The lock and the status dot share a column, so the name and the status start at the same x
@@ -100,7 +112,7 @@
           {/each}
         </ul>
       {/if}
-      <UserSelection list="tree" />
+      <UserSelection list="tree" visibleIds={visiblePeople} />
     {/if}
   </div>
 

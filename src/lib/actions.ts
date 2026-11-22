@@ -1,3 +1,4 @@
+import { userLists } from './user-selection.svelte.ts';
 import { session, sessions } from './session.svelte.ts';
 import { share } from './share.svelte.ts';
 import { ui } from './ui.svelte.ts';
@@ -91,6 +92,8 @@ export function channelMenu(c: Channel): MenuItem[] {
   return [
     { header: true, label: c.name || 'Root' },
     ...open,
+    ...(!session.isText(c.id) ? [{ label: 'Select people in this channel', disabled: session.movingUsers || !session.usersIn(c.id).length,
+      action: () => { userLists.last = store.settings.interface === 'rooms' ? 'rooms' : 'tree'; session.selectChannelUsers(c.id); } }] : []),
     // The tree shows it next to the channel; the Rooms interface has no tree and uses its panel
     { label: 'Show description', action: () => {
       if (store.settings.interface === 'rooms') { session.showChannel(c.id, 'info'); ui.panelOpen = true; }
@@ -115,7 +118,9 @@ export function userMenu(u: User): MenuItem[] {
     { header: true, label: store.displayName(u) },
     isSelf
       ? { label: 'Edit profile', action: () => { ui.profile = null; ui.profileEdit = true; } }
-      : { label: 'View profile', action: () => openProfile(u.session, menu.last, menu.lastRow) }
+      : { label: 'View profile', action: () => openProfile(u.session, menu.last, menu.lastRow) },
+    { label: session.selectedUsers.includes(u.session) ? 'Remove from selection' : 'Select person', disabled: session.movingUsers,
+      action: () => session.toggleUser(u.session) }
   ];
   if (isSelf) {
     items.push(
