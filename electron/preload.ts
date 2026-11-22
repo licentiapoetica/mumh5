@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   screenSources: (thumbnails: boolean) => ipcRenderer.invoke('share:sources', !!thumbnails),
   pickScreenSource: (id: string) => ipcRenderer.send('share:pick', id),
   shareInfo: () => ipcRenderer.invoke('share:info'),
+  canPickColor: () => ipcRenderer.invoke('color:canPick'),
+  pickColor: () => ipcRenderer.invoke('color:pick'),
   shareAudioApps: () => ipcRenderer.invoke('share:audioApps'),
   shareAudioStart: (target: unknown) => ipcRenderer.invoke('share:audioStart', target),
   shareAudioStop: () => ipcRenderer.invoke('share:audioStop'),

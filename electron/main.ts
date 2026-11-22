@@ -12,6 +12,7 @@ import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
 import { udpChannel } from './udp-voice.ts';
 import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
+import { pickColor } from './portal-color.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 
@@ -177,6 +178,10 @@ ipcMain.handle('share:info', async () => ({
   audio: process.platform === 'win32' ? 'loopback' : (await pipewireAvailable()) ? 'pipewire' : 'none',
   micLabel: VIRTUAL_MIC_LABEL
 }));
+// Colors: Chromium's pipette cannot read the screen on Wayland, so there the desktop's own picker is offered
+ipcMain.handle('color:canPick', () => onWayland());
+let picking: Promise<string | null> | null = null;
+ipcMain.handle('color:pick', () => (picking ??= pickColor().finally(() => { picking = null; })));
 ipcMain.handle('share:audioApps', () => shareAudio.apps().catch(() => []));
 ipcMain.handle('share:audioStart', (_e, target: AudioTarget) =>
   shareAudio.start(target?.kind === 'app' ? { kind: 'app', name: String(target.name) } : { kind: 'all' }));

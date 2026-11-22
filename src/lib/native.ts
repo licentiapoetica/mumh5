@@ -57,6 +57,10 @@ interface NativeApi extends PlatformApi {
   // portal: the system shows its own source picker (Wayland). audio: how other programs' sound can be captured.
   shareInfo(): Promise<{ portal: boolean; audio: 'pipewire' | 'loopback' | 'none'; micLabel: string }>;
   shareAudioApps(): Promise<string[]>;
+  // Whether mumh5 offers its own pipette: the desktop's color picker, where Chromium's cannot read the screen (Wayland)
+  canPickColor(): Promise<boolean>;
+  // '#rrggbb', or null when cancelled; rejects when the desktop has no color picker portal
+  pickColor(): Promise<string | null>;
   // Linux: route one program, or everything but this app, into a virtual microphone named micLabel
   shareAudioStart(target: { kind: 'all' } | { kind: 'app'; name: string }): Promise<void>;
   shareAudioStop(): Promise<void>;
