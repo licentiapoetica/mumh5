@@ -123,7 +123,7 @@ class TextChannels {
     const self = s.client?.self;
     if (!st || !self) return 'Not connected.';
     if (html.length > MAX_HTML) return `Message too long for a text channel (${html.length} / ${MAX_HTML} characters)`;
-    const m: TextMsg = { i: newId(), c: channelId, t: Date.now(), n: self.name, k: self.hash, h: html };
+    const m: TextMsg = { i: newId(), c: channelId, t: Date.now(), n: self.displayName || self.name, k: self.hash, h: html };
     let packets: Uint8Array[];
     try {
       packets = await encodeText(TEXT.msg, { i: m.i, c: m.c, h: m.h });
@@ -159,7 +159,7 @@ class TextChannels {
         const ch = m && client.channels.get(m.c);
         // Only into text channels, or channels whose description has not arrived yet
         if (!m || !from || !ch || !(isTextChannel(ch.description) || (ch.descriptionHash && !ch.description))) return;
-        const msg: TextMsg = { ...m, t: Date.now(), n: from.name, k: from.hash };
+        const msg: TextMsg = { ...m, t: Date.now(), n: from.displayName || from.name, k: from.hash };
         if (!this.keep(st, [msg]).length) return;
         if (st.shown.has(m.c)) {
           s.addText(msg, false, false, sender);

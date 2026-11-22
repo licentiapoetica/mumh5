@@ -47,7 +47,7 @@
   let query = $state('');
   const q = $derived(query.trim().toLowerCase());
   const matches = (r: Row) => !q || (r.channel.name || 'Root').toLowerCase().includes(q)
-    || session.usersIn(r.channel.id).some(u => store.displayName(u).toLowerCase().includes(q));
+    || session.usersIn(r.channel.id).some(u => store.displayName(u).toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
   // Your own room leads the list; the others keep the server's order
   const voiceRooms = $derived(all.filter(r => !session.isText(r.channel.id) && matches(r))
     .sort((a, b) => Number(b.channel.id === self?.channelId) - Number(a.channel.id === self?.channelId)));
@@ -189,7 +189,7 @@
                   </span>
                   {#if users.length && !open}
                     <span class="faces" aria-label="{users.length} {users.length === 1 ? 'person' : 'people'}">
-                      {#each users.slice(0, 4) as u (u.session)}<Avatar name={u.name} size={26} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
+                      {#each users.slice(0, 4) as u (u.session)}<Avatar name={store.displayName(u)} size={26} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
                       {#if users.length > 4}<span class="extra">+{users.length - 4}</span>{/if}
                     </span>
                   {/if}
@@ -217,7 +217,7 @@
                             {#if mark && onSphere}
                               <span class="mark face" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={22} /></span>
                             {:else}
-                              <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
+                              <Avatar name={store.displayName(u)} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                             {/if}
                             <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                             <RoleBadges user={u} />

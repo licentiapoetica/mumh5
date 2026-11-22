@@ -1,3 +1,4 @@
+import { MAX_DISPLAY_NAME } from '../core/display-name.ts';
 import { userLists } from './user-selection.svelte.ts';
 import { session, sessions } from './session.svelte.ts';
 import { share } from './share.svelte.ts';
@@ -171,11 +172,11 @@ export function userMenu(u: User): MenuItem[] {
   if (!isSelf) {
     items.push(
       { separator: true, label: '' },
-      { label: 'Kick...', danger: true, action: () => (ui.prompt = { title: `Kick ${u.name}`, label: 'Reason (optional)', confirm: 'Kick', danger: true, onsubmit: r => session.kick(u.session, r) }) },
-      { label: 'Ban...', danger: true, action: () => (ui.prompt = { title: `Ban ${u.name}`, label: 'Reason (optional)', confirm: 'Ban', danger: true, onsubmit: r => session.kick(u.session, r, true) }) }
+      { label: 'Kick...', danger: true, action: () => (ui.prompt = { title: `Kick ${withAccount(u)}`, label: 'Reason (optional)', confirm: 'Kick', danger: true, onsubmit: r => session.kick(u.session, r) }) },
+      { label: 'Ban...', danger: true, action: () => (ui.prompt = { title: `Ban ${withAccount(u)}`, label: 'Reason (optional)', confirm: 'Ban', danger: true, onsubmit: r => session.kick(u.session, r, true) }) }
     );
   }
-  items.push({ separator: true, label: '' }, { label: 'Copy name', action: () => navigator.clipboard.writeText(u.name) });
+  items.push({ separator: true, label: '' }, { label: 'Copy name', action: () => navigator.clipboard.writeText(store.displayName(u)) });
   if (u.hash) items.push({ label: 'Copy certificate hash', action: () => navigator.clipboard.writeText(u.hash) });
   items.push({ separator: true, label: '' }, { label: 'Information', action: () => (ui.userInfo = u.session) });
   return items;
@@ -189,13 +190,25 @@ function accessKeyPrompt(): void {
   };
 }
 
+// For decisions about a person: the account name cannot be chosen freely
+function withAccount(u: User): string {
+  const shown = store.displayName(u);
+  return shown === u.name || shown.endsWith(`(${u.name})`) ? shown : `${shown} (${u.name})`;
+}
+
 export function changeNamePrompt(u: User): void {
+  if (!session.canChooseName) {
+    ui.prompt = {
+      title: 'Change your name', label: '', confirm: 'Close', input: 'none',
+      text: 'This server does not allow HTML, so it cannot keep a chosen name.',
+      onsubmit: () => {}
+    };
+    return;
+  }
   ui.prompt = {
-    title: 'Change your name', label: 'New name', confirm: 'Reconnect with this name', initial: u.name,
-    text: u.userId != null
-      ? 'You are registered here, so the server keeps your registered name. The new name applies on servers where you are a guest.'
-      : 'Mumble cannot rename you while connected, so mumh5 reconnects with the new name and remembers it for this server.',
-    onsubmit: name => session.changeName(name)
+    title: 'Change your name', label: 'Display name', confirm: 'Save', initial: u.chosenName || u.name, maxlength: MAX_DISPLAY_NAME,
+    text: `Shown in mumh5. Your account stays ${u.name}, which other Mumble clients keep showing. Leave empty to use it.`,
+    onsubmit: name => session.setDisplayName(name)
   };
 }
 
@@ -209,7 +222,7 @@ export function pokePrompt(u: User): void {
 
 export function nicknamePrompt(u: User): void {
   ui.prompt = {
-    title: `Nickname for ${u.name}`, label: 'Nickname (only you see it; empty to remove)', confirm: 'Save',
+    title: `Nickname for ${withAccount(u)}`, label: 'Nickname (only you see it; empty to remove)', confirm: 'Save',
     initial: store.nicknames[userKey(u)] ?? '',
     onsubmit: nick => store.setNickname(userKey(u), nick)
   };

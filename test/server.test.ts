@@ -6,6 +6,7 @@ import { createCodec } from '../src/core/proto.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../src/core/client.ts';
 import { channelPassword, withPassword } from '../src/core/channel-password.ts';
 import { parseAdmins, withAdmins } from '../src/core/admins.ts';
+import { withDisplayName } from '../src/core/display-name.ts';
 import { ROOT_ONLY, effectivePermissions, explain, setCell, type AccessLevel, type Person } from '../src/core/access.ts';
 import { addKey, createRole, docFromRoles, parseRoles, prepareRoles, roleMembers, rolesFromAcl, roleTarget, setMember, withRoles } from '../src/core/roles.ts';
 import type { Transport } from '../src/core/transport.ts';
@@ -703,5 +704,44 @@ test('roles: enforced by the server, readable by everyone, keys grant them, memb
     su.updateChannel(0, { description: baseText });
     await aclOf(0);
     for (const c of [member, keyHolder, outsider, su]) c.disconnect();
+  }
+});
+
+test('a display name reaches everyone in the comment, the account name stays', { skip: !target, timeout: 30000 }, async () => {
+  const tag = Date.now() % 100000;
+  const poll = async (what: string, ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await new Promise(r => setTimeout(r, 50));
+    assert.ok(ok(), what);
+  };
+  const account = `dn-a${tag}`;
+  const a = await connect(account);
+  const b = await connect(`dn-b${tag}`);
+  let c: MumbleClient | undefined;
+  try {
+    const seen = () => b.users.get(a.session!)!;
+    a.setComment(withDisplayName('', 'Free Name'));
+    await poll('others get the name', () => seen().chosenName === 'Free Name');
+    await poll('the server echoes it to the sender', () => a.self!.chosenName === 'Free Name');
+    assert.equal(seen().name, account);
+    assert.equal(seen().displayName, 'Free Name');
+
+    c = await connect(`dn-c${tag}`);
+    assert.equal(c.users.get(a.session!)!.chosenName, 'Free Name', 'someone joining later gets it');
+
+    // Taken: the account name of someone here
+    a.setComment(withDisplayName('', `DN-B${tag}`));
+    await poll('a taken name keeps the account beside it', () => seen().displayName === `DN-B${tag} (${account})`);
+
+    // Long comments arrive as a hash; the name inside needs the text
+    a.setComment(withDisplayName(`<p>${'long text '.repeat(40)}</p>`, 'Long Name'));
+    await poll('announced by hash', () => !!seen().commentHash && !seen().comment);
+    b.requestBlob({ comments: [a.session!] });
+    await poll('name read from the fetched text', () => seen().chosenName === 'Long Name');
+
+    a.setComment('');
+    await poll('removed', () => seen().chosenName === '' && seen().displayName === '');
+    assert.equal(seen().commentHash, null, 'an emptied comment leaves nothing to fetch');
+  } finally {
+    for (const x of [a, b, c]) x?.disconnect();
   }
 });

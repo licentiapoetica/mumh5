@@ -8,6 +8,8 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { ownAvatar } from '../lib/avatar.svelte.ts';
   import { changeNamePrompt, setPictureFromFile } from '../lib/actions.ts';
+  import { store } from '../lib/settings.svelte.ts';
+  import { stripDisplayName } from '../core/display-name.ts';
 
   const self = $derived(session.self);
 
@@ -61,23 +63,23 @@
 <Modal title="Edit profile" onclose={tryClose} width={620}>
   {#if self}
     <div class="who">
-      <Avatar name={self.name} size={72} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
+      <Avatar name={store.displayName(self)} size={72} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
       <div class="text">
-        <strong>{self.name}</strong>
-        <span>{self.userId != null ? 'Registered' : 'Guest'} on {session.server?.label}</span>
+        <strong>{store.displayName(self)}</strong>
+        <span>{store.displayName(self) !== self.name ? `${self.name}, ` : ''}{self.userId != null ? 'registered' : 'guest'} on {session.server?.label}</span>
       </div>
     </div>
     <div class="actions">
       <button class="btn" disabled={busy} onclick={() => picker?.click()}>{busy ? 'Preparing...' : ownAvatar.url ? 'Change picture' : 'Add picture'}</button>
       {#if ownAvatar.url}<button class="btn" disabled={busy} onclick={() => sessions.setAvatar(null)}>Remove picture</button>{/if}
-      <button class="btn" disabled={dirty} title={dirty ? 'Changing your name reconnects. Save your description first.' : undefined} onclick={changeName}>Change name</button>
+      <button class="btn" disabled={dirty} title={dirty ? 'Save your description first.' : undefined} onclick={changeName}>Change name</button>
       <input bind:this={picker} type="file" accept="image/*" hidden aria-label="Picture file" onchange={pickPicture} />
     </div>
     {#if error}<p class="error">{error}</p>{/if}
 
     <h3>Description</h3>
     {#if ready}
-      <RichEditor value={self.comment ?? ''} limit={session.htmlLimit} placeholder="Tell people about yourself"
+      <RichEditor value={stripDisplayName(self.comment ?? '')} limit={session.htmlLimit} placeholder="Tell people about yourself"
         onchange={h => { original ??= h; draft = h; discard = false; }} />
     {:else}
       <p class="dim">Loading description...</p>

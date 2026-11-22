@@ -25,7 +25,7 @@ class Reactions {
     const self = client?.self;
     const entry = s.logs[key]?.find(e => e.id === entryId);
     if (!client || !self || !entry?.ref || entry.kind !== 'text' || !this.supported(s)) return;
-    const me = { k: reactorKey(self), name: self.name };
+    const me = { k: reactorKey(self), name: store.displayName(self) };
     const has = entry.reactions.find(r => r.emoji === emoji)?.who.some(w => w.k === me.k) ?? false;
     const want = on ?? !has;
     const next = applyReaction(entry.reactions, emoji, me, want);

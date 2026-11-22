@@ -1,6 +1,6 @@
 // localStorage wrapper that tolerates missing or broken storage.
 // On desktop, the keys below are also kept in a file in the profile (electron/saved-state.ts).
-const SAVED = new Set(['mumh5.servers', 'mumh5.pins', 'mumh5.tokens', 'mumh5.identityNames', 'mumh5.nicknames']);
+const SAVED = new Set(['mumh5.servers', 'mumh5.pins', 'mumh5.tokens', 'mumh5.identityNames', 'mumh5.nicknames', 'mumh5.displayNames']);
 
 interface SavedBridge {
   sync(key: string, local: string | null, merge: boolean): string | null;

@@ -32,9 +32,9 @@
   <div class="scroll">
     <div class="card">
       {#if self}
-        <Avatar name={self.name} size={64} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
+        <Avatar name={store.displayName(self)} size={64} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         <div class="who">
-          <h1>{self.name}</h1>
+          <h1>{store.displayName(self)}</h1>
           <span>{self.userId != null ? 'Registered' : 'Guest'} on {session.server?.label}, in {session.channel(self.channelId)?.name || 'Root'}</span>
         </div>
       {:else}

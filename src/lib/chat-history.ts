@@ -195,14 +195,14 @@ class ChatHistory {
     const st = this.states.get(s);
     if (!st) return;
     const route = peer(user, st);
-    this.move(s, st, route, `dm:${user.session}`, user.name);
+    this.move(s, st, route, `dm:${user.session}`, user.displayName || user.name);
   }
 
   userLeft(s: Session, user: User): void {
     const st = this.states.get(s);
     if (!st) return;
     const route = st.routes.get(`dm:${user.session}`) ?? peer(user, st);
-    this.move(s, st, route, `dm:${st.nextOffline--}`, user.name);
+    this.move(s, st, route, `dm:${st.nextOffline--}`, user.displayName || user.name);
   }
 
   private save(st: State): void {

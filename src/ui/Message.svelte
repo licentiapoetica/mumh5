@@ -47,6 +47,11 @@
 
   // The author while still online: a click opens their card, right-click their menu
   const authorId = $derived(session.chatAuthor(entry)?.session);
+  // Someone still here shows under their current name, also on older messages
+  const authorName = $derived.by(() => {
+    const u = session.chatAuthor(entry);
+    return u ? store.displayName(u) : entry.author;
+  });
   function authorMenu(e: MouseEvent) {
     const u = authorId != null ? session.user(authorId) : undefined;
     if (u) menu.show(e, userMenu(u));
@@ -82,12 +87,12 @@
       {/if}
     </div>
     <div class="gutter">
-      {#if !grouped}<button class="face" data-menu-row tabindex="-1" aria-hidden="true" onclick={authorCard} oncontextmenu={authorMenu}><Avatar name={entry.author} size={40} src={session.avatar(authorId)} keep /></button>{/if}
+      {#if !grouped}<button class="face" data-menu-row tabindex="-1" aria-hidden="true" onclick={authorCard} oncontextmenu={authorMenu}><Avatar name={authorName} size={40} src={session.avatar(authorId)} keep /></button>{/if}
     </div>
     <div class="content">
       {#if !grouped}
         <header>
-          <button class="author" data-menu-row onclick={authorCard} oncontextmenu={authorMenu}><strong class:self={entry.self}>{entry.author}</strong></button>
+          <button class="author" data-menu-row onclick={authorCard} oncontextmenu={authorMenu}><strong class:self={entry.self}>{authorName}</strong></button>
           <time datetime={time.toISOString()} title={full}>{when}</time>
         </header>
       {/if}

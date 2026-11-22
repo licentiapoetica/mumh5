@@ -4,7 +4,7 @@ import path from 'node:path';
 // What people cannot easily type in again. Browser storage is not enough for these: the dev and
 // packaged builds have separate origins, a second open copy gets an empty one, and Chromium may
 // replace a database it cannot open.
-export const SAVED_KEYS = ['mumh5.servers', 'mumh5.pins', 'mumh5.tokens', 'mumh5.identityNames', 'mumh5.nicknames'];
+export const SAVED_KEYS = ['mumh5.servers', 'mumh5.pins', 'mumh5.tokens', 'mumh5.identityNames', 'mumh5.nicknames', 'mumh5.displayNames'];
 const MAX_VALUE = 16 * 1024 * 1024;
 
 export const isSavedKey = (key: unknown): key is string => typeof key === 'string' && SAVED_KEYS.includes(key);

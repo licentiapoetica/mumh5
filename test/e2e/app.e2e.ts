@@ -244,9 +244,6 @@ try {
   const [chatBg, headerBg] = await page.locator('section.chat > header').evaluate(el =>
     [getComputedStyle(el.parentElement!).backgroundColor, getComputedStyle(el).backgroundColor]);
   assert.equal(headerBg, chatBg);
-  // The stacked toolbar names you at its far end
-  await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
-  console.log('ok: you shown in the stacked toolbar');
   await within(new Promise<void>(res => { const check = () => { const u = [...bob.users.values()].find(x => x.name === 'alice'); if (u?.selfMute) res(); else setTimeout(check, 100); }; check(); }), 'mute applied on connect');
   await page.waitForTimeout(800);
   const connectSounds = await page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
@@ -783,6 +780,9 @@ try {
   assert.equal(await listSide.count(), 0, 'the switch belongs to Classic');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.app.stacked').waitFor();
+  // The stacked toolbar names you at its far end
+  await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
+  console.log('ok: you shown in the stacked toolbar');
   const chatBox = await box('.chat'), treeBox = await box('.sidebar');
   assert.ok(chatBox.y >= treeBox.y + treeBox.height - 1, 'stacked: chat below channel list');
   // The split between chat and channel list drags
@@ -1333,6 +1333,13 @@ try {
     }
     await marker.click();
     await page.locator('.desc-pop .html', { hasText: 'Welcome to the lobby' }).waitFor();
+    // Wider than the channel list, and on top of the chat beside it
+    const overChat = await page.locator('.desc-pop').evaluate(el => {
+      const r = el.getBoundingClientRect();
+      const chat = document.querySelector('.chat')!.getBoundingClientRect();
+      return r.right > chat.left && el.contains(document.elementFromPoint(r.right - 6, r.top + 6));
+    });
+    assert.ok(overChat, 'description opens over the chat');
     // Opened on purpose, it stays when the pointer moves away; Escape closes it
     await page.mouse.move(700, 400);
     await page.waitForTimeout(800);
@@ -2252,19 +2259,43 @@ try {
   await stage.waitFor({ state: 'detached' }); // wide layouts use the member list instead
   console.log('ok: voice tiles on small windows show who is talking');
 
-  // Change name: Mumble needs a reconnect, the app does it and remembers the name.
-  // Unique per run: a reused test server may still have an earlier run's name registered.
+  // Display name: changes at once, on the same connection, and the account name stays
+  const chooseName = async (name: string) => {
+    await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+    await page.getByRole('dialog', { name: 'Edit profile' }).getByRole('button', { name: 'Change name' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Change your name' });
+    await dialog.getByLabel('Display name').fill(name);
+    await dialog.getByRole('button', { name: 'Save' }).click();
+  };
+  const sessionBefore = userState('alice')!.session;
+  await chooseName('Alice Display');
+  await page.locator('.me .who strong', { hasText: 'Alice Display' }).waitFor();
+  await until2('bob receives the display name', () => userState('alice')?.chosenName === 'Alice Display');
+  assert.equal(userState('alice')!.session, sessionBefore, 'no reconnect');
+  await page.locator('.sidebar .user', { hasText: 'Alice Display' }).first().waitFor();
+
+  // Someone else's name keeps the account name beside it
+  await chooseName('BOB');
+  await page.locator('.me .who strong', { hasText: 'BOB (alice)' }).waitFor();
+  await chooseName('Alice Display');
+  await page.locator('.me .who strong', { hasText: 'Alice Display' }).waitFor();
+  await until2('bob receives the name again', () => userState('alice')?.chosenName === 'Alice Display');
+  console.log('ok: display name changes live and cannot pass as someone else');
+
+  // A different account name is still set on the server entry. The chosen name comes back after
+  // the reconnect, since guests lose their comment. Unique per run: a reused test server may
+  // still have an earlier run's name registered.
   const newName = `alice${Date.now() % 100000}`;
-  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
-  await page.getByRole('dialog', { name: 'Edit profile' }).getByRole('button', { name: 'Change name' }).click();
-  await page.getByLabel('New name').fill(newName);
-  await page.getByRole('button', { name: 'Reconnect with this name' }).click();
+  await page.locator('.rail .tile[title^="Test Server"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Edit...' }).click();
+  await page.getByLabel('Username').fill(newName);
+  await page.getByRole('button', { name: 'Save and connect' }).click();
+  await until2('bob sees the new account with the chosen name', () => userState(newName)?.chosenName === 'Alice Display');
+  await page.locator('.me .who strong', { hasText: 'Alice Display' }).waitFor();
+  await chooseName('');
   await page.locator('.me .who strong', { hasText: newName }).waitFor();
-  await within(new Promise<void>(res => {
-    if ([...bob.users.values()].some(u => u.name === newName)) return res();
-    bob.on('user', u => { if (u.name === newName) res(); });
-  }), 'bob sees the new name');
-  console.log('ok: name changed by reconnecting');
+  await until2('display name removed', () => userState(newName)?.chosenName === '');
+  console.log('ok: display name survives a reconnect and can be removed');
 
   // Text channel after reconnecting: what this computer kept, plus what another client hands over
   if (notesId != null) {

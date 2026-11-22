@@ -11,6 +11,7 @@ import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
 import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, roleMembers, rolesFromAcl, rolesOf, roleTint, setMember, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
 import { effectivePermissions } from '../core/access.ts';
 import { withPassword } from '../core/channel-password.ts';
+import { cleanDisplayName, withDisplayName } from '../core/display-name.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, formatBytes, type Embed } from './html.ts';
@@ -29,6 +30,10 @@ import { sounds } from './audio/sounds.svelte.ts';
 import { planUserMove, movePending, confirmUserMove, failUserMove, remainingSelection, type UserMove } from '../core/user-move.ts';
 
 const codec = createCodec();
+const commentTag = (session: number, hash: Uint8Array) => `c:${session}:${[...hash].join(',')}`;
+const COMMENT_BATCH = 20;
+const COMMENT_PAUSE_MS = 500;
+const NAMES_WAIT_MS = 2000;
 const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
 
 // A chat view is a channel ("ch:<id>") or a direct conversation with a user ("dm:<session>").
@@ -126,6 +131,14 @@ export class Session {
   private attempt = 0;
   // Blob hashes already requested, so a preview does not ask the server repeatedly
   private requested = new Set<string>();
+  // Your chosen name waits for your own long description, which must not be overwritten
+  private nameTask: { set: string } | 'restore' | 'persist' | null = null;
+  // A new name on its way to the server, undone if the server refuses the longer comment
+  private nameWrite: { key: string; before: string; at: number } | null = null;
+  private namesStarted = false;
+  // Long comments to fetch for the names inside them, asked for a few at a time
+  private wantedComments = new Set<number>();
+  private commentTimer: ReturnType<typeof setTimeout> | null = null;
   // Pictures of people here as object URLs, made the first time each one is shown
   private pictures = new Map<number, { bytes: Uint8Array; url: string }>();
   // Pictures to fetch, collected while a list renders and asked for in one request
@@ -194,13 +207,13 @@ export class Session {
     if (!this.client) return [];
     return [...this.client.users.values()]
       .filter(u => u.channelId === channelId)
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => store.displayName(a).localeCompare(store.displayName(b)))
       .map(u => ({ ...u }));
   }
 
   allUsers(): User[] {
     void this.tick;
-    return this.client ? [...this.client.users.values()].sort((a, b) => a.name.localeCompare(b.name)).map(u => ({ ...u })) : [];
+    return this.client ? [...this.client.users.values()].sort((a, b) => store.displayName(a).localeCompare(store.displayName(b))).map(u => ({ ...u })) : [];
   }
 
   beginUserSelection(): void {
@@ -407,7 +420,8 @@ export class Session {
   viewTitle(key: string = this.view): string {
     const [kind, id] = key.split(':');
     if (kind === 'ch') return this.channel(Number(id))?.name || 'Root';
-    return this.user(Number(id))?.name ?? this.dmNames[key] ?? 'Offline user';
+    const user = this.user(Number(id));
+    return user ? store.displayName(user) : this.dmNames[key] ?? 'Offline user';
   }
 
   // Keys whose chat is on screen right now (main view and an open side chat)
@@ -443,6 +457,12 @@ export class Session {
     }
     this.selectedChannel = null;
     this.requested.clear();
+    this.nameTask = null;
+    this.nameWrite = null;
+    this.namesStarted = false;
+    this.wantedComments.clear();
+    if (this.commentTimer) clearTimeout(this.commentTimer);
+    this.commentTimer = null;
     this.dropPictures();
     this.applied = null;
     this.own = null;
@@ -589,6 +609,8 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      // ServerConfig normally follows at once; a server that sends none still gets names
+      setTimeout(() => { if (live() && !this.namesStarted) this.startNames(client); }, NAMES_WAIT_MS);
       void chatHistory.entered(this);
       this.syncedAt = Date.now();
       const rejoin = this.lostChannel;
@@ -656,6 +678,8 @@ export class Session {
       if (name === 'PermissionQuery' && msg.flush) {
         for (const id of client.channels.keys()) if (id !== msg.channel_id) client.requestPermissions(id);
       }
+      // Follows ServerSync: only now is it known whether this server keeps the name's markup
+      if (name === 'ServerConfig' && client.synced && !this.namesStarted) this.startNames(client);
       // Murmur sends everyone this, without a name, after the rules of a channel were saved
       if (name === 'ChannelState' && client.synced && msg.channel_id === 0 && msg.is_enter_restricted != null && msg.name == null) {
         this.adminsStale = true;
@@ -688,6 +712,15 @@ export class Session {
       }
       chatHistory.userChanged(this, user);
       const self = client.self;
+      if (changed.includes('comment') && user.commentHash) this.requested.delete(commentTag(user.session, user.commentHash));
+      if (user.session === client.session) {
+        if (changed.includes('comment') || changed.includes('commentHash')) this.nameWrite = null;
+        // Murmur stores only what is written after registering, not the comment a guest already had
+        if (client.synced && !isNew && changed.includes('userId') && user.userId != null) this.nameTask ??= 'persist';
+        this.runNameTask(client);
+      }
+      // Also your own: after a change the server echoes a long comment as a hash only
+      if (this.namesStarted && client.config.allowHtml !== false && user.commentHash && !user.comment) this.wantComment(client, user.session);
       const before = this.lastChannel.get(user.session);
       this.lastChannel.set(user.session, user.channelId);
       if (user.session === client.session && this.passwordTry?.id === user.channelId) {
@@ -711,9 +744,9 @@ export class Session {
       if (client.synced && self && this.isVoice()) this.userSound(user.session === self.session, user, changed, actor, isNew, before, self.channelId, flips);
       if (client.synced && self) {
         if (isNew) {
-          if (user.channelId === self.channelId) this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} connected`);
+          if (user.channelId === self.channelId) this.system(`ch:${self.channelId}`, `${escapeHtml(store.displayName(user))} connected`);
         } else if (changed.includes('userId') && user.userId != null) {
-          const who = user.session === self.session ? 'You are' : `${escapeHtml(user.name)} is`;
+          const who = user.session === self.session ? 'You are' : `${escapeHtml(store.displayName(user))} is`;
           this.system(this.view, `${who} now registered on this server`);
         } else if (changed.includes('channelId')) {
           if (user.session === self.session) {
@@ -722,7 +755,7 @@ export class Session {
             this.pendingJoin = null;
             this.system(`ch:${user.channelId}`, `You joined ${escapeHtml(this.channel(user.channelId)?.name || 'Root')}`);
           } else if (user.channelId === self.channelId) {
-            this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} joined the channel`);
+            this.system(`ch:${self.channelId}`, `${escapeHtml(store.displayName(user))} joined the channel`);
           }
         }
       }
@@ -739,7 +772,8 @@ export class Session {
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
       if (user.session === client.session) {
-        const by = actor != null ? client.users.get(actor)?.name ?? '' : '';
+        const kicker = actor != null ? client.users.get(actor) : undefined;
+        const by = kicker ? store.displayName(kicker) : '';
         this.removedBy = { kind: ban ? 'banned' : 'kicked', by, reason };
         if (ban) this.noRetry = true;
       }
@@ -753,9 +787,10 @@ export class Session {
       }
       this.lastChannel.delete(user.session);
       if (self && user.channelId === self.channelId) {
-        const by = actor != null && actor !== user.session ? client.users.get(actor)?.name : null;
+        const kicker = actor != null && actor !== user.session ? client.users.get(actor) : undefined;
+        const by = kicker ? store.displayName(kicker) : null;
         const what = by ? `${ban ? 'was banned' : 'was kicked'} by ${escapeHtml(by)}` : 'disconnected';
-        this.system(`ch:${self.channelId}`, `${escapeHtml(user.name)} ${what}${reason ? `: ${escapeHtml(reason)}` : ''}`);
+        this.system(`ch:${self.channelId}`, `${escapeHtml(store.displayName(user))} ${what}${reason ? `: ${escapeHtml(reason)}` : ''}`);
       }
       if (this.panel.kind === 'user' && this.panel.session === user.session) this.panel = { kind: 'members' };
       const pic = this.pictures.get(user.session);
@@ -790,6 +825,14 @@ export class Session {
         && (d.channelId === this.userMove.channelId || this.userMove.people.some(p => p.id === d.session && p.channelId === d.channelId))) {
         failUserMove(this.userMove, describeDenial(d, this.channel(d.channelId!)?.name), d.session);
         this.updateUserMove();
+      }
+      const nameWrite = this.nameWrite;
+      if (d.type === 4 && nameWrite && Date.now() - nameWrite.at < 5000) {
+        this.nameWrite = null;
+        store.setDisplayName(nameWrite.key, nameWrite.before);
+        sounds.play('denied');
+        this.system(this.view, 'Your description is too long for this server to also hold a display name. Shorten it and try again.');
+        return;
       }
       // A preview picture can exceed what the server accepts; the file alone still gets through
       const img = this.lastImageSend;
@@ -926,7 +969,7 @@ export class Session {
   loadComment(session: number): void {
     const u = this.client?.users.get(session);
     if (!u?.commentHash || u.comment) return;
-    const tag = `c:${session}:${[...u.commentHash].join(',')}`;
+    const tag = commentTag(session, u.commentHash);
     if (this.requested.has(tag)) return;
     this.requested.add(tag);
     this.client!.requestBlob({ comments: [session] });
@@ -989,18 +1032,97 @@ export class Session {
     this.client?.register(session);
   }
 
-  // Mumble has no rename while connected: reconnect under the new name (saved for this server)
-  changeName(name: string): void {
-    const server = this.server;
-    if (!server || !name.trim()) return;
-    const updated = { ...$state.snapshot(server), username: name.trim() };
-    store.upsertServer(updated);
-    this.connect(updated);
+  // Servers without HTML remove the marker the chosen name travels in
+  get canChooseName(): boolean {
+    void this.tick;
+    return this.status === 'connected' && this.client?.config.allowHtml !== false;
+  }
+
+  // Empty goes back to the account name
+  setDisplayName(raw: string): void {
+    const client = this.client;
+    const self = client?.self;
+    if (!client || !self || !this.canChooseName) return;
+    const name = cleanDisplayName(raw);
+    this.nameTask = { set: name === self.name ? '' : name };
+    this.runNameTask(client);
+  }
+
+  private nameKey(self: User): string {
+    return `${this.tokenKey}:${self.hash || `name:${self.name}`}`;
+  }
+
+  private startNames(client: MumbleClient): void {
+    this.namesStarted = true;
+    if (client.config.allowHtml === false) return;
+    this.nameTask = 'restore';
+    this.runNameTask(client);
+    for (const u of client.users.values()) {
+      if (u.session !== client.session && u.commentHash && !u.comment) this.wantComment(client, u.session);
+    }
+  }
+
+  private runNameTask(client: MumbleClient): void {
+    const self = client.self;
+    const task = this.nameTask;
+    if (!self || !task) return;
+    if (self.commentHash && !self.comment) {
+      this.loadComment(self.session);
+      return;
+    }
+    this.nameTask = null;
+    if (task === 'persist') {
+      if (self.comment) client.setComment(self.comment);
+      return;
+    }
+    const key = this.nameKey(self);
+    // The server keeps a registered user's comment, so it is newer than this computer's copy,
+    // also when the name was removed on another device
+    if (task === 'restore' && self.userId != null) {
+      store.setDisplayName(key, self.chosenName);
+      return;
+    }
+    const saved = store.displayNames[key] ?? '';
+    const name = task === 'restore' ? saved : task.set;
+    store.setDisplayName(key, name);
+    // Saved differs while an earlier change is still on its way back from the server
+    if (name !== self.chosenName || name !== saved) {
+      if (name !== saved) this.nameWrite = { key, before: saved, at: Date.now() };
+      client.setComment(withDisplayName(self.comment, name));
+    }
+  }
+
+  private wantComment(client: MumbleClient, session: number): void {
+    this.wantedComments.add(session);
+    this.commentTimer ??= setTimeout(() => this.fetchComments(client), 0);
+  }
+
+  // A server full of long descriptions should not arrive all at once
+  private fetchComments(client: MumbleClient): void {
+    this.commentTimer = null;
+    if (this.client !== client) return;
+    const batch = [...this.wantedComments].slice(0, COMMENT_BATCH);
+    for (const id of batch) {
+      this.wantedComments.delete(id);
+      this.loadComment(id);
+    }
+    if (this.wantedComments.size) this.commentTimer = setTimeout(() => this.fetchComments(client), COMMENT_PAUSE_MS);
   }
 
   // html comes from the rich editor, already sanitized XHTML
   setComment(html: string): void {
-    this.client?.setComment(html);
+    const client = this.client;
+    const self = client?.self;
+    if (!client || !self) return;
+    const task = typeof this.nameTask === 'object' ? this.nameTask : null;
+    if (task) {
+      const key = this.nameKey(self);
+      const before = store.displayNames[key] ?? '';
+      if (task.set !== before) this.nameWrite = { key, before, at: Date.now() };
+      store.setDisplayName(key, task.set);
+      this.nameTask = null;
+    }
+    client.setComment(withDisplayName(html, task ? task.set : self.chosenName));
   }
 
   // Largest description or image message the server accepts (0: no limit)
@@ -1392,7 +1514,7 @@ export class Session {
     client.sendText(this.target(key), html);
     sounds.play('messageSent');
     const rendered = renderIncoming(html, store.trustedHosts, true);
-    this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
+    this.push(key, { kind: 'text', author: client.self ? store.displayName(client.self) : '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
     chatHistory.record(this, key, html, this.logs[key].find(e => e.id === entryId));
     return true;
   }
