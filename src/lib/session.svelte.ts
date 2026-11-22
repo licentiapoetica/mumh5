@@ -965,7 +965,7 @@ export class Session {
     const online = sender != null ? client.users.get(sender) : self ? client.self : m.k ? [...client.users.values()].find(u => u.hash === m.k) : undefined;
     this.push(`ch:${m.c}`, {
       kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self, ref: textRef(m.i),
-      ...renderIncoming(m.h, store.trustedHosts)
+      ...renderIncoming(m.h, store.trustedHosts, true)
     }, { time: m.t, quiet });
   }
 
@@ -982,7 +982,7 @@ export class Session {
     else if (msg.channels.length || msg.trees.length) key = `ch:${msg.channels[0] ?? self?.channelId ?? 0}`;
     else key = `dm:${msg.actor}`;
 
-    const rendered = renderIncoming(msg.html, store.trustedHosts);
+    const rendered = renderIncoming(msg.html, store.trustedHosts, msg.actor != null);
     if (msg.actor == null) {
       this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
     } else {
@@ -1280,7 +1280,7 @@ export class Session {
     const entryId = nextId;
     client.sendText(this.target(key), html);
     sounds.play('messageSent');
-    const rendered = renderIncoming(html, store.trustedHosts);
+    const rendered = renderIncoming(html, store.trustedHosts, true);
     this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
     chatHistory.record(this, key, html, this.logs[key].find(e => e.id === entryId));
     return true;
@@ -1319,18 +1319,19 @@ export class Session {
     // 0 means no limit; stay reasonable anyway
     const limit = textKey ? MAX_HTML : cfg.imageMessageLength || 1024 * 1024;
     for (const file of list) {
+      const alt = escapeHtml(file.name);
       if (!textKey && cfg.allowHtml === false) {
         this.system(key, 'This server does not allow pictures or files in messages. Text channels can still carry files.');
         return;
       }
       if (file.type.startsWith('image/')) {
-        const uri = await originalImage(file, limit - 64);
-        if (uri) { this.sendHtml(`<img src="${uri}"/>`, key); continue; }
+        const uri = await originalImage(file, limit - 64 - alt.length);
+        if (uri) { this.sendHtml(`<img src="${uri}" alt="${alt}"/>`, key); continue; }
       }
       if (!files.supported(this)) {
         // Old servers: no requests between clients, so pictures go scaled and other files not at all
-        const uri = file.type.startsWith('image/') ? await makeInlineImage(file, limit - 64) : null;
-        if (uri) this.sendHtml(`<img src="${uri}"/>`, key);
+        const uri = file.type.startsWith('image/') ? await makeInlineImage(file, limit - 64 - alt.length) : null;
+        if (uri) this.sendHtml(`<img src="${uri}" alt="${alt}"/>`, key);
         else this.system(key, `${escapeHtml(file.name)}: sending files needs a server running Mumble 1.4 or newer`);
         continue;
       }
