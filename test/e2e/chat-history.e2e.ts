@@ -22,7 +22,7 @@ try {
     const client = new MumbleClient(createCodec());
     const user = (id: number, name: string, hash: string) => ({ session: id, name, hash, userId: null, channelId: 0,
       mute: false, deaf: false, suppress: false, selfMute: false, selfDeaf: false, prioritySpeaker: false, recording: false,
-      comment: '', commentHash: null, texture: null, textureHash: null });
+      comment: '', commentHash: null, chosenName: '', displayName: '', texture: null, textureHash: null });
     client.session = 1;
     client.users.set(1, user(1, 'Alice', owner));
     if (bob > 0) client.users.set(bob, user(bob, 'Bob', 'bob-identity'));

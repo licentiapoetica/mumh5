@@ -1,5 +1,6 @@
 <script lang="ts">
   import { stripMark } from '../core/text-signal.ts';
+  import { stripDisplayName } from '../core/display-name.ts';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import Members from './Members.svelte';
@@ -29,7 +30,7 @@
   $effect(() => { if (user?.commentHash && !user.comment) session.loadComment(user.session); });
 
   const description = $derived(channel?.description ? renderIncoming(stripMark(channel.description), store.trustedHosts).html : '');
-  const comment = $derived(user?.comment ? renderIncoming(user.comment, store.trustedHosts).html : '');
+  const comment = $derived(user?.comment ? renderIncoming(stripDisplayName(user.comment), store.trustedHosts).html : '');
   const pendingDescription = $derived(!!channel?.descriptionHash && !channel.description);
   const pendingComment = $derived(!!user?.commentHash && !user.comment);
 
@@ -93,11 +94,11 @@
     </header>
     <div class="body">
       <div class="who" role="presentation" oncontextmenu={e => menu.show(e, userMenu(user))}>
-        <Avatar name={user.name} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} src={session.avatar(user.session)} keep />
+        <Avatar name={store.displayName(user)} size={56} speaking={voice.talking[user.session] || (isSelf && voice.transmitting)} src={session.avatar(user.session)} keep />
         <div class="who-text">
           <h3>{store.displayName(user)}</h3>
           <p class="where" title="Current channel"><Icon name="channel" size={14} /><span>{session.channel(user.channelId)?.name || 'Root'}</span></p>
-          {#if store.displayName(user) !== user.name}<p class="dim small">Real name: {user.name}</p>{/if}
+          {#if store.displayName(user) !== user.name}<p class="dim small">Account: {user.name}</p>{/if}
           <p class="flags">
             {#if user.selfMute || user.mute}<span>{user.mute ? 'server muted' : 'muted'}</span>{/if}
             {#if user.selfDeaf || user.deaf}<span>{user.deaf ? 'server deafened' : 'deafened'}</span>{/if}

@@ -166,6 +166,8 @@ class SettingsStore {
   identityNames = $state<Record<string, string>>(load('mumh5.identityNames', {}));
   // Local nicknames for other users, only visible to us; keyed by certificate hash (or name)
   nicknames = $state<Record<string, string>>(load('mumh5.nicknames', {}));
+  // The name you chose, per server and certificate; guests lose their comment on disconnect
+  displayNames = $state<Record<string, string>>(load('mumh5.displayNames', {}));
 
   setIdentityName(id: string, name: string) {
     if (name.trim()) this.identityNames[id] = name.trim();
@@ -241,9 +243,16 @@ class SettingsStore {
     save('mumh5.nicknames', $state.snapshot(this.nicknames));
   }
 
-  // Name to show for a user: our local nickname, else their name
-  displayName(u: { hash: string; name: string }): string {
-    return this.nicknames[u.hash || `name:${u.name}`] ?? u.name;
+  setDisplayName(key: string, name: string) {
+    if ((this.displayNames[key] ?? '') === name) return;
+    if (name) this.displayNames[key] = name;
+    else delete this.displayNames[key];
+    save('mumh5.displayNames', $state.snapshot(this.displayNames));
+  }
+
+  // Name to show for a user: our local nickname, else the name they chose, else their account name
+  displayName(u: { hash: string; name: string; displayName?: string }): string {
+    return this.nicknames[u.hash || `name:${u.name}`] ?? (u.displayName || u.name);
   }
 
   pin(hostPort: string, fingerprint: string) {

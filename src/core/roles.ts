@@ -5,6 +5,7 @@
 // people with Write can change that text, so a badge cannot be forged.
 import { PERM, type AclEntry, type AclGroup, type ChannelAcl } from './client.ts';
 import { cellValue, type AccessTarget } from './access.ts';
+import { fromBase64Url, toBase64Url } from './base64url.ts';
 
 export interface RoleInfo {
   g: string;      // group name on the root channel
@@ -38,18 +39,6 @@ const DEFAULTS: Record<string, Omit<RoleInfo, 'g' | 'm'>> = {
 // ─── In the root description ─────────────────────────────────────────────────
 
 const MARK = /<img\b[^>]*\bsrc="data:,mumh5roles:([A-Za-z0-9_-]*)"[^>]*>/g;
-
-function toBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function fromBase64Url(text: string): string {
-  const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
-  return new TextDecoder().decode(Uint8Array.from(binary, c => c.charCodeAt(0)));
-}
 
 export const isRoleColor = (c: unknown): c is string => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
 

@@ -46,9 +46,9 @@
     {#if self}
       <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
         oncontextmenu={e => menu.show(e, userMenu(self))}>
-        <Avatar name={self.name} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} />
+        <Avatar name={store.displayName(self)} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} />
         <span class="who">
-          <strong>{self.name}</strong>
+          <strong>{store.displayName(self)}</strong>
           <span>{voice.error ? 'Voice unavailable' : voice.settings.mode === 'ptt' && !self.selfMute ? (voice.pttDown ? 'Talking' : 'Push to talk') : session.channel(self.channelId)?.name || 'Root'}</span>
         </span>
       </button>
@@ -98,10 +98,10 @@
         <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
           oncontextmenu={e => menu.show(e, userMenu(self))}>
           <span class="who">
-            <strong>{self.name}</strong>
+            <strong>{store.displayName(self)}</strong>
             <span>{session.channel(self.channelId)?.name || 'Root'}</span>
           </span>
-          <Avatar name={self.name} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} />
+          <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} />
         </button>
       </span>
     {/if}

@@ -18,6 +18,7 @@
   import { sessions } from '../lib/session.svelte.ts';
   import type { Channel } from '../core/client.ts';
   import { stripMark } from '../core/text-signal.ts';
+  import { stripDisplayName } from '../core/display-name.ts';
   import { planMove } from '../core/channel-order.ts';
 
   let { channel, depth = 0, onnavigate }: { channel: Channel; depth?: number; onnavigate: () => void } = $props();
@@ -113,6 +114,12 @@
     ui.channelPreview = null;
     showDescriptionAt(req.x, req.y);
   });
+
+  // Under the body: inside the channel list, the chat next to it would paint over the preview
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
 
   // Single click previews, double click acts. The single action waits briefly so a
   // double click does not also flash the preview.
@@ -250,7 +257,7 @@
     {/if}
   </div>
   {#if preview}
-    <div class="desc-pop" role="tooltip" bind:this={popEl} style:left="{preview.x}px" style:top="{preview.y}px"
+    <div class="desc-pop" role="tooltip" use:portal bind:this={popEl} style:left="{preview.x}px" style:top="{preview.y}px"
       onmouseenter={() => clearTimeout(hoverTimer)} onmouseleave={leaveRow}>
       <strong>{channel.name || 'Root'}</strong>
       {#if descriptionHtml}<div class="html">{@html descriptionHtml}</div>{:else}<p>Loading description...</p>{/if}
@@ -281,7 +288,7 @@
               <span class="state face" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={18} /></span>
             {:else}
               {#if mark}<span class="state voice" style:left="{6 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
-              <Avatar name={u.name} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
+              <Avatar name={store.displayName(u)} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             {/if}
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
             <RoleBadges user={u} />{#if !session.isAdmin(u) && u.userId != null && !session.rolesFor(u).length}<span class="reg" title="Registered">R</span>{/if}
@@ -297,7 +304,7 @@
                   onkeydown={e => { if (e.key === 'Enter') { e.stopPropagation(); share.watch(sessions.active, u.session); } }}><Icon name={kind} size={14} /></span>
               {/if}
             {/if}
-            {#if u.comment || u.commentHash}<span class="state slot" title="Has a description"><Icon name="message" size={12} /></span>{/if}
+            {#if u.comment ? stripDisplayName(u.comment) : u.commentHash}<span class="state slot" title="Has a description"><Icon name="message" size={12} /></span>{/if}
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
           </button>

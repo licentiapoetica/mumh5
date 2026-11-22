@@ -341,7 +341,7 @@
               <!-- svelte-ignore a11y_media_has_caption -->
               <video class:mirror={isSelf && share.mirror} use:media={cam} autoplay playsinline muted></video>
             {:else}
-              <Avatar name={u.name} size={avatar} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
+              <Avatar name={store.displayName(u)} size={avatar} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
             {/if}
             <span class="who">{store.displayName(u)}</span>
             {#if w && w.state !== 'live'}
@@ -396,7 +396,7 @@
         <span class="count">{people.length}</span>
         {#if collapsed}
           <span class="mini" aria-hidden="true">
-            {#each people.slice(0, 8) as u (u.session)}<Avatar name={u.name} size={18} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
+            {#each people.slice(0, 8) as u (u.session)}<Avatar name={store.displayName(u)} size={18} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
           </span>
         {/if}
       </button>

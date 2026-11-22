@@ -53,7 +53,7 @@
             <li class="entry" data-menu-row role="presentation" oncontextmenu={e => menu.show(e, userMenu(u))}>
               <button class="main" use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)}>
                 <UserSelectMark id={u.session} />
-                <Avatar name={u.name} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
+                <Avatar name={store.displayName(u)} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
                 <span class="text">
                   <span class="name" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
                   <span class="sub">{me ? 'You' : session.roleLabel(u)}{u.deaf || u.selfDeaf ? ', deafened' : u.mute || u.selfMute || u.suppress ? ', muted' : ''}{session.sharing[u.session] ? `, sharing ${session.sharing[u.session]}` : ''}{u.recording ? ', recording' : ''}</span>

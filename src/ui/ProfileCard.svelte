@@ -7,6 +7,7 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
+  import { stripDisplayName } from '../core/display-name.ts';
   import { userMenu } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
@@ -25,7 +26,7 @@
 
   // The description comes later when the server only announced its hash
   $effect(() => { if (user?.commentHash && !user.comment) session.loadComment(user.session); });
-  const comment = $derived(user?.comment ? renderIncoming(user.comment, store.trustedHosts).html : '');
+  const comment = $derived(user?.comment ? renderIncoming(stripDisplayName(user.comment), store.trustedHosts).html : '');
   const pending = $derived(!!user?.commentHash && !user.comment);
 
   // Its own attribute: a context menu opening or closing must not clear this one
@@ -127,7 +128,7 @@
     oncontextmenu={e => menu.show(e, userMenu(user))}>
     <div class="banner" style:background="hsl({hue} 38% 30%)"></div>
     <div class="top">
-      <span class="pic"><Avatar name={user.name} size={80} speaking={talking} src={session.avatar(user.session)} keep /></span>
+      <span class="pic"><Avatar name={store.displayName(user)} size={80} speaking={talking} src={session.avatar(user.session)} keep /></span>
     </div>
     <div class="body">
       <h3 style:color={session.roleColor(user)}>{name}</h3>

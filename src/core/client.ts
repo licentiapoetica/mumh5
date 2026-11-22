@@ -2,6 +2,7 @@ import { Emitter } from './emitter.ts';
 import { FrameReader, frame, type Codec, type MessageName } from './proto.ts';
 import type { Transport } from './transport.ts';
 import { LinkMeter } from './link-quality.ts';
+import { labelNames, parseDisplayName } from './display-name.ts';
 
 export const CLIENT_RELEASE = 'mumh5 0.2.0';
 const VERSION = { major: 1, minor: 5, patch: 0 };
@@ -50,6 +51,8 @@ export interface User {
   recording: boolean;
   comment: string;
   commentHash: Uint8Array | null;
+  chosenName: string;  // published in the comment, see display-name.ts
+  displayName: string; // what to show instead of name; empty when name is right
   texture: Uint8Array | null;
   textureHash: Uint8Array | null;
   hash: string;
@@ -574,6 +577,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
         this.welcomeText = msg.welcome_text ?? '';
         if (msg.permissions != null) this.permissions.set(0, Number(msg.permissions));
         this.synced = true;
+        labelNames(this.users.values());
         this.ping();
         this.emit('synced');
         break;
@@ -598,6 +602,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
         const user = this.users.get(msg.session);
         if (user) {
           this.users.delete(msg.session);
+          labelNames(this.users.values());
           this.emit('userRemove', user, msg.actor ?? null, msg.reason ?? '', !!msg.ban);
         }
         break;
@@ -718,7 +723,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
       user = {
         session, name: '', userId: null, channelId: 0, mute: false, deaf: false, suppress: false,
         selfMute: false, selfDeaf: false, prioritySpeaker: false, recording: false,
-        comment: '', commentHash: null, texture: null, textureHash: null, hash: ''
+        comment: '', commentHash: null, chosenName: '', displayName: '', texture: null, textureHash: null, hash: ''
       };
       this.users.set(session, user);
     }
@@ -738,6 +743,10 @@ export class MumbleClient extends Emitter<ClientEvents> {
         changed.push(dst);
       }
     }
+    // An emptied comment comes without a hash; the old one would mean text is still to fetch
+    if (msg.comment === '' && msg.comment_hash == null) user.commentHash = null;
+    if (msg.comment != null) user.chosenName = parseDisplayName(msg.comment);
+    if (this.synced && (isNew || msg.name != null || msg.comment != null)) labelNames(this.users.values());
     this.emit('user', user, changed, msg.actor ?? null, isNew);
   }
 }
