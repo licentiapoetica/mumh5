@@ -33,6 +33,7 @@ const codec = createCodec();
 const commentTag = (session: number, hash: Uint8Array) => `c:${session}:${[...hash].join(',')}`;
 const COMMENT_BATCH = 20;
 const COMMENT_PAUSE_MS = 500;
+const NAMES_WAIT_MS = 2000;
 const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
 
 // A chat view is a channel ("ch:<id>") or a direct conversation with a user ("dm:<session>").
@@ -131,7 +132,9 @@ export class Session {
   // Blob hashes already requested, so a preview does not ask the server repeatedly
   private requested = new Set<string>();
   // Your chosen name waits for your own long description, which must not be overwritten
-  private nameTask: { set: string } | 'restore' | null = null;
+  private nameTask: { set: string } | 'restore' | 'persist' | null = null;
+  // A new name on its way to the server, undone if the server refuses the longer comment
+  private nameWrite: { key: string; before: string; at: number } | null = null;
   private namesStarted = false;
   // Long comments to fetch for the names inside them, asked for a few at a time
   private wantedComments = new Set<number>();
@@ -455,6 +458,7 @@ export class Session {
     this.selectedChannel = null;
     this.requested.clear();
     this.nameTask = null;
+    this.nameWrite = null;
     this.namesStarted = false;
     this.wantedComments.clear();
     if (this.commentTimer) clearTimeout(this.commentTimer);
@@ -605,6 +609,8 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      // ServerConfig normally follows at once; a server that sends none still gets names
+      setTimeout(() => { if (live() && !this.namesStarted) this.startNames(client); }, NAMES_WAIT_MS);
       void chatHistory.entered(this);
       this.syncedAt = Date.now();
       const rejoin = this.lostChannel;
@@ -707,7 +713,12 @@ export class Session {
       chatHistory.userChanged(this, user);
       const self = client.self;
       if (changed.includes('comment') && user.commentHash) this.requested.delete(commentTag(user.session, user.commentHash));
-      if (user.session === client.session) this.runNameTask(client);
+      if (user.session === client.session) {
+        if (changed.includes('comment') || changed.includes('commentHash')) this.nameWrite = null;
+        // Murmur stores only what is written after registering, not the comment a guest already had
+        if (client.synced && !isNew && changed.includes('userId') && user.userId != null) this.nameTask ??= 'persist';
+        this.runNameTask(client);
+      }
       // Also your own: after a change the server echoes a long comment as a hash only
       if (this.namesStarted && client.config.allowHtml !== false && user.commentHash && !user.comment) this.wantComment(client, user.session);
       const before = this.lastChannel.get(user.session);
@@ -814,6 +825,14 @@ export class Session {
         && (d.channelId === this.userMove.channelId || this.userMove.people.some(p => p.id === d.session && p.channelId === d.channelId))) {
         failUserMove(this.userMove, describeDenial(d, this.channel(d.channelId!)?.name), d.session);
         this.updateUserMove();
+      }
+      const nameWrite = this.nameWrite;
+      if (d.type === 4 && nameWrite && Date.now() - nameWrite.at < 5000) {
+        this.nameWrite = null;
+        store.setDisplayName(nameWrite.key, nameWrite.before);
+        sounds.play('denied');
+        this.system(this.view, 'Your description is too long for this server to also hold a display name. Shorten it and try again.');
+        return;
       }
       // A preview picture can exceed what the server accepts; the file alone still gets through
       const img = this.lastImageSend;
@@ -1052,9 +1071,14 @@ export class Session {
       return;
     }
     this.nameTask = null;
+    if (task === 'persist') {
+      if (self.comment) client.setComment(self.comment);
+      return;
+    }
     const key = this.nameKey(self);
-    // What a registered user's comment already holds is newer than this computer's copy
-    if (task === 'restore' && self.chosenName) {
+    // The server keeps a registered user's comment, so it is newer than this computer's copy,
+    // also when the name was removed on another device
+    if (task === 'restore' && self.userId != null) {
       store.setDisplayName(key, self.chosenName);
       return;
     }
@@ -1062,7 +1086,10 @@ export class Session {
     const name = task === 'restore' ? saved : task.set;
     store.setDisplayName(key, name);
     // Saved differs while an earlier change is still on its way back from the server
-    if (name !== self.chosenName || name !== saved) client.setComment(withDisplayName(self.comment, name));
+    if (name !== self.chosenName || name !== saved) {
+      if (name !== saved) this.nameWrite = { key, before: saved, at: Date.now() };
+      client.setComment(withDisplayName(self.comment, name));
+    }
   }
 
   private wantComment(client: MumbleClient, session: number): void {
@@ -1087,12 +1114,15 @@ export class Session {
     const client = this.client;
     const self = client?.self;
     if (!client || !self) return;
-    const task = this.nameTask;
-    if (task && task !== 'restore') {
-      store.setDisplayName(this.nameKey(self), task.set);
+    const task = typeof this.nameTask === 'object' ? this.nameTask : null;
+    if (task) {
+      const key = this.nameKey(self);
+      const before = store.displayNames[key] ?? '';
+      if (task.set !== before) this.nameWrite = { key, before, at: Date.now() };
+      store.setDisplayName(key, task.set);
       this.nameTask = null;
     }
-    client.setComment(withDisplayName(html, task && task !== 'restore' ? task.set : self.chosenName));
+    client.setComment(withDisplayName(html, task ? task.set : self.chosenName));
   }
 
   // Largest description or image message the server accepts (0: no limit)

@@ -39,8 +39,9 @@ export interface NamedUser { name: string; chosenName: string; displayName: stri
 
 const sameKey = (name: string) => name.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
 
-// Sets what each person is shown as. A chosen name someone else also uses, as account or chosen
-// name, keeps the account name beside it, so nobody can pass as another person.
+// Sets what each person is shown as. A chosen name someone else here also uses, as account or
+// chosen name, keeps the account name beside it. People who are offline and lookalike letters from
+// other alphabets are not covered; the profile always shows the account name.
 export function labelNames(users: Iterable<NamedUser>): void {
   const list = [...users];
   const uses = new Map<string, number>();
