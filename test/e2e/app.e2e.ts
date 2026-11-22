@@ -551,13 +551,16 @@ try {
   await mediaMsg.getByText(`Picture from ${mediaHost}, click to show`).waitFor();
   await page.waitForTimeout(300);
   assert.deepEqual(mediaHits, [], 'nothing fetched before a click');
-  await mediaMsg.locator('.ask', { hasText: 'pic.png' }).locator('.load').click();
+  await mediaMsg.locator('.media-card', { hasText: 'pic.png' }).locator('.load').click();
   await page.waitForFunction(() => (document.querySelector('.msg .embed img[alt="pic.png"]') as HTMLImageElement)?.naturalWidth === 300);
   assert.deepEqual(mediaHits, ['/pic.png'], 'only the clicked picture is fetched');
   // "Always from this host" lists it in the settings; its media then loads at once
-  await mediaMsg.locator('.ask', { hasText: 'clip.wav' }).getByRole('button', { name: 'Always from this host' }).click();
+  await mediaMsg.locator('.media-card', { hasText: 'clip.wav' }).getByRole('button', { name: 'Always from this host' }).click();
   await page.waitForFunction(() => ((document.querySelector('.msg .embed audio') as HTMLAudioElement)?.duration ?? 0) > 0.9);
   assert.equal(await mediaMsg.locator('.ask').count(), 0);
+  assert.equal(await mediaMsg.locator('.media-card').count(), 2, 'linked media keeps one uniform card per item');
+  await mediaMsg.getByRole('link', { name: 'Open pic.png', exact: true }).waitFor();
+  await mediaMsg.getByRole('link', { name: 'Open clip.wav', exact: true }).waitFor();
   assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).embedHosts as string[])).includes(mediaHost));
   mediaServer.close();
   console.log('ok: media links load when clicked, or at once from a listed host');
@@ -565,18 +568,17 @@ try {
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;
   bob.sendText({ users: [alice.session] }, 'psst');
-  await page.locator('.sidebar').getByText('Direct messages').waitFor();
-  await page.locator('.dm', { hasText: 'bob' }).click();
+  // Stacked layout: private chats are tabs above the chat
+  const chatTabs = page.getByRole('tablist', { name: 'Open chats' });
+  await chatTabs.getByRole('tab', { name: /bob/ }).click();
   await page.locator('.msg', { hasText: 'psst' }).waitFor();
   console.log('ok: direct message shown in its own view');
   const soundLog = () => page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
   const played = await soundLog();
   for (const ev of ['connected', 'message', 'privateMessage']) assert.ok(played.includes(ev), `sound for ${ev}: ${played}`);
   console.log('ok: sounds for connect, channel and direct messages');
-  const dmRow = page.locator('.dm-row', { hasText: 'bob' });
-  await dmRow.hover();
-  await dmRow.getByRole('button', { name: 'Close conversation with bob' }).click();
-  await page.locator('.sidebar').getByText('Direct messages').waitFor({ state: 'detached' });
+  await chatTabs.getByRole('button', { name: 'Close conversation with bob' }).click();
+  await chatTabs.waitFor({ state: 'detached' });
   await page.locator('.msg', { hasText: 'psst' }).waitFor({ state: 'detached' });
   console.log('ok: direct message closed');
   await page.locator('.channel .name').first().dblclick();
@@ -1933,6 +1935,10 @@ try {
     console.log('ok: toolbar expands and collapses all channels repeatedly, root has no caret, header text lines up');
 
     // ─── Text channels: read and written without joining, between mumh5 clients ───
+    await page.getByRole('button', { name: 'Configure', exact: true }).click();
+    await page.getByRole('tab', { name: 'Chat and files', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Save chat history on this device', exact: true }).check();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     // Bob plays a second mumh5 client by speaking the plugin data protocol
     const assembler = new TextAssembler();
     const signals: { type: number; text?: string }[] = [];
@@ -2050,7 +2056,7 @@ try {
   assert.ok(shown[0] && (shown[1] as number) > 300, `image shown large: ${shown}`);
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached' });
-  await page.locator('.chat .msg .html img').last().click();
+  await page.locator('.chat .msg .embed img').last().click();
   await viewer.waitFor();
   await viewer.getByRole('button', { name: 'Close image' }).click({ position: { x: 5, y: 5 } });
   await viewer.waitFor({ state: 'detached' });

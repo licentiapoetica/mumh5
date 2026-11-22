@@ -19,6 +19,8 @@ export interface Settings {
   mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
   sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
   autoDownload: number;    // fetch announced files up to this many MB by themselves; 0: never
+  saveChatHistory: boolean;
+  chatHistoryHours: number;
   compact: boolean;
   youtube: 'off' | 'click' | 'thumbnail'; // YouTube links: plain, click-to-play card, card with thumbnail
   // Link previews: fetched by this computer (reveals IP to the linked site), or none
@@ -80,6 +82,8 @@ const defaults: Settings = {
   mediaLinks: 'click',
   sendThumbnails: true,
   autoDownload: 20,
+  saveChatHistory: false,
+  chatHistoryHours: 24,
   compact: false,
   youtube: 'off',
   linkPreviews: 'off',

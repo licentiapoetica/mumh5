@@ -20,9 +20,10 @@ const stubs = `
     return { secure: Promise.resolve({ fingerprint: control.fingerprint, authorized: false }),
       send() {}, close() {}, onData: null, onClose: null };
   }
-  export const store = { displayName: u => u.name, pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
+  export const store = { displayName: u => u.name, settings: { saveChatHistory: false, chatHistoryHours: 24 }, pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
   const service = { isText() { return false; }, channelRemoved() {}, closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
   export const share = service, textChannels = service, files = service, reactions = service;
+  export const chatHistory = { entered() {}, record() {}, hide() {}, forget() {}, userChanged() {}, userLeft() {}, closed() {} };
   export const voice = { settings: { forceTcp: false }, attach(c) { control.attached = c; }, detach() { control.attached = null; } };
   export const sounds = { play() {} };
   export const ownAvatar = { loaded: Promise.resolve(), bytes: null };

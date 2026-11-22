@@ -102,7 +102,7 @@ DOMPurify.addHook('afterSanitizeAttributes', node => {
 // Sanitize an incoming Mumble HTML message and pull out announced files and media links.
 // Direct links to pictures, videos and sounds become media embeds whatever the host; the message
 // view loads those from trusted hosts at once and asks first for the rest (MediaLink.svelte).
-export function renderIncoming(raw: string, trustedHosts: string[]): { html: string; embeds: Embed[] } {
+export function renderIncoming(raw: string, trustedHosts: string[], inlineImages = false): { html: string; embeds: Embed[] } {
   const { html, files } = takeFiles(raw);
   const frag = DOMPurify.sanitize(html, purifyConfig);
   const embeds: Embed[] = files.map(f => ({ kind: 'file', url: `file:${f.meta.i}`, name: f.meta.n, file: f.meta, poster: f.poster }));
@@ -131,6 +131,15 @@ export function renderIncoming(raw: string, trustedHosts: string[]): { html: str
   codeBlocks(frag);
   // Pictures uploaded to a host come with an inline thumbnail for vanilla clients; we show the real media instead
   if (trustedMedia) frag.querySelectorAll('img').forEach(img => img.remove());
+  // Chat pictures use the same filename, preview and download card as shared files.
+  // Descriptions keep their inline markup because their views render HTML only.
+  if (inlineImages) for (const img of frag.querySelectorAll('img')) {
+    const url = img.getAttribute('src') ?? '';
+    if (!/^data:image\/(png|jpe?g|gif|webp);/i.test(url)) continue;
+    const extension = /^data:image\/([^;]+)/i.exec(url)![1].replace('jpeg', 'jpg');
+    if (!embeds.some(e => e.url === url)) embeds.push({ kind: 'image', url, name: img.getAttribute('alt') || `Picture.${extension}` });
+    img.remove();
+  }
   const div = document.createElement('div');
   div.append(frag);
   return { html: div.innerHTML.replace(/^(<br\s*\/?>)+|(<br\s*\/?>)+$/g, ''), embeds };

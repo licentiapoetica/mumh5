@@ -53,8 +53,8 @@
     .sort((a, b) => Number(b.channel.id === self?.channelId) - Number(a.channel.id === self?.channelId)));
   const textRooms = $derived(all.filter(r => session.isText(r.channel.id) && matches(r)));
   const dms = $derived(Object.keys(session.logs).filter(k => k.startsWith('dm:'))
-    .map(k => ({ key: k as `dm:${number}`, user: session.user(Number(k.slice(3))) }))
-    .filter(d => !q || (d.user?.name ?? '').toLowerCase().includes(q)));
+    .map(k => ({ key: k as `dm:${number}`, user: session.user(Number(k.slice(3))), name: session.viewTitle(k) }))
+    .filter(d => !q || d.name.toLowerCase().includes(q)));
 
   // A room shows its people when opened; the one you are in is open unless you close it
   let opened = $state<Record<number, boolean>>({});
@@ -246,16 +246,16 @@
         <ul>
           {#each dms as dm (dm.key)}
             <li class="entry" data-menu-row class:viewing={session.view === dm.key}
-              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
+              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }, { label: 'Delete history', action: () => session.deleteDm(dm.key) }]); }}>
               <button class="main" onclick={() => openChat(dm.key)}>
-                <Avatar name={dm.user?.name ?? '?'} size={32} src={session.avatar(dm.user?.session)} />
+                <Avatar name={dm.name} size={32} src={session.avatar(dm.user?.session)} />
                 <span class="text">
-                  <span class="name" class:gone={!dm.user}>{dm.user ? store.displayName(dm.user) : 'Offline user'}</span>
+                  <span class="name" class:gone={!dm.user}>{dm.user ? store.displayName(dm.user) : dm.name}</span>
                   <span class="sub">{last(dm.key)}</span>
                 </span>
                 {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
               </button>
-              <button class="icon-btn dm-close" title="Close conversation" aria-label="Close conversation with {dm.user ? store.displayName(dm.user) : 'offline user'}"
+              <button class="icon-btn dm-close" title="Close conversation" aria-label="Close conversation with {dm.user ? store.displayName(dm.user) : dm.name}"
                 onclick={() => session.closeDm(dm.key)}><Icon name="x" size={16} /></button>
             </li>
           {/each}

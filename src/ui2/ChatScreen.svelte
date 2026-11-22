@@ -2,14 +2,15 @@
   import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import ChatLog from '../ui/ChatLog.svelte';
+  import ChatTabs from '../ui/ChatTabs.svelte';
   import Composer from '../ui/Composer.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { channelMenu, userMenu } from '../lib/actions.ts';
   import { channelTopic } from '../core/text-signal.ts';
 
-  // back: shown where the rooms are a screen of their own
-  let { back, onback }: { back: boolean; onback: () => void } = $props();
+  // back: shown where the rooms are a screen of their own; tabs: private chats as tabs, since the rooms list is not beside it
+  let { back, onback, tabs = false }: { back: boolean; onback: () => void; tabs?: boolean } = $props();
 
   const connected = $derived(session.status === 'connected');
   const isDm = $derived(session.view.startsWith('dm:'));
@@ -41,6 +42,7 @@
     </div>
     {#if connected}<button class="icon-btn" aria-label="More for {title}" onclick={more}><Icon name="more" /></button>{/if}
   </header>
+  {#if tabs}<ChatTabs />{/if}
   <ChatLog key={session.view}>
     {#snippet empty()}
       <div class="empty">
