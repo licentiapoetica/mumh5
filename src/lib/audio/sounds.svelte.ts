@@ -1,10 +1,12 @@
 import { load, save } from '../storage.ts';
 import { voice } from './voice.svelte.ts';
-import { desktop } from '../native.ts';
+import { desktop, isWeb } from '../native.ts';
 import { putBlob, getBlob, deleteBlob } from '../blobstore.ts';
 import { zipSync } from 'fflate';
-import { isPackClip, listAudioPack, readAudioPack, readPackClip, MAX_AUDIO_FILE, MAX_AUDIO_PACK } from '../../core/audio-pack.ts';
+import { isPackClip, listAudioPack, readAudioPack, readPackClip } from '../../core/audio-pack.ts';
 import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, STATE_EVENTS, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
+import { proxyInfo } from '../web.svelte.ts';
+import { DEFAULT_AUDIO_PACK_LIMITS, audioSize, type AudioPackLimits } from '../../core/audio-pack-limits.ts';
 import { renderTones } from './tones.ts';
 import defaultPackUrl from '../../assets/default-audio-pack.zip?url';
 
@@ -34,7 +36,7 @@ function earlierInstall(): boolean {
 }
 
 // An archive kept whole; a clip is unpacked the first time it plays.
-interface OpenPack { bytes: Uint8Array; names: Set<string>; urls: Map<string, string> }
+interface OpenPack { limits: AudioPackLimits; bytes: Uint8Array; names: Set<string>; urls: Map<string, string> }
 
 class Sounds {
   settings = $state<SoundSettings>(upgradeSoundSettings(load<unknown>('mumh5.sounds', null), earlierInstall()));
@@ -60,8 +62,17 @@ class Sounds {
   constructor() {
     voice.onPtt = down => { void this.play(down ? 'pttDown' : 'pttUp'); };
     voice.onTalkingWhileMuted = () => { void this.play('talkingWhileMuted'); };
-    this.ready = this.loadStored().catch(e => this.error(`Could not load sounds: ${e.message}`)).finally(() => { this.loaded = true; });
+    this.ready = this.initialize().catch(e => this.error(`Could not load sounds: ${e.message}`)).finally(() => { this.loaded = true; });
     addEventListener('pagehide', () => this.flush());
+  }
+
+  private get limits(): AudioPackLimits {
+    return isWeb ? proxyInfo.audioPackLimits : DEFAULT_AUDIO_PACK_LIMITS;
+  }
+
+  private async initialize(): Promise<void> {
+    if (isWeb && !proxyInfo.loaded) await proxyInfo.load();
+    await this.loadStored();
   }
 
   private error(message: string): void {
@@ -84,8 +95,8 @@ class Sounds {
     else await deleteBlob(key);
   }
 
-  private openPack(bytes: Uint8Array, names: Iterable<string>): OpenPack {
-    return { bytes, names: new Set(names), urls: new Map() };
+  private openPack(bytes: Uint8Array, names: Iterable<string>, limits: AudioPackLimits = DEFAULT_AUDIO_PACK_LIMITS): OpenPack {
+    return { limits, bytes, names: new Set(names), urls: new Map() };
   }
 
   private clearUrls(urls: Map<unknown, string>): void {
@@ -104,7 +115,7 @@ class Sounds {
       const known = pack.urls.get(path);
       if (known) return known;
       try {
-        const url = URL.createObjectURL(new Blob([readPackClip(pack.bytes, path)], { type: 'audio/wav' }));
+        const url = URL.createObjectURL(new Blob([readPackClip(pack.bytes, path, pack.limits)], { type: 'audio/wav' }));
         pack.urls.set(path, url);
         return url;
       } catch (e) { this.error(`Could not read ${path}: ${(e as Error).message}`); }
@@ -141,16 +152,16 @@ class Sounds {
         if (!blob) throw new Error('The saved ZIP is missing.');
         const bytes = new Uint8Array(await blob.arrayBuffer());
         let names: Iterable<string>;
-        if (saved.id) names = listAudioPack(bytes);
+        if (saved.id) names = listAudioPack(bytes, this.limits);
         else {
           // Preserve the previous single ZIP as the first library entry.
-          const clips = readAudioPack(bytes);
+          const clips = readAudioPack(bytes, this.limits);
           this.settings.pack = await this.rememberPack(saved.name, blob, clips);
           await this.persist();
           names = clips.keys();
         }
         // The user may have switched packs while this one was being read
-        if (!this.userPack && (!saved.id || this.settings.pack?.id === saved.id)) this.userPack = this.openPack(bytes, names);
+        if (!this.userPack && (!saved.id || this.settings.pack?.id === saved.id)) this.userPack = this.openPack(bytes, names, this.limits);
       } catch (e) { this.error(`Could not load ${saved.name}: ${(e as Error).message} Using the standard pack.`); }
     }
     this.refreshClips();
@@ -257,7 +268,7 @@ class Sounds {
 
   async setCustom(ev: SoundEvent, file: File): Promise<string | null> {
     await this.ready;
-    if (file.size > MAX_AUDIO_FILE) return `${file.name} is larger than 4 MB`;
+    if (file.size > this.limits.file) return `${file.name} is larger than ${audioSize(this.limits.file)}`;
     if (!/^audio\//.test(file.type) && !AUDIO.test(file.name)) return `${file.name} is not an audio file`;
     try { await this.write(`sound:${ev}`, file); }
     catch (e) { return `Could not store ${file.name}: ${(e as Error).message}`; }
@@ -330,7 +341,7 @@ class Sounds {
     const blob = await this.read(`pack:${id}`);
     if (!blob) throw new Error('The saved sound pack is missing.');
     const bytes = new Uint8Array(await blob.arrayBuffer());
-    await this.activatePack(entry, this.openPack(bytes, listAudioPack(bytes)));
+    await this.activatePack(entry, this.openPack(bytes, listAudioPack(bytes, this.limits), this.limits));
   }
 
   async removePack(id: string): Promise<void> {
@@ -344,13 +355,13 @@ class Sounds {
 
   async importZip(file: File): Promise<PackReport> {
     await this.prepare();
-    if (file.size > MAX_AUDIO_PACK) throw new Error('Sound packs must be at most 32 MB.');
+    if (file.size > this.limits.pack) throw new Error(`Sound packs must be at most ${audioSize(this.limits.pack)}.`);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const clips = readAudioPack(bytes);
+    const clips = readAudioPack(bytes, this.limits);
     // Content IDs keep every distinct pack; importing the same archive is a no-op
     // for the library, even when its file name differs.
     const entry = await this.rememberPack(file.name, file, clips);
-    await this.activatePack(entry, this.openPack(bytes, clips.keys()));
+    await this.activatePack(entry, this.openPack(bytes, clips.keys(), this.limits));
     return {
       assigned: SOUND_EVENTS.filter(e => clips.has(PACK_PATHS[e.id] ?? '')).map(e => `${PACK_PATHS[e.id]}: ${e.name}`),
       unmatched: [],
@@ -367,9 +378,9 @@ class Sounds {
       // The size of the stored ZIP (file, both headers with the name, end record), known
       // before anything is read. Stored, not compressed: WAV barely shrinks and this runs on the UI thread.
       const archive = folderClips.reduce((n, f) => n + f.size + 76 + 2 * new TextEncoder().encode(inFolder(f)).length, 22);
-      if (folderClips.length > 512 || archive > MAX_AUDIO_PACK) throw new Error('Sound pack folders must be at most 32 MB and 512 clips.');
+      if (folderClips.length > 512 || archive > this.limits.pack) throw new Error(`Sound pack folders must be at most ${audioSize(this.limits.pack)} and 512 clips.`);
       for (const file of folderClips.sort((a, b) => a.webkitRelativePath.localeCompare(b.webkitRelativePath))) {
-        if (file.size > MAX_AUDIO_FILE) throw new Error(`${file.name} is larger than 4 MB.`);
+        if (file.size > this.limits.file) throw new Error(`${file.name} is larger than ${audioSize(this.limits.file)}.`);
         entries[inFolder(file)] = new Uint8Array(await file.arrayBuffer());
       }
       const name = folderClips[0].webkitRelativePath.split('/')[0];

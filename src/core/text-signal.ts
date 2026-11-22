@@ -24,6 +24,8 @@ export const TEXT_MARK = '<!--mumh5:text-->';
 export const isTextChannel = (description: string) => description.includes(TEXT_MARK);
 // What people read: without this marker, or the admin list and role data on the root channel
 export const stripMark = (description: string) => stripRoles(stripAdmins(description)).split(TEXT_MARK).join('');
+// A single-line preview; protocol metadata never belongs in the channel header or room list.
+export const channelTopic = (description: string) => stripMark(description).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 export const markText = (description: string, on: boolean) => (on ? TEXT_MARK : '') + stripMark(description);
 
 // Kept per channel, and handed to a newcomer

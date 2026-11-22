@@ -22,7 +22,7 @@ const stubs = `
   }
   export const store = { displayName: u => u.name, pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
   const service = { isText() { return false; }, channelRemoved() {}, closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
-  export const share = service, textChannels = service, files = service;
+  export const share = service, textChannels = service, files = service, reactions = service;
   export const voice = { settings: { forceTcp: false }, attach(c) { control.attached = c; }, detach() { control.attached = null; } };
   export const sounds = { play() {} };
   export const ownAvatar = { loaded: Promise.resolve(), bytes: null };
@@ -400,8 +400,9 @@ test('bulk move timeouts retain selection and unrelated denials are not attribut
 test('bulk moves handle removed users, removed destinations and connection loss', async t => {
   const { s, client } = await moveSession(t);
   s.moveUsers([8, 9], 4);
+  const departed = client.users.get(8)!;
   client.users.delete(8);
-  client.emit('userRemove', { session: 8, channelId: 0 } as never, null, '', false);
+  client.emit('userRemove', departed, null, '', false);
   assert.deepEqual(s.selectedUsers, [9]);
   assert.equal(s.userMove!.people[0].status, 'failed');
   client.channels.delete(4);

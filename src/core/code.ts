@@ -41,6 +41,7 @@ import swift from 'highlight.js/lib/languages/swift';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { escapeText } from './html.ts';
 
 // The id goes on the wire; aliases (js, py, sh, html, toml, ...) are accepted for it
 export const LANGUAGES = [
@@ -99,10 +100,6 @@ export function languageName(id: string): string {
   return LANGUAGES.find(l => l.id === id)?.name ?? id;
 }
 
-export function escapeCode(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 // The best guess with its highlighting, or null when nothing fits well enough. ASCII tables and
 // art score as code in some grammars (all those operators), so mostly letters are wanted.
 function guess(code: string): { html: string; lang: string } | null {
@@ -122,7 +119,7 @@ export function detectLanguage(code: string): string | null {
 export function highlightCode(code: string, lang?: string | null): { html: string; lang: string | null } {
   const id = languageId(lang);
   if (id) return { html: hljs.highlight(code, { language: id, ignoreIllegals: true }).value, lang: id };
-  return guess(code) ?? { html: escapeCode(code), lang: null };
+  return guess(code) ?? { html: escapeText(code), lang: null };
 }
 
 // Surrounding blank lines and trailing spaces go; indentation of the first line stays
@@ -135,7 +132,7 @@ export function tidyCode(code: string): string {
 export function codeBlockHtml(code: string, lang?: string | null, detect = true): string {
   const text = tidyCode(code);
   const id = languageId(lang) ?? (detect ? detectLanguage(text) : null);
-  return `<pre${id ? ` title="${id}"` : ''}>${escapeCode(text)}</pre>`;
+  return `<pre${id ? ` title="${id}"` : ''}>${escapeText(text)}</pre>`;
 }
 
 export type TextPart = { text: string } | { code: string; lang: string };

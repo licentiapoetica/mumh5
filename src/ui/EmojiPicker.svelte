@@ -56,16 +56,20 @@
     try { localStorage.setItem('mumh5.emojiTone', String(toneIndex)); } catch { /* storage unavailable */ }
   }
 
-  // Above the button, kept on screen on short and narrow windows
-  function placeAtAnchor() {
+  // Above the button, or below it where there is more room (a message near the top of the chat).
+  // Lined up with the button's right edge, or its left one when it sits in the left half.
+  // Above, it hangs from the bottom, so a phone's keyboard pushes it up with the button.
+  function placeAtAnchor(): { height: number; left: number; top?: number; bottom?: number } {
     const r = anchor.getBoundingClientRect();
-    const height = Math.min(400, Math.max(240, r.top - 16));
-    const width = Math.min(352, window.innerWidth - 16);
-    return {
-      height,
-      bottom: Math.max(8, Math.min(window.innerHeight - r.top + 6, window.innerHeight - height - 8)),
-      right: Math.max(8, Math.min(window.innerWidth - r.right, window.innerWidth - width - 8))
-    };
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const width = Math.min(352, vw - 16);
+    const above = r.top - 16, below = vh - r.bottom - 16;
+    const up = above >= 300 || above >= below;
+    const height = Math.min(400, Math.max(240, up ? above : below));
+    const left = Math.max(8, Math.min(r.left + r.width / 2 < vw / 2 ? r.left : r.right - width, vw - width - 8));
+    return up
+      ? { height, left, bottom: Math.max(8, Math.min(vh - r.top + 6, vh - height - 8)) }
+      : { height, left, top: Math.max(8, Math.min(r.bottom + 6, vh - height - 8)) };
   }
 
   function outside(e: PointerEvent) {
@@ -139,7 +143,8 @@
 <svelte:window onpointerdown={outside} onresize={resized} />
 
 <div class="emoji-pop" role="dialog" aria-label="Emoji" tabindex="-1" bind:this={root} {onkeydown}
-  style:right="{place.right}px" style:bottom="{place.bottom}px" style:height="{place.height}px">
+  style:left="{place.left}px" style:top={place.top != null ? `${place.top}px` : undefined}
+  style:bottom={place.bottom != null ? `${place.bottom}px` : undefined} style:height="{place.height}px">
   <div class="emoji-head">
     <input bind:this={field} bind:value={query} placeholder="Search emoji" aria-label="Search emoji"
       oninput={() => { if (scroller) scroller.scrollTop = 0; }} onkeydown={fieldKey} />

@@ -40,6 +40,17 @@ export function openProfile(user: number, at: Element | { x: number; y: number }
   ui.profile = { session: user, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, el: at instanceof Element ? at : undefined, row };
 }
 
+export function showServerCert(): void {
+  const cert = session.serverCert;
+  if (!cert?.chain.length) return;
+  ui.cert = {
+    title: `Certificate of ${session.server?.host}`, chain: cert.chain,
+    status: cert.authorized
+      ? { ok: true, text: 'Valid certificate, signed by a trusted authority.' }
+      : { ok: false, text: `Not signed by a trusted authority (${cert.authError ?? 'unknown reason'}). mumh5 pinned this certificate the first time you connected and warns you if it changes.` }
+  };
+}
+
 // Right-click menu for a channel in the tree
 export function channelMenu(c: Channel): MenuItem[] {
   const here = session.self?.channelId === c.id;

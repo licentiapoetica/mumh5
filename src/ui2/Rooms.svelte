@@ -6,16 +6,16 @@
   import RoleBadges from '../ui/RoleBadges.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { serverInitials as initials, store, type SavedServer } from '../lib/settings.svelte.ts';
-  import { menu, type MenuItem } from '../lib/menu.svelte.ts';
+  import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
-  import { channelMenu, userMenu, openProfile, voiceMark } from '../lib/actions.ts';
+  import { channelMenu, userMenu, openProfile, voiceMark, showServerCert } from '../lib/actions.ts';
+  import { railMenu, serverState as stateOf, serverUnread as unreadOf } from '../lib/server-menu.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
-  import { makeServerIcon } from '../lib/images.ts';
   import { peopleOn } from '../lib/server-status.svelte.ts';
   import { PERM, type Channel } from '../core/client.ts';
   import { describeLink } from '../core/link-quality.ts';
-  import { stripMark } from '../core/text-signal.ts';
+  import { channelTopic } from '../core/text-signal.ts';
   import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
   import UserSelection from '../ui/UserSelection.svelte';
@@ -67,7 +67,7 @@
     const text = e.html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
     return `${e.self ? 'You' : e.author}: ${text || (e.embeds.length ? 'sent a file' : '')}`;
   }
-  const about = (c: Channel) => stripMark(c.description).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const about = (c: Channel) => channelTopic(c.description);
   const talking = (s: number) => !!voice.talking[s] || (s === self?.session && voice.transmitting);
 
   let dropRoom = $state<number | null>(null);
@@ -97,47 +97,6 @@
     const noMake = session.can(0, PERM.MakeChannel) === false && session.can(0, PERM.MakeTempChannel) === false;
     menu.show(e, [{ label: 'Create channel...', disabled: noMake, action: () => (ui.channelDialog = { mode: 'create', parent: 0 }) }]);
   }
-
-  function showCert() {
-    if (!cert?.chain.length) return;
-    ui.cert = {
-      title: `Certificate of ${session.server?.host}`, chain: cert.chain,
-      status: cert.authorized
-        ? { ok: true, text: 'Valid certificate, signed by a trusted authority.' }
-        : { ok: false, text: `Not signed by a trusted authority (${cert.authError ?? 'unknown reason'}). mumh5 pinned this certificate the first time you connected and warns you if it changes.` }
-    };
-  }
-
-  // ─── Servers ────────────────────────────────────────────────────────────────
-  // Waiting for an automatic reconnect counts as connecting, so it shows and can be stopped
-  const stateOf = (id: string) => { const s = sessions.byServer(id); return s?.reconnectDelay != null ? 'connecting' : s?.status ?? 'idle'; };
-  const unreadOf = (id: string) => {
-    const s = sessions.byServer(id);
-    return s && sessions.activeId !== id ? Object.values(s.unread).reduce((a, b) => a + b, 0) : 0;
-  };
-  let iconPicker: HTMLInputElement;
-  let iconFor = '';
-  async function pickIcon() {
-    const file = iconPicker.files?.[0];
-    iconPicker.value = '';
-    if (file && iconFor) store.setServerIcon(iconFor, await makeServerIcon(file).catch(() => undefined));
-  }
-  function serverMenu(e: MouseEvent, s: SavedServer, i: number) {
-    const state = stateOf(s.id);
-    const items: MenuItem[] = [
-      { header: true, label: s.label },
-      state === 'idle' ? { label: 'Connect', action: () => sessions.open(s) } : { label: 'Disconnect', action: () => sessions.close(s.id) },
-      ...(state === 'connected' && sessions.voiceId !== s.id ? [{ label: 'Talk here', action: () => { sessions.select(s.id); sessions.setVoice(sessions.byServer(s.id)!); } }] : []),
-      { separator: true, label: '' },
-      { label: 'Move left', disabled: i === 0, action: () => store.moveServer(s.id, i - 1) },
-      { label: 'Move right', disabled: i === store.servers.length - 1, action: () => store.moveServer(s.id, i + 1) },
-      { separator: true, label: '' },
-      { label: 'Change icon...', action: () => { iconFor = s.id; iconPicker.click(); } },
-      ...(s.icon ? [{ label: 'Remove icon', action: () => store.setServerIcon(s.id, undefined) }] : []),
-      { label: 'Edit...', action: () => onedit(s) }
-    ];
-    menu.show(e, items);
-  }
 </script>
 
 <section class="rooms" aria-label="Rooms">
@@ -149,13 +108,12 @@
       <button class="srv" class:active={sessions.activeId === s.id} class:live={state === 'connected'} class:connecting={state === 'connecting'}
         class:voice={sessions.voiceId === s.id && state === 'connected'}
         title="{s.label} ({s.host}){state === 'connected' ? (sessions.voiceId === s.id ? ', voice' : ', connected') : ''}{people ? `, ${people.users}${people.maxUsers ? ` of ${people.maxUsers}` : ''} ${people.users === 1 ? 'person' : 'people'} online` : ''}"
-        onclick={() => sessions.open(s)} oncontextmenu={e => serverMenu(e, s, i)}>
+        onclick={() => sessions.open(s)} oncontextmenu={e => menu.show(e, railMenu(s, i, { horizontal: true, onedit }))}>
         <span class="pic">{#if s.icon}<img src={s.icon} alt="" draggable="false" />{:else}{initials(s.label)}{/if}{#if people}<span class="online" class:empty={!people.users} aria-hidden="true">{people.users > 999 ? '999+' : people.users}</span>{/if}</span>
         <span class="cap">{s.label}</span>
         {#if unread}<span class="count">{unread > 99 ? '99+' : unread}</span>{/if}
       </button>
     {/each}
-    <input bind:this={iconPicker} type="file" accept="image/*" hidden onchange={pickIcon} />
     <button class="srv add" title="Add a server" onclick={onadd}><span class="pic"><Icon name="plus" /></span><span class="cap">Add</span></button>
     <!-- The public list and its pings need the desktop app -->
     {#if desktop}<button class="srv add" title="Browse public servers" onclick={onbrowse}><span class="pic"><Icon name="globe" /></span><span class="cap">Browse</span></button>{/if}
@@ -163,7 +121,7 @@
 
   <header class="top">
     {#if connected}<ConnectionWave />{/if}
-    <button class="place" onclick={showCert} disabled={!cert} title={cert ? (cert.authorized ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
+    <button class="place" onclick={showServerCert} disabled={!cert} title={cert ? (cert.authorized ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <h1>{session.server?.label ?? 'mumh5'}</h1>
       <span class="status" role="status" onpointerenter={e => (e.currentTarget.title = describeLink(session.client?.link.read(Date.now())))}>
         {#if connected}<span class="dot"></span>Connected{#if session.rtt}, {session.rtt} ms{/if}{#if cert}<Icon name={cert.authorized ? 'lock' : 'shield'} size={12} />{/if}

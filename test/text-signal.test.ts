@@ -1,8 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEXT, TEXT_MARK, HAND_OVER, MAX_HTML, TextAssembler, encodeText, encodeHistory, parseMsg, parseHistory, mergeMsgs, isTextChannel, markText, stripMark, newId, type TextMsg } from '../src/core/text-signal.ts';
+import { TEXT, TEXT_MARK, HAND_OVER, MAX_HTML, TextAssembler, encodeText, encodeHistory, parseMsg, parseHistory, mergeMsgs, isTextChannel, markText, stripMark, channelTopic, newId, type TextMsg } from '../src/core/text-signal.ts';
+import { withAdmins } from '../src/core/admins.ts';
+import { withRoles } from '../src/core/roles.ts';
 
 const msg = (i: string, t: number, h = 'hi'): TextMsg => ({ i, c: 3, t, n: 'ann', k: 'abc', h });
+
+test('channel previews hide metadata and collapse HTML and whitespace', () => {
+  const description = withRoles(withAdmins(TEXT_MARK + '<b>Server rules</b>\n <p>Be kind.</p>', [1, 2]), {
+    v: 1, roles: [{ g: 'admin', n: 'Admin', c: '#f0504a', i: 'crown', s: true, m: [1] }]
+  });
+  assert.equal(channelTopic(description), 'Server rules Be kind.');
+  assert.equal(channelTopic(TEXT_MARK), '');
+  assert.equal(channelTopic(''), '');
+});
 
 test('the marker turns a description into a text channel and comes off again', () => {
   assert.equal(isTextChannel('<b>Rules</b>'), false);

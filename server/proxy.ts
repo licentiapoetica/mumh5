@@ -13,6 +13,7 @@ import { generateIdentity, identityFromP12, identityToP12, certCommonName } from
 import { describeCert } from '../electron/certs.ts';
 import { pingServer } from '../electron/publist.ts';
 import { startTurn, turnCredential, stunResponse, isPrivateAddress, CREDENTIAL_TTL } from './turn.ts';
+import { DEFAULT_AUDIO_PACK_LIMITS, MIB, type AudioPackLimits } from '../src/core/audio-pack-limits.ts';
 
 export { stunResponse, isPrivateAddress };
 
@@ -53,11 +54,13 @@ export interface ProxyConfig {
   debug: boolean;
   maxConnections: number;
   maxPerAddress: number;
+  audioPackLimits: AudioPackLimits;
 }
 
 export const defaults: ProxyConfig = {
   port: 8080, bind: '127.0.0.1', servers: [], allowAny: false, allowPrivate: false, origins: [],
-  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, turnUrls: [], debug: false, maxConnections: 200, maxPerAddress: 8
+  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, turnUrls: [], debug: false, maxConnections: 200, maxPerAddress: 8,
+  audioPackLimits: DEFAULT_AUDIO_PACK_LIMITS
 };
 
 // "host", "host:port", "[v6]:port", each optionally followed by "=Label"
@@ -77,6 +80,14 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
   // A variable set to nothing counts as not set (docker-compose passes unset ones on that way)
   const env = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== '')) as NodeJS.ProcessEnv;
   const on = (v?: string) => v === '1' || v === 'true';
+  const audioLimit = (name: string, fallback: number): number => {
+    if (env[name] === undefined) return fallback;
+    const mib = Number(env[name]);
+    if (!env[name]!.trim() || !Number.isSafeInteger(mib) || mib <= 0 || !Number.isSafeInteger(mib * MIB)) {
+      throw new Error(`${name} must be a positive whole number of MiB.`);
+    }
+    return mib * MIB;
+  };
   return {
     ...defaults,
     port: Number(env.MUMH5_PORT ?? defaults.port),
@@ -99,7 +110,12 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
     turnUrls: (env.MUMH5_TURN_URLS ?? '').split(',').map(s => s.trim()).filter(Boolean),
     debug: on(env.MUMH5_DEBUG),
     maxConnections: Number(env.MUMH5_MAX_CONNECTIONS ?? defaults.maxConnections),
-    maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress)
+    maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress),
+    audioPackLimits: {
+      file: audioLimit('MUMH5_MAX_AUDIO_FILE_MB', defaults.audioPackLimits.file),
+      pack: audioLimit('MUMH5_MAX_AUDIO_PACK_MB', defaults.audioPackLimits.pack),
+      unpacked: audioLimit('MUMH5_MAX_AUDIO_UNPACKED_MB', defaults.audioPackLimits.unpacked)
+    }
   };
 }
 
@@ -181,7 +197,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
 
   async function api(req: http.IncomingMessage, route: string): Promise<unknown> {
     if (route === 'config' && req.method === 'GET') {
-      return { servers: config.servers, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn };
+      return { servers: config.servers, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn, audioPackLimits: config.audioPackLimits };
     }
     // What a client needs for screen sharing: the STUN port and, with the relay on, credentials
     // for it. Open to any origin, because the desktop app asks from outside this site; checking
