@@ -11,7 +11,6 @@
   // Without a connection the buttons show the remembered choice, applied at the next connect
   const muted = $derived(self ? self.selfMute : sessions.mute);
   const deafened = $derived(self ? self.selfDeaf : sessions.deaf);
-  const sharing = $derived(!!share.stream);
   const canShare = $derived(session.status === 'connected' && share.supported(sessions.active));
 
   function quick(e: MouseEvent, kind: 'input' | 'output') {
@@ -33,11 +32,18 @@
     {#if large}<span>{deafened ? 'Deafened' : 'Deafen'}</span>{/if}
   </button>
   {#if large}
-    <button class:live={sharing} disabled={!sharing && !canShare} aria-label={sharing ? `Stop sharing your ${share.kind}` : 'Share your screen or camera'}
-      title={sharing ? `Stop sharing your ${share.kind}` : 'Share your screen or camera with your channel'}
-      onclick={() => (sharing ? share.stop() : share.start(sessions.active))}>
-      <Icon name={sharing ? share.kind : 'screen'} size={24} />
-      <span>{sharing ? 'Stop sharing' : 'Share'}</span>
+    <button class:live={share.cameraOn} aria-pressed={share.cameraOn} disabled={!share.cameraOn && (!canShare || share.screenOn || share.opening)}
+      aria-label={share.cameraOn ? 'Turn off your camera' : 'Turn on your camera'}
+      title={share.cameraOn ? 'Turn off your camera' : share.screenOn ? 'Stop sharing your screen to turn on your camera' : 'Turn on your camera'}
+      onclick={() => share.toggleCamera(sessions.active)}>
+      <Icon name="camera" size={24} />
+      <span>{share.cameraOn ? 'Camera on' : 'Camera'}</span>
+    </button>
+    <button class:live={share.screenOn} disabled={!share.screenOn && (!canShare || share.cameraOn)} aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'}
+      title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
+      onclick={() => (share.screenOn ? share.stop() : share.start(sessions.active))}>
+      <Icon name="screen" size={24} />
+      <span>{share.screenOn ? 'Stop sharing' : 'Share'}</span>
     </button>
   {/if}
 </div>
@@ -47,7 +53,9 @@
   button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--text); background: var(--bg-3); }
   button:hover:not(:disabled) { background: var(--bg-active); }
   button.on { background: var(--danger); color: #fff; }
-  button.live { background: var(--speaking); color: var(--bg-0); }
+  button.live, button.live:hover:not(:disabled) { background: var(--speaking); color: var(--bg-0); }
   .large { gap: 10px; justify-content: center; }
-  .large button { width: 96px; height: 72px; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+  /* Four in a row, narrower on a phone */
+  .large { gap: clamp(4px, 2vw, 10px); }
+  .large button { flex: 0 1 96px; min-width: 0; width: auto; height: 72px; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 </style>

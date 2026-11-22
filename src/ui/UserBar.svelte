@@ -20,13 +20,13 @@
   const muted = $derived(self ? self.selfMute : sessions.mute);
   const deafened = $derived(self ? self.selfDeaf : sessions.deaf);
 
-  // Sharing runs on one server at a time; the button stops it from anywhere
-  const sharingHere = $derived(!!share.stream);
+  // Sharing runs on one server at a time, one stream at a time; the buttons stop it from anywhere
   const canShare = $derived(session.status === 'connected' && share.supported(sessions.active));
   function toggleShare() {
-    if (share.stream) share.stop();
+    if (share.screenOn) share.stop();
     else share.start(sessions.active);
   }
+  const cameraHint = $derived(share.cameraOn ? 'Turn off your camera' : share.screenOn ? 'Stop sharing your screen to turn on your camera' : 'Turn on your camera');
 
   // One button for the whole tree. It follows the tree, which single channels can change too
   const allOpen = $derived(session.allExpanded);
@@ -75,9 +75,14 @@
       onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
       <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
     </button>
-    <button class="icon-btn" class:live={sharingHere} title={sharingHere ? `Stop sharing your ${share.kind}` : 'Share your screen or camera with your channel'}
-      aria-label={sharingHere ? `Stop sharing your ${share.kind}` : 'Share your screen or camera'} disabled={!sharingHere && !canShare} onclick={toggleShare}>
-      <Icon name={sharingHere ? share.kind : 'screen'} size={18} />
+    <button class="icon-btn" class:live={share.cameraOn} aria-pressed={share.cameraOn} title={cameraHint}
+      aria-label={share.cameraOn ? 'Turn off your camera' : 'Turn on your camera'}
+      disabled={!share.cameraOn && (!canShare || share.screenOn || share.opening)} onclick={() => share.toggleCamera(sessions.active)}>
+      <Icon name="camera" size={18} />
+    </button>
+    <button class="icon-btn" class:live={share.screenOn} title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
+      aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'} disabled={!share.screenOn && (!canShare || share.cameraOn)} onclick={toggleShare}>
+      <Icon name="screen" size={18} />
     </button>
     <span class="sep"></span>
     <button class="icon-btn" title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>

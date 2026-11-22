@@ -39,7 +39,7 @@ class Ui {
   wizard = $state<'setup' | 'add' | null>(null);
   // Quick audio popover from right-clicking mute (input) or deafen (output)
   quickAudio = $state<{ kind: 'input' | 'output'; x: number; y: number } | null>(null);
-  settingsTab = $state<'voice' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about'>('voice');
+  settingsTab = $state<'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about'>('voice');
   publicServers = $state(false);
   serverInfo = $state(false);
   // Image shown large (clicked in the chat or in a description)

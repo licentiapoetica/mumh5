@@ -15,6 +15,8 @@ export const ICON_PATHS: Record<string, string> = {
   sidebar: 'M3 4h18v16H3zM9 4v16',
   switch: 'M4 8h13l-3-3M20 16H7l3 3',
   camera: 'M2 6h14v12H2zM16 10l6-3v10l-6-3',
+  eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  'eye-off': 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 3l18 18',
   screen: 'M3 4h18v12H3zM8 20h8M12 16v4',
   popout: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
   expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
