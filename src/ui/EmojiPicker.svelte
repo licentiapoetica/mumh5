@@ -65,7 +65,8 @@
     const width = Math.min(352, vw - 16);
     const above = r.top - 16, below = vh - r.bottom - 16;
     const up = above >= 300 || above >= below;
-    const height = Math.min(400, Math.max(240, up ? above : below));
+    // Never taller than the window, so a short window scrolls inside the picker instead of cutting it off
+    const height = Math.min(400, vh - 16, Math.max(240, up ? above : below));
     const left = Math.max(8, Math.min(r.left + r.width / 2 < vw / 2 ? r.left : r.right - width, vw - width - 8));
     return up
       ? { height, left, bottom: Math.max(8, Math.min(vh - r.top + 6, vh - height - 8)) }
@@ -80,7 +81,14 @@
   // A phone's keyboard changes only the height, and must not close the picker
   function resized() {
     if (window.innerWidth !== lastWidth) onclose(false);
+    else place = placeAtAnchor();
     lastWidth = window.innerWidth;
+  }
+
+  // Under the body, so no ancestor's clipping or transform can cut it off
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
   }
 
   function pickFrom(e: MouseEvent) {
@@ -142,7 +150,7 @@
 
 <svelte:window onpointerdown={outside} onresize={resized} />
 
-<div class="emoji-pop" role="dialog" aria-label="Emoji" tabindex="-1" bind:this={root} {onkeydown}
+<div class="emoji-pop" role="dialog" aria-label="Emoji" tabindex="-1" bind:this={root} {onkeydown} use:portal
   style:left="{place.left}px" style:top={place.top != null ? `${place.top}px` : undefined}
   style:bottom={place.bottom != null ? `${place.bottom}px` : undefined} style:height="{place.height}px">
   <div class="emoji-head">
