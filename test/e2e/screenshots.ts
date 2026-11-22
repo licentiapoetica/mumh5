@@ -269,9 +269,13 @@ try {
     await page.getByTitle('Settings').click();
     await tab('Appearance');
     await page.locator(`[data-theme-preview="${t}"]`).click();
+    await page.waitForFunction(theme => (document.documentElement.dataset.theme || 'dark') === theme, t);
     // Clicking scrolled the list to the scheme; the picture shows it from the top
     await page.locator('.modal .body').evaluate(el => { el.scrollTop = 0; });
-    if (t === 'dark') await page.screenshot({ path: path.join(out, 'settings-appearance.png') });
+    if (t === 'dark') {
+      await page.mouse.move(0, 0);
+      await page.screenshot({ path: path.join(out, 'settings-appearance.png'), animations: 'disabled' });
+    }
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await page.mouse.move(0, 0);
     await wait(400);
