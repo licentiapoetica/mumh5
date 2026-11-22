@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from '../ui/Background.svelte';
   import VoiceStage from '../ui/VoiceStage.svelte';
   import VoiceControls from './VoiceControls.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
@@ -13,7 +14,8 @@
   const transport = $derived(session.voiceTransport);
 </script>
 
-<section class="voice" aria-label="Voice">
+<section data-background class="voice" aria-label="Voice">
+  <Background />
   {#if self}
     <header>
       <div class="title">

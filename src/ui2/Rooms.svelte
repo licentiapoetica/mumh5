@@ -1,5 +1,6 @@
 <script lang="ts">
   import UserSelectMark from '../ui/UserSelectMark.svelte';
+  import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import Avatar from '../ui/Avatar.svelte';
   import RoleBadges from '../ui/RoleBadges.svelte';
@@ -98,7 +99,8 @@
   }
 </script>
 
-<section class="rooms" aria-label="Rooms">
+<section data-background class="rooms" aria-label="Rooms">
+  <Background />
   <nav class="servers" aria-label="Servers">
     {#each store.servers as s, i (s.id)}
       {@const state = stateOf(s.id)}
