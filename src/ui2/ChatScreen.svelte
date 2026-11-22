@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import ChatLog from '../ui/ChatLog.svelte';
   import Composer from '../ui/Composer.svelte';
@@ -30,7 +31,8 @@
   }
 </script>
 
-<section class="chat2" aria-label="Chat">
+<section data-background class="chat2" aria-label="Chat">
+  <Background />
   <header>
     {#if back}<button class="icon-btn" aria-label="Back to rooms" onclick={onback}><Icon name="back" /></button>{/if}
     <div class="title">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from './Background.svelte';
   import Icon from './Icon.svelte';
   import ServerButton from './ServerButton.svelte';
   import ChatLog from './ChatLog.svelte';
@@ -50,7 +51,8 @@
   });
 </script>
 
-<section class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat" bind:this={chatEl} style:--composer-h="{composerH}px">
+<section data-background class="chat" class:video-only={videoOnly} class:log-fixed={logFixed} aria-label="Chat" bind:this={chatEl} style:--composer-h="{composerH}px">
+  <Background />
   <!-- Stacked layout: no title bar; the channel list above already names the channel -->
   {#if !videoOnly}
   <header class:with-server={serverButton}>

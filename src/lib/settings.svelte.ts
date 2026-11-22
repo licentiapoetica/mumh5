@@ -26,6 +26,10 @@ export interface Settings {
   // Link previews: fetched by this computer (reveals IP to the linked site), or none
   linkPreviews: 'direct' | 'off';
   theme: ThemeId;
+  backgroundDesign: BackgroundDesign;
+  backgroundFit: BackgroundFit;
+  backgroundStrength: number;
+  backgroundColor: string;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
   classicSide: 'left' | 'right'; // the side of the chat the channel list is on in the Classic layout
@@ -48,6 +52,8 @@ export interface Settings {
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
 export type Arrangement = 'side' | 'classic' | 'stacked';
+export type BackgroundDesign = 'none' | 'image' | 'gradient' | 'grid' | 'dots';
+export type BackgroundFit = 'cover' | 'contain' | 'tile';
 
 export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'forest' | 'ember' | 'ocean' | 'plum' | 'paper' | 'contrast' | 'win95' | typeof GENERATED_THEMES[number]['id'];
 
@@ -82,6 +88,10 @@ const defaults: Settings = {
   youtube: 'off',
   linkPreviews: 'off',
   theme: 'dark',
+  backgroundDesign: 'none',
+  backgroundFit: 'cover',
+  backgroundStrength: 20,
+  backgroundColor: '#5865f2',
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'stacked',
   classicSide: 'right',

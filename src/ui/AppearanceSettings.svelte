@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BackgroundSettings from './BackgroundSettings.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
   const ARRANGEMENTS: { id: Arrangement; name: string; note: string }[] = [
@@ -121,6 +122,8 @@
 {/if}
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
 {/if}
+
+<BackgroundSettings />
 
 <h3 class="gap">Color scheme</h3>
 <div class="narrow">
