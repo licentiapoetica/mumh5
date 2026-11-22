@@ -223,6 +223,7 @@
   .reaction { height: 24px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; font-size: 13px; line-height: 1; color: var(--text-dim); background: var(--bg-1); border: 1px solid var(--line); transition: border-color 120ms var(--ease), background 120ms var(--ease); }
   .reaction:hover:not(:disabled) { border-color: var(--line-strong); background: var(--bg-hover); }
   .reaction.mine { color: var(--text); border-color: color-mix(in srgb, var(--accent) 70%, var(--line)); background: color-mix(in srgb, var(--accent) 14%, var(--bg-1)); }
+  .reaction.mine:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 24%, var(--bg-1)); }
   .reaction:disabled { cursor: default; }
   .reaction .e { font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif; font-size: 15px; }
   .reaction .n { font-weight: 600; font-variant-numeric: tabular-nums; }
