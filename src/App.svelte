@@ -32,6 +32,12 @@
   import { session, sessions } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
+  import { chatHistory } from './lib/chat-history.ts';
+
+  $effect(() => {
+    const enabled = store.settings.saveChatHistory, hours = store.settings.chatHistoryHours;
+    untrack(() => { void chatHistory.configure(enabled, hours); });
+  });
 
   let width = $state(window.innerWidth);
   // wide: rail + sidebar + chat + panel; medium: panel as an overlay; narrow: everything but chat in drawers

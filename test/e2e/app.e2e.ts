@@ -1904,6 +1904,10 @@ try {
     console.log('ok: toolbar expands and collapses all channels repeatedly, root has no caret, header text lines up');
 
     // ─── Text channels: read and written without joining, between mumh5 clients ───
+    await page.getByRole('button', { name: 'Configure', exact: true }).click();
+    await page.getByRole('tab', { name: 'Chat and files', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Save chat history on this device', exact: true }).check();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
     // Bob plays a second mumh5 client by speaking the plugin data protocol
     const assembler = new TextAssembler();
     const signals: { type: number; text?: string }[] = [];

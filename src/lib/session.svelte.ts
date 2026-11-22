@@ -4,7 +4,7 @@ import { native, desktop, openTransport } from './native.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { chatHistory, type SavedMessage } from './chat-history.ts';
-import { currentChatMessage } from '../core/chat-retention.ts';
+import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
 import { MAX_HTML, type TextMsg } from '../core/text-signal.ts';
 import { parseAdmins, rootAdmins, withAdmins } from '../core/admins.ts';
 import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, roleMembers, rolesFromAcl, rolesOf, roleTint, setMember, withRoles, type RoleDoc, type RoleInfo } from '../core/roles.ts';
@@ -934,9 +934,11 @@ export class Session {
     if (!opts.quiet && !entry.self) for (const e of entry.embeds) if (e.file) files.offered(this, e.file, entry.authorSession);
   }
 
+  persistTextHistory(): Promise<void> { return textChannels.persist(this); }
+
   expireChat(now = Date.now()): void {
     for (const [key, entries] of Object.entries(this.logs)) {
-      const kept = entries.filter(e => currentChatMessage(e.time, now));
+      const kept = entries.filter(e => currentChatMessage(e.time, now, historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000));
       if (kept.length !== entries.length) this.logs[key] = kept;
       if (this.unread[key]) {
         const count = Math.min(this.unread[key], kept.filter(e => e.kind === 'text' && !e.self).length);
@@ -950,7 +952,7 @@ export class Session {
   // Stored HTML is sanitized again; old session numbers never become live recipients.
   restoreChat(key: ViewKey, message: SavedMessage): void {
     const render: (raw: string, hosts: string[], inlineImages?: boolean) => ReturnType<typeof renderIncoming> = renderIncoming;
-    if (!currentChatMessage(message.time) || this.logs[key]?.some(e => e.historyId === message.id)) return;
+    if (!currentChatMessage(message.time, Date.now(), historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000) || this.logs[key]?.some(e => e.historyId === message.id)) return;
     this.push(key, { kind: 'text', author: message.author, authorSession: null, self: message.self,
       ref: messageRef(message.raw), ...render(message.raw, store.trustedHosts, true) },
       { time: message.time, quiet: true, historyId: message.id });

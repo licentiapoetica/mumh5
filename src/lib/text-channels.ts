@@ -2,11 +2,14 @@
 // Messages go to everyone on the server as plugin data; the server has checked the sender's
 // certificate, so a live message is known to come from that user. Messages handed over by
 // another client after connecting are that client's word for what was said.
-import { TEXT, TEXT_DATA_ID, KEEP, MAX_HTML, TextAssembler, encodeText, encodeHistory, parseMsg, parseHistory, mergeMsgs, newId, isTextChannel, type TextMsg, type TextType } from '../core/text-signal.ts';
+import { TEXT, TEXT_DATA_ID, MAX_HTML, TextAssembler, encodeText, encodeHistory, parseMsg, parseHistory, mergeMsgs, newId, isTextChannel, type TextMsg, type TextType } from '../core/text-signal.ts';
 import type { Session } from './session.svelte.ts';
 import { getData, updateData } from './blobstore.ts';
-import { currentChatMessage } from '../core/chat-retention.ts';
+import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
+import { store } from './settings.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
+
+const fresh = (m: TextMsg, now = Date.now()) => currentChatMessage(m.t, now, historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000);
 
 // Murmur allows a burst of 15 plugin messages per user and 4 a second after that, and drops
 // the rest silently. Screen sharing signals count against the same limit, so stay well under it.
@@ -61,10 +64,10 @@ class TextChannels {
     // The marker is in the description, and long descriptions are only announced by hash
     for (const c of client.channels.values()) s.loadDescription(c.id);
     try {
-      const kept = await getData<Record<number, TextMsg[]>>(st.storeKey);
+      const kept = store.settings.saveChatHistory ? await getData<Record<number, TextMsg[]>>(st.storeKey) : undefined;
       if (s.client !== client) return;
       for (const [id, list] of Object.entries(kept ?? {})) {
-        if (Array.isArray(list)) st.msgs.set(Number(id), mergeMsgs(st.msgs.get(Number(id)) ?? [], list.filter(m => currentChatMessage(m.t))).all);
+        if (Array.isArray(list)) st.msgs.set(Number(id), mergeMsgs(st.msgs.get(Number(id)) ?? [], list.filter(m => fresh(m)), Infinity).all);
       }
     } catch { /* no storage: start empty */ }
     if (s.client !== client) return;
@@ -213,10 +216,10 @@ class TextChannels {
   }
 
   private keep(st: State, list: TextMsg[]): TextMsg[] {
-    list = list.filter(m => currentChatMessage(m.t));
+    list = list.filter(m => fresh(m));
     if (!list.length) return [];
     const c = list[0].c;
-    const { all, added } = mergeMsgs((st.msgs.get(c) ?? []).filter(m => currentChatMessage(m.t)), list, KEEP);
+    const { all, added } = mergeMsgs((st.msgs.get(c) ?? []).filter(m => fresh(m)), list, Infinity);
     if (added.length) {
       st.msgs.set(c, all);
       this.saveSoon(st);
@@ -229,25 +232,33 @@ class TextChannels {
     if (!st) return;
     let changed = false;
     for (const [id, list] of st.msgs) {
-      const kept = list.filter(m => currentChatMessage(m.t, now));
+      const kept = list.filter(m => fresh(m, now));
       if (kept.length !== list.length) { st.msgs.set(id, kept); changed = true; }
     }
     if (changed) this.saveSoon(st);
   }
 
+  async persist(s: Session): Promise<void> {
+    const st = this.states.get(s);
+    if (st) await this.save(st);
+  }
+
   private saveSoon(st: State): void {
+    if (!store.settings.saveChatHistory) return;
     clearTimeout(st.saveTimer);
     st.saveTimer = setTimeout(() => this.save(st), 1000);
   }
 
   // Merged into what is stored: a second connection to the same server writes there too
   private async save(st: State): Promise<void> {
+    if (!store.settings.saveChatHistory) return;
     st.saveTimer = undefined;
     try {
       await updateData<Record<number, TextMsg[]>>(st.storeKey, saved => {
+        if (!store.settings.saveChatHistory) return;
         const kept = saved ?? {};
-        for (const [c, list] of st.msgs) kept[c] = mergeMsgs(Array.isArray(kept[c]) ? kept[c] : [], list).all;
-        for (const c of Object.keys(kept)) if (Array.isArray(kept[Number(c)])) kept[Number(c)] = kept[Number(c)].filter(m => currentChatMessage(m.t));
+        for (const [c, list] of st.msgs) kept[c] = mergeMsgs(Array.isArray(kept[c]) ? kept[c] : [], list, Infinity).all;
+        for (const c of Object.keys(kept)) if (Array.isArray(kept[Number(c)])) kept[Number(c)] = kept[Number(c)].filter(m => fresh(m));
         return kept;
       });
     } catch { /* storage unavailable */ }

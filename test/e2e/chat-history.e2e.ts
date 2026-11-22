@@ -49,11 +49,32 @@ try {
   await connect();
   await page.evaluate(async () => {
     const module = '/src/lib/session.svelte.ts';
+    (await import(module)).session.sendText('memory only before opt in', 'ch:0');
+  });
+  await flush();
+  assert.deepEqual(await page.evaluate(async () => {
+    const module = '/src/lib/blobstore.ts';
+    return (await (await import(module)).dataKeys()).filter((key: string) => key.startsWith('chat-history:') || key.startsWith('text:'));
+  }), [], 'history saving is off by default');
+  await page.reload(); await connect();
+  assert.equal((await snapshot()).keys.length, 0, 'unsaved messages are not restored');
+  await page.getByRole('button', { name: 'Configure', exact: true }).click();
+  await page.getByRole('tab', { name: 'Chat and files', exact: true }).click();
+  const saveHistory = page.getByRole('checkbox', { name: 'Save chat history on this device', exact: true });
+  assert.equal(await saveHistory.isChecked(), false);
+  assert.equal(await page.getByRole('spinbutton', { name: 'Delete messages older than (hours)', exact: true }).isDisabled(), true);
+  await saveHistory.check();
+  assert.equal(await page.getByRole('spinbutton', { name: 'Delete messages older than (hours)', exact: true }).inputValue(), '24');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: client-side saving is off by default and explicitly enabled in Chat and files settings');
+  await page.evaluate(async () => {
+    const module = '/src/lib/session.svelte.ts';
     const { session } = await import(module);
     session.selectView('dm:2');
     session.sendText('saved private reply', 'dm:2');
     session.receive(session.client, { actor: 2, channels: [], trees: [], sessions: [1], html: '<b>saved private message</b>', time: Date.now() });
     session.sendText('saved channel message', 'ch:0');
+    for (let i = 0; i < 205; i++) session.receive(session.client, { actor: 2, channels: [], trees: [], sessions: [1], html: `history batch ${i}`, time: Date.now() });
   });
   await flush();
   await page.reload();
@@ -64,6 +85,7 @@ try {
   assert.ok(saved.messages['ch:0'].some((m: string) => m.includes('saved channel message')));
   assert.equal(saved.keys.includes('dm:2'), false, 'old session ID belongs to another person');
   assert.equal(saved.names['dm:22'], 'Bob');
+  assert.equal(saved.messages['dm:22'].length, 207, 'all messages within the retention window survive without a 200-message cap');
   await page.locator('.dm', { hasText: 'Bob' }).click();
   await page.locator('.msg', { hasText: 'saved private message' }).waitFor();
   console.log('ok: private and channel history survives reload; private chats follow identity, not session ID');
@@ -171,6 +193,34 @@ try {
   await page.reload(); await connect(22);
   assert.equal((await snapshot()).messages['ch:0'].some((m: string) => m.includes('expires after 24 hours')), false);
   console.log('ok: client deletes expired messages from live chats, saved history and inactive accounts after 24 hours');
+  await page.getByRole('button', { name: 'Configure', exact: true }).click();
+  await page.getByRole('tab', { name: 'Chat and files', exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Delete messages older than (hours)', exact: true }).fill('1');
+  await page.getByRole('spinbutton', { name: 'Delete messages older than (hours)', exact: true }).press('Tab');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.evaluate(async () => {
+    const module = '/src/lib/chat-history.ts';
+    await (await import(module)).chatHistory.expire();
+  });
+  assert.equal((await snapshot()).messages['ch:0'].length, 0, 'shortening retention immediately expires older visible messages');
+  await page.evaluate(async () => {
+    const module = '/src/lib/session.svelte.ts';
+    (await import(module)).session.sendText('visible after opting out', 'ch:0');
+  });
+  await flush();
+  await page.getByRole('button', { name: 'Configure', exact: true }).click();
+  await page.getByRole('tab', { name: 'Chat and files', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Save chat history on this device', exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.waitForFunction(async () => {
+    const module = '/src/lib/blobstore.ts';
+    return !(await (await import(module)).dataKeys()).some((key: string) => key.startsWith('chat-history:') || key.startsWith('text:'));
+  });
+  assert.ok((await snapshot()).messages['ch:0'].some((m: string) => m.includes('visible after opting out')));
+  await page.reload(); await connect(22);
+  assert.equal((await snapshot()).keys.length, 0, 'opting out removes saved history and prevents subsequent restore');
+  console.log('ok: retention is configurable; opting out erases disk history while preserving the visible session');
+
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();

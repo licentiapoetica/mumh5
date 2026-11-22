@@ -20,7 +20,7 @@ const stubs = `
     return { secure: Promise.resolve({ fingerprint: control.fingerprint, authorized: false }),
       send() {}, close() {}, onData: null, onClose: null };
   }
-  export const store = { pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
+  export const store = { settings: { saveChatHistory: false, chatHistoryHours: 24 }, pins: {}, pin(key, value) { this.pins[key] = value; }, tokensFor: () => [], addToken() {}, removeToken() {} };
   const service = { closed() {}, entered() {}, receive() {}, userMoved() {}, userLeft() {} };
   export const share = service, textChannels = service, files = service, reactions = service;
   export const chatHistory = { entered() {}, record() {}, hide() {}, forget() {}, userChanged() {}, userLeft() {}, closed() {} };

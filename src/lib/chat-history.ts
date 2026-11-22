@@ -1,7 +1,8 @@
 import type { User } from '../core/client.ts';
 import type { ChatEntry, Session, ViewKey } from './session.svelte.ts';
-import { dataKeys, getData, putData, updateData } from './blobstore.ts';
-import { currentChatMessage } from '../core/chat-retention.ts';
+import { dataKeys, deleteBlob, getData, putData, updateData } from './blobstore.ts';
+import { currentChatMessage, historyHours } from '../core/chat-retention.ts';
+import { store } from './settings.svelte.ts';
 
 export interface SavedMessage { id: string; time: number; author: string; self: boolean; raw: string }
 interface Conversation { route: string; name: string; messages: SavedMessage[]; hidden?: boolean }
@@ -10,7 +11,8 @@ interface State {
   data: Map<string, Conversation>; routes: Map<string, string>; targets: Map<string, ViewKey>;
   pending: (() => void)[]; nextOffline: number;
 }
-const KEEP = 200, MAX_CHATS = 100, MAX_BYTES = 20 * 1024 * 1024;
+const retention = () => historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000;
+const savingEnabled = () => store.settings.saveChatHistory === true;
 
 // Only identities supplied by the server can reconnect a private conversation.
 // A guest without either identity remains offline rather than matching by display name.
@@ -23,6 +25,9 @@ class ChatHistory {
   private saves = new Map<string, Promise<unknown>>();
   private loads = new Map<string, Promise<void>>();
   private active = new Set<Session>();
+  private enabled: boolean | undefined;
+  private hours = 24;
+  private revision = 0;
 
   constructor() {
     if (typeof window === 'undefined') return;
@@ -68,11 +73,11 @@ class ChatHistory {
       // A new Session may follow a disconnect while the previous write is committing.
       await previous;
       await this.saves.get(st.key);
-      const kept = await getData<unknown>(st.key);
-      if (Array.isArray(kept)) for (const c of kept.slice(-MAX_CHATS)) {
+      const kept = savingEnabled() ? await getData<unknown>(st.key) : undefined;
+      if (Array.isArray(kept)) for (const c of kept) {
         if (!c || typeof c.route !== 'string' || typeof c.name !== 'string' || !Array.isArray(c.messages)) continue;
         const messages: SavedMessage[] = c.messages.filter((m: SavedMessage) => m && typeof m.id === 'string' && Number.isFinite(m.time)
-          && currentChatMessage(m.time) && typeof m.author === 'string' && typeof m.self === 'boolean' && typeof m.raw === 'string' && m.raw.length <= 1_000_000).slice(-KEEP);
+          && currentChatMessage(m.time, Date.now(), retention()) && typeof m.author === 'string' && typeof m.self === 'boolean' && typeof m.raw === 'string');
         st.data.set(c.route, { route: c.route, name: c.name, messages, hidden: c.hidden === true });
       }
     } catch { /* unavailable storage: keep the current session usable */ }
@@ -122,7 +127,7 @@ class ChatHistory {
       if (reopen && this.states.get(s) === st && s.client === st.client) {
         for (const m of c.messages) s.restoreChat(key as ViewKey, m);
       }
-      if (message) c.messages = [...c.messages, message].slice(-KEEP);
+      if (message) c.messages = [...c.messages, message];
     });
   }
 
@@ -171,14 +176,37 @@ class ChatHistory {
   }
 
   private save(st: State): void {
-    let bytes = 0;
-    const data = [...st.data.values()].sort((a, b) => (a.messages.at(-1)?.time ?? 0) - (b.messages.at(-1)?.time ?? 0)).slice(-MAX_CHATS);
-    for (const c of [...data].reverse()) {
-      c.messages = [...c.messages].reverse().filter(m => currentChatMessage(m.time)).filter(m => { bytes += m.raw.length * 2; return bytes <= MAX_BYTES; }).reverse();
-    }
+    if (!savingEnabled()) return;
+    const data = [...st.data.values()];
+    for (const c of data) c.messages = c.messages.filter(m => currentChatMessage(m.time, Date.now(), retention()));
     const snapshot = data.map(c => ({ ...c, messages: c.messages.map(m => ({ ...m })) }));
-    const saving = (this.saves.get(st.key) ?? Promise.resolve()).catch(() => {}).then(() => putData(st.key, snapshot)).catch(() => {});
+    const saving = (this.saves.get(st.key) ?? Promise.resolve()).catch(() => {}).then(() => savingEnabled() ? putData(st.key, snapshot) : undefined).catch(() => {});
     this.saves.set(st.key, saving);
+  }
+
+  async configure(enabled: boolean, hours: number): Promise<void> {
+    hours = historyHours(hours);
+    if (this.enabled === enabled && this.hours === hours) return;
+    this.enabled = enabled; this.hours = hours;
+    const revision = ++this.revision;
+    if (enabled) {
+      await this.expire();
+      for (const s of this.active) {
+        const st = this.states.get(s);
+        if (st?.loaded) this.save(st);
+        await s.persistTextHistory();
+      }
+      return;
+    }
+    // Do not let a pending save recreate an archive after the user opts out.
+    try {
+      for (const key of await dataKeys()) {
+        if (typeof key !== 'string' || !(key.startsWith('chat-history:') || key.startsWith('text:'))) continue;
+        await this.loads.get(key); await this.saves.get(key);
+        if (revision !== this.revision || savingEnabled()) return;
+        await deleteBlob(key);
+      }
+    } catch { /* storage unavailable */ }
   }
 
   closed(s: Session): void { this.active.delete(s); }
@@ -190,7 +218,7 @@ class ChatHistory {
       if (!st?.loaded) continue;
       let changed = false;
       for (const c of st.data.values()) {
-        const kept = c.messages.filter(m => currentChatMessage(m.time, now));
+        const kept = c.messages.filter(m => currentChatMessage(m.time, now, retention()));
         if (kept.length !== c.messages.length) { c.messages = kept; changed = true; }
       }
       if (changed) this.save(st);
@@ -205,12 +233,12 @@ class ChatHistory {
           let changed = false;
           if (key.startsWith('chat-history:') && Array.isArray(kept)) {
             for (const c of kept) if (c && Array.isArray(c.messages)) {
-              const fresh = c.messages.filter((m: SavedMessage) => m && currentChatMessage(m.time, now));
+              const fresh = c.messages.filter((m: SavedMessage) => m && currentChatMessage(m.time, now, retention()));
               if (fresh.length !== c.messages.length) { c.messages = fresh; changed = true; }
             }
           } else if (key.startsWith('text:') && kept && typeof kept === 'object') {
             for (const [id, list] of Object.entries(kept)) if (Array.isArray(list)) {
-              const fresh = list.filter(m => m && currentChatMessage(m.t, now));
+              const fresh = list.filter(m => m && currentChatMessage(m.t, now, retention()));
               if (fresh.length !== list.length) { kept[id] = fresh; changed = true; }
             }
           }

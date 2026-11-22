@@ -124,7 +124,7 @@ On a phone or in a narrow window, everything fits on one screen:
 ### Chat
 - Messages grouped by author, direct messages, unread badges
 - Direct messages stay below channels in their own scrollable section, use at most half the list area, and can collapse along with the whole channel and chat area
-- Private and channel chat history stays on this device across reloads and reconnects, scoped to the server and your identity. Messages older than 24 hours are deleted locally on opening the app and while it runs. Up to 200 messages per chat and 100 chats are kept within a 20 MB limit; closing a private conversation hides it, while Delete history removes its saved messages. Nothing is stored on the server.
+- Saving chat history on this device is opt-in in Settings, Chat and files. Retention is configurable in hours and defaults to 24 hours; expired messages are deleted locally on opening the app and while it runs. Private chats follow user identities across reconnects. Closing a chat hides it; Delete history removes it. Turning saving off deletes saved history. Nothing is stored on the server.
 - Emoji reactions on messages: the button on a message, its right-click menu, or a click on a reaction to add or take back yours. Only mumh5 users see them
 - Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 (plus a system notification and a blinking tray icon while the window is in the background) and arrives as a private message in other Mumble clients
 - Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
@@ -137,7 +137,7 @@ On a phone or in a narrow window, everything fits on one screen:
 ### Text channels
 - A channel marked as a text channel is read and written without joining it, from any voice channel
 - It is a normal Mumble channel on the server, created and removed with the usual channel permissions
-- The server keeps no messages. Each client keeps the last 200 per channel and passes the last 50 to people who connect later
+- The server keeps no messages. Clients can opt in to local history with configurable retention (24 hours by default), and pass the last 50 recent messages to people who connect later
 - Everyone on the server who uses mumh5 can read them; there are no private text channels yet
 - Needs a server from version 1.4 that allows HTML
 
