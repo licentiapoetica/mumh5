@@ -1,4 +1,5 @@
 import DOMPurify, { type Config } from 'dompurify';
+import { escapeText, escapeHtml } from '../core/html.ts';
 import { takeFiles, type FileMeta } from '../core/file-transfer.ts';
 import { highlightCode, languageName, splitFences, codeBlockHtml } from '../core/code.ts';
 import { ICON_PATHS } from './icons.ts';
@@ -159,10 +160,6 @@ function codeBlocks(frag: DocumentFragment): void {
   }
 }
 
-export function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 // Plain composer text to the HTML Mumble clients expect: escaped, links clickable, newlines as <br/>,
 // ```fenced``` code as <pre> and `inline code` as <code>, like the desktop client's Markdown.
 // Output must stay well-formed XML: Murmur parses long messages as XML and denies them otherwise.
@@ -187,15 +184,13 @@ export function formatBytes(n: number): string {
 
 const VOID_TAGS = new Set(['br', 'hr', 'img']);
 const OUT_ATTRS = new Set(['href', 'src', 'alt', 'title', 'style', 'color']);
-const escText = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const escAttr = (t: string) => escText(t).replace(/"/g, '&quot;');
 
 function serialize(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) return escText(node.textContent ?? '');
+  if (node.nodeType === Node.TEXT_NODE) return escapeText(node.textContent ?? '');
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   const el = node as Element;
   const tag = el.tagName.toLowerCase();
-  const attrs = [...el.attributes].filter(a => OUT_ATTRS.has(a.name)).map(a => ` ${a.name}="${escAttr(a.value)}"`).join('');
+  const attrs = [...el.attributes].filter(a => OUT_ATTRS.has(a.name)).map(a => ` ${a.name}="${escapeHtml(a.value)}"`).join('');
   if (VOID_TAGS.has(tag)) return `<${tag}${attrs}/>`;
   return `<${tag}${attrs}>${[...el.childNodes].map(serialize).join('')}</${tag}>`;
 }

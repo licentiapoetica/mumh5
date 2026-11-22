@@ -8,6 +8,7 @@
   import ResizeHandle from './ResizeHandle.svelte';
   import { share } from '../lib/share.svelte.ts';
   import { session } from '../lib/session.svelte.ts';
+  import { channelTopic } from '../core/text-signal.ts';
 
   // showStage: voice tiles above the chat when the window is too narrow for the member list
   // videoOnly: streams as a plain picture without the tiles (stacked layout)
@@ -46,7 +47,7 @@
   const title = $derived(session.status === 'connected' ? session.viewTitle() : 'mumh5');
   const topic = $derived.by(() => {
     if (isDm || session.status !== 'connected') return '';
-    return (session.channel(Number(session.view.slice(3)))?.description ?? '').replace(/<[^>]*>/g, ' ').trim();
+    return channelTopic(session.channel(Number(session.view.slice(3)))?.description ?? '');
   });
 </script>
 

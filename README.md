@@ -123,6 +123,7 @@ On a phone or in a narrow window, everything fits on one screen:
 
 ### Chat
 - Messages grouped by author, direct messages, unread badges
+- Emoji reactions on messages: the button on a message, its right-click menu, or a click on a reaction to add or take back yours. Only mumh5 users see them
 - Pokes like in TeamSpeak: right-click a person, Poke, an optional note; it pops up with its own sound in mumh5 (plus a system notification and a blinking tray icon while the window is in the background) and arrives as a private message in other Mumble clients
 - Files of any kind by drag and drop, paste or the attach button, carried by the Mumble server itself, no file host needed ([how](#file-sharing))
 - Inline pictures, video and audio for shared files
@@ -215,6 +216,19 @@ For screen sharing, open these in the firewall (and forward them on a router in 
 | `MUMH5_TURN_IP` | found automatically | The server's public address, announced for relayed streams. Set it when the server sits behind a 1:1 NAT, as on many cloud hosts |
 | `MUMH5_STATIC` | `../dist-web` | Folder with the web build |
 | `MUMH5_MAX_CONNECTIONS`, `MUMH5_MAX_PER_ADDRESS` | `200`, `8` | Connection limits, in total and per client address |
+| `MUMH5_MAX_AUDIO_PACK_MB` | `32` | Maximum imported sound-pack ZIP size, in MiB |
+| `MUMH5_MAX_AUDIO_FILE_MB` | `4` | Maximum individual sound clip size, in MiB |
+| `MUMH5_MAX_AUDIO_UNPACKED_MB` | `64` | Maximum total unpacked WAV audio in a sound pack, in MiB |
+
+Sound-pack limits are runtime settings: for example, set `MUMH5_MAX_AUDIO_PACK_MB=128`,
+`MUMH5_MAX_AUDIO_FILE_MB=16` and `MUMH5_MAX_AUDIO_UNPACKED_MB=256` in the Docker
+container's environment, then recreate the container and reload the browser page.
+Values must be positive whole numbers of MiB; empty values use the defaults.
+The proxy sends the limits to the browser through `/api/config`. Imports and saved
+packs use these limits locally in the browser; sound packs are not uploaded to the
+proxy or the Mumble server. Nginx's request-body limit does not affect them.
+Desktop imports keep the defaults. The 512-entry archive limit and WAV/path checks
+still apply. Larger limits increase the browser memory needed to import a pack.
 
 Example for nginx. `Host` must be passed on unchanged, because the proxy only accepts requests whose origin matches it. `X-Forwarded-For` carries the visitor's address; start the proxy with `MUMH5_TRUST_PROXY=1` so its per-address limits use it.
 
@@ -371,12 +385,18 @@ On Linux the end-to-end test forces X11, so it can run on a virtual display: `Xv
 
 ```
 electron/   main process: window, TLS sockets, identities, tray
+server/     browser proxy: static files, WebSocket-to-TLS bridge, STUN and TURN
 src/core/   Mumble protocol: framing, codec, client state, voice packets
-src/lib/    app state, voice engine, sanitizing, file transfers
-src/ui/     Svelte components
+src/lib/    shared app state, actions and menus, voice engine, sanitizing, file transfers
+src/ui/     standard interface, shared components and dialogs
+src/ui2/    Rooms interface, using the same state, actions and dialogs
 proto/      Mumble.proto and MumbleUDP.proto from upstream
 test/       unit, server and end-to-end tests
 ```
+
+### Design notes
+
+- [docs/mumpeer-relay.md](docs/mumpeer-relay.md): Mumcord's community relay (mumpeer and the `mumbot peer` bot), its protocol, and a plan for carrying mumh5's screen sharing through it. Not implemented yet.
 
 ---
 

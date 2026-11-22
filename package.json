@@ -22,6 +22,7 @@
     "test:e2e:backgrounds": "node test/e2e/backgrounds.e2e.ts",
     "test:e2e:web": "node test/e2e/web.e2e.ts",
     "test:e2e:share": "node test/e2e/share.e2e.ts",
+    "test:e2e:sound-pack-limits": "node test/e2e/sound-pack-limits.e2e.ts",
     "test:e2e:saved": "node test/e2e/saved-state.e2e.ts",
     "test:e2e:sounds": "node test/e2e/sounds.e2e.ts",
     "test:e2e:sounds:desktop": "node test/e2e/sounds-desktop.e2e.ts",

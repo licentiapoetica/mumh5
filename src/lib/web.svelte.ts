@@ -4,6 +4,7 @@
 import type { CertDetails } from '../core/transport.ts';
 import { WebSocketTransport } from '../core/ws-transport.ts';
 import type { IdentitySummary, PingResult, PlatformApi } from './native.ts';
+import { DEFAULT_AUDIO_PACK_LIMITS, parseAudioPackLimits } from '../core/audio-pack-limits.ts';
 
 interface StoredIdentity {
   id: string;
@@ -140,10 +141,17 @@ class ProxyInfo {
   stun = $state<number | null>(null);
   loaded = $state(false);
   error = $state('');
+  audioPackLimits = DEFAULT_AUDIO_PACK_LIMITS;
+  private loading: Promise<void> | null = null;
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    return this.loading ??= this.fetchConfig().finally(() => { this.loading = null; });
+  }
+
+  private async fetchConfig(): Promise<void> {
     try {
-      const c = await call<{ servers: ProxyServer[]; any: boolean; stun?: number | null; turn?: boolean }>('config');
+      const c = await call<{ servers: ProxyServer[]; any: boolean; stun?: number | null; turn?: boolean; audioPackLimits?: unknown }>('config');
+      this.audioPackLimits = parseAudioPackLimits(c.audioPackLimits);
       this.servers = c.servers;
       this.any = c.any;
       this.stun = c.stun ?? null;
