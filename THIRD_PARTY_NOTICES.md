@@ -42,6 +42,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify, highlight.js and
 others) are distributed under their own licenses, found in each package under `node_modules/`.
 
+The optional headless video runtime, `@roamhq/wrtc` 0.10.0, is distributed under
+the node-webrtc BSD 2-Clause license. Its notices, including bundled WebRTC and
+other native libraries, are retained in `cli/licenses/` and copied to the standalone
+CLI's `licenses/` directory. The desktop and browser builds do not include this runtime.
+
 ## Standard notification voice pack
 
 `src/assets/default-audio-pack.zip` is the supplied `mumble-en-chatterbox-female.zip`:

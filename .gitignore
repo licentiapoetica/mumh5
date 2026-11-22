@@ -6,3 +6,4 @@ dist-electron/
 release/
 *.log
 .env
+dist-cli/

@@ -1,0 +1,9 @@
+{
+  "name": "mumh5-headless-runtime",
+  "private": true,
+  "type": "module",
+  "description": "Optional native WebRTC runtime for the mumh5 headless CLI",
+  "dependencies": {
+    "@roamhq/wrtc": "0.10.0"
+  }
+}

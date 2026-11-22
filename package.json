@@ -28,7 +28,11 @@
     "test:e2e:sounds:desktop": "node test/e2e/sounds-desktop.e2e.ts",
     "themes": "node scripts/gen-themes.mjs",
     "proto": "pbjs -t static-module -w es6 --keep-case --no-delimited --no-service --no-comments --force-number proto/Mumble.proto -o src/core/mumble-pb.js && pbjs -t static-module -w es6 --keep-case --no-delimited --no-service --no-comments --force-number proto/MumbleUDP.proto -o src/core/mumble-udp-pb.js",
-    "screenshots": "node test/e2e/screenshots.ts"
+    "screenshots": "node test/e2e/screenshots.ts",
+    "cli": "node cli/main.ts",
+    "cli:setup": "npm --prefix cli ci",
+    "test:e2e:cli": "node test/e2e/cli.e2e.ts",
+    "build:cli": "node scripts/build-cli.mjs"
   },
   "build": {
     "appId": "dev.f0ck.mumh5",

@@ -66,6 +66,13 @@ To remove it, run `~/.local/share/mumh5/uninstall.sh` (or `sudo /opt/mumh5/unins
 
 Automated macOS builds are disabled. To use mumh5 on macOS, build it on a Mac from the source.
 
+## Headless client and bots
+
+The [CLI and bot API](cli/README.md) connect directly from Node, without a browser
+or display server. They support text, independent incoming/outgoing voice streams,
+and mumh5 video. Audio and native WebRTC load only when requested.
+`npm run build:cli` creates a standalone server deployment in `dist-cli/`.
+
 ## A look around
 
 | Profile cards | Settings |

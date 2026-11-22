@@ -29,7 +29,37 @@ jobs:
       - run: npm run check
       - run: npm test
 
-  # Pull requests only get the type check and tests
+  headless:
+    name: Headless client and bot integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      mumble:
+        image: mumblevoip/mumble-server:latest
+        env:
+          MUMBLE_CONFIG_AUTOBANATTEMPTS: '0'
+        ports:
+          - 64749:64738/tcp
+          - 64749:64738/udp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            cli/package-lock.json
+      - run: npm ci
+      - run: npm run cli:setup
+      - run: npm run build:cli
+      - run: npm --prefix dist-cli install --ignore-scripts --no-audit --no-fund
+      - run: npm run test:e2e:cli
+        env:
+          MUMBLE_TEST_HOST: 127.0.0.1:64749
+          CLI_TEST_ENTRY: dist-cli/main.mjs
+
+  # Pull requests run checks and headless integration without packaging the app.
   desktop:
     name: Desktop (${{ matrix.platform }}, ${{ matrix.arch }})
     needs: check

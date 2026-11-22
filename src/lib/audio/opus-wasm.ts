@@ -46,7 +46,7 @@ export class WasmEncoder {
   private filled = 0;
   private output: (packet: Uint8Array) => void;
 
-  constructor(opus: Opus, bitrate: number, frameMs: number, output: (packet: Uint8Array) => void) {
+  constructor(opus: Opus, bitrate: number, frameMs: number, output: (packet: Uint8Array) => void, complexity = 8) {
     const w = this.wasm = opus.wasm;
     this.output = output;
     this.samples = RATE * frameMs / 1000;
@@ -56,7 +56,7 @@ export class WasmEncoder {
     if (w.opus_encoder_init(this.ptr, RATE, 1, APPLICATION_VOIP) < 0) { this.close(); throw new Error('Could not start the Opus encoder'); }
     w.opus_encoder_ctl_set(this.ptr, SET_BITRATE, Math.round(bitrate));
     // A notch below the maximum: phones are the ones without a codec of their own
-    w.opus_encoder_ctl_set(this.ptr, SET_COMPLEXITY, 8);
+    w.opus_encoder_ctl_set(this.ptr, SET_COMPLEXITY, Math.max(0, Math.min(10, complexity)));
     w.opus_encoder_ctl_set(this.ptr, SET_INBAND_FEC, 1);
     w.opus_encoder_ctl_set(this.ptr, SET_PACKET_LOSS, 10);
     w.opus_encoder_ctl_set(this.ptr, SET_SIGNAL, SIGNAL_VOICE);
