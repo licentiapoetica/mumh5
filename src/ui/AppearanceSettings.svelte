@@ -3,6 +3,9 @@
   import SectionHead from './SectionHead.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
+  const TAB_BARS = [
+    { id: 'none', name: 'None' }, { id: 'tree', name: 'Channel list' }, { id: 'chat', name: 'Chat' }
+  ] as const;
   const ARRANGEMENTS: { id: Arrangement; name: string; note: string }[] = [
     { id: 'side', name: 'Modern', note: 'Channels left, members right' },
     { id: 'classic', name: 'Classic', note: 'Chat left, channels right, like Mumble' },
@@ -118,6 +121,15 @@
   <div class="shades pick" role="group" aria-labelledby="classic-side">
     {#each ['left', 'right'] as const as k (k)}
       <button class:on={store.settings.classicSide === k} aria-pressed={store.settings.classicSide === k} onclick={() => placeList(k)}>{k === 'left' ? 'Left' : 'Right'}</button>
+    {/each}
+  </div>
+{/if}
+{#if store.settings.arrangement === 'stacked'}
+  <span class="pick-label" id="tab-bar-bg">Tab bar background</span>
+  <div class="shades pick" role="group" aria-labelledby="tab-bar-bg">
+    {#each TAB_BARS as t (t.id)}
+      <button class:on={store.settings.tabBarBackground === t.id} aria-pressed={store.settings.tabBarBackground === t.id}
+        onclick={() => { store.settings.tabBarBackground = t.id; store.saveSettings(); }}>{t.name}</button>
     {/each}
   </div>
 {/if}

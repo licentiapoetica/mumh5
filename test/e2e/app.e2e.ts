@@ -787,6 +787,13 @@ try {
   await page.waitForFunction(() => document.querySelector('.sidebar')!.getBoundingClientRect().x > document.querySelector('.chat')!.getBoundingClientRect().x);
   await page.getByRole('radio', { name: 'Stacked' }).click();
   assert.equal(await listSide.count(), 0, 'the switch belongs to Classic');
+  // Stacked can give its tab bar the channel list's or the chat's background
+  const tabBg = page.getByRole('group', { name: 'Tab bar background' });
+  await tabBg.getByRole('button', { name: 'Chat', exact: true }).click();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).tabBarBackground), 'chat');
+  await tabBg.getByRole('button', { name: 'Channel list', exact: true }).click();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).tabBarBackground), 'tree');
+  await tabBg.getByRole('button', { name: 'None', exact: true }).click();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.app.stacked').waitFor();
   // The stacked toolbar names you at its far end
