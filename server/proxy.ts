@@ -23,6 +23,8 @@ export interface ProxyConfig {
   port: number;
   bind: string;
   servers: AllowedServer[];
+  // Added once to the saved servers of each browser; also allowed
+  defaultServer: AllowedServer | null;
   // Connect anywhere on the public internet instead of only to `servers`
   allowAny: boolean;
   // With allowAny: also allow loopback and private addresses
@@ -58,7 +60,7 @@ export interface ProxyConfig {
 }
 
 export const defaults: ProxyConfig = {
-  port: 8080, bind: '127.0.0.1', servers: [], allowAny: false, allowPrivate: false, origins: [],
+  port: 8080, bind: '127.0.0.1', servers: [], defaultServer: null, allowAny: false, allowPrivate: false, origins: [],
   trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, turnUrls: [], debug: false, maxConnections: 200, maxPerAddress: 8,
   audioPackLimits: DEFAULT_AUDIO_PACK_LIMITS
 };
@@ -88,11 +90,22 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
     }
     return mib * MIB;
   };
+  const servers = parseServers(env.MUMH5_SERVERS ?? '');
+  if ((env.MUMH5_DEFAULT_SERVER ?? '').includes(',')) throw new Error('MUMH5_DEFAULT_SERVER takes one server.');
+  const defaultServer = parseServers(env.MUMH5_DEFAULT_SERVER ?? '')[0] ?? null;
+  if (defaultServer) {
+    // Allowed without listing it twice; a label given here wins over the list's
+    const i = servers.findIndex(s => s.host === defaultServer.host && s.port === defaultServer.port);
+    if (i === -1) servers.push(defaultServer);
+    else if (defaultServer.label !== defaultServer.host) servers[i] = defaultServer;
+    else defaultServer.label = servers[i].label;
+  }
   return {
     ...defaults,
     port: Number(env.MUMH5_PORT ?? defaults.port),
     bind: env.MUMH5_BIND ?? defaults.bind,
-    servers: parseServers(env.MUMH5_SERVERS ?? ''),
+    servers,
+    defaultServer,
     allowAny: on(env.MUMH5_ALLOW_ANY),
     allowPrivate: on(env.MUMH5_ALLOW_PRIVATE),
     origins: (env.MUMH5_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean),
@@ -150,7 +163,7 @@ class HttpError extends Error {
 
 export async function startProxy(config: ProxyConfig): Promise<{ port: number; stunPort: number | null; close(): Promise<void> }> {
   if (!config.allowAny && !config.servers.length) {
-    throw new Error('No servers allowed. Set MUMH5_SERVERS=host[:port][=Label],... or MUMH5_ALLOW_ANY=1.');
+    throw new Error('No servers allowed. Set MUMH5_SERVERS=host[:port][=Label],..., MUMH5_DEFAULT_SERVER or MUMH5_ALLOW_ANY=1.');
   }
   const staticDir = config.staticDir ? path.resolve(config.staticDir) : null;
   const perAddress = new Map<string, number>();
@@ -197,7 +210,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
 
   async function api(req: http.IncomingMessage, route: string): Promise<unknown> {
     if (route === 'config' && req.method === 'GET') {
-      return { servers: config.servers, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn, audioPackLimits: config.audioPackLimits };
+      return { servers: config.servers, default: config.defaultServer, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn, audioPackLimits: config.audioPackLimits };
     }
     // What a client needs for screen sharing: the STUN port and, with the relay on, credentials
     // for it. Open to any origin, because the desktop app asks from outside this site; checking

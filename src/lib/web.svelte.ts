@@ -4,6 +4,7 @@
 import type { CertDetails } from '../core/transport.ts';
 import { WebSocketTransport } from '../core/ws-transport.ts';
 import type { IdentitySummary, PingResult, PlatformApi } from './native.ts';
+import { store } from './settings.svelte.ts';
 import { DEFAULT_AUDIO_PACK_LIMITS, parseAudioPackLimits } from '../core/audio-pack-limits.ts';
 
 interface StoredIdentity {
@@ -136,6 +137,8 @@ export async function openWebTransport(host: string, port: number, identityId?: 
 export interface ProxyServer { host: string; port: number; label: string }
 class ProxyInfo {
   servers = $state<ProxyServer[]>([]);
+  // The server this site adds to the saved servers (MUMH5_DEFAULT_SERVER)
+  defaultServer = $state<ProxyServer | null>(null);
   any = $state(false);
   // UDP port of the proxy's STUN responder, if it runs one
   stun = $state<number | null>(null);
@@ -150,9 +153,11 @@ class ProxyInfo {
 
   private async fetchConfig(): Promise<void> {
     try {
-      const c = await call<{ servers: ProxyServer[]; any: boolean; stun?: number | null; turn?: boolean; audioPackLimits?: unknown }>('config');
+      const c = await call<{ servers: ProxyServer[]; default?: ProxyServer | null; any: boolean; stun?: number | null; turn?: boolean; audioPackLimits?: unknown }>('config');
       this.audioPackLimits = parseAudioPackLimits(c.audioPackLimits);
       this.servers = c.servers;
+      this.defaultServer = c.default ?? null;
+      if (this.defaultServer) store.addDefaultServer(this.defaultServer);
       this.any = c.any;
       this.stun = c.stun ?? null;
       this.error = '';

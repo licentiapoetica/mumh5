@@ -45,7 +45,7 @@ function within<T>(p: Promise<T>, label: string, ms = 10000): Promise<T> {
 const proxyPort = 18000 + Math.floor(Math.random() * 1000);
 const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
 const proxy = spawn(process.execPath, [path.join(root, 'dist-proxy/proxy.mjs')], {
-  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1',
+  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_DEFAULT_SERVER: target, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1',
     // Everything is on this machine, so the relay has to be allowed to reach loopback
     MUMH5_ALLOW_PRIVATE: '1', MUMH5_TURN_IP: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit']
 });
@@ -109,8 +109,9 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: public list and direct previews are desktop only');
 
-  // The connect dialog offers the proxy's servers
-  await page.getByTitle('Add a server').click();
+  // The site's default server (MUMH5_DEFAULT_SERVER) is saved already; the first connect asks for a
+  // name in the connect dialog, which offers the proxy's servers
+  await page.locator('li.server', { hasText: 'Test Server' }).getByRole('button', { name: 'Connect', exact: true }).click();
   const pick = page.getByLabel('Server', { exact: true });
   await pick.waitFor();
   await page.waitForFunction(v => (document.getElementById('c-host') as HTMLSelectElement)?.value === v, `${host}:${port}`);
@@ -119,7 +120,8 @@ try {
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
   await page.locator('.sidebar').getByText('bob').waitFor();
-  console.log('ok: connected through the proxy, sees bob');
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.servers')!).length), 1, 'the default server was added once');
+  console.log('ok: default server saved, connected through the proxy, sees bob');
 
   // Text both ways
   const got = new Promise<string>(res => bob.on('text', m => res(m.html)));
@@ -194,6 +196,7 @@ try {
   await page.getByText(/Connected/).first().waitFor();
   await page.reload();
   await page.getByText(/Connected/).first().waitFor();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.servers')!).length), 1, 'the default server is not added again');
   const deadline = Date.now() + 5000;
   while (hash() !== before && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
   assert.equal(hash(), before, 'same certificate after a reload');
@@ -271,6 +274,13 @@ try {
   await page2.getByRole('button', { name: 'Create', exact: true }).click();
   await page2.getByRole('button', { name: 'Skip for now' }).click();
   await page2.getByRole('button', { name: 'Done' }).click();
+  // A removed default server stays removed
+  await page2.waitForFunction(() => localStorage.getItem('mumh5.defaultServer'));
+  await page2.evaluate(() => localStorage.setItem('mumh5.servers', '[]'));
+  await page2.reload();
+  await page2.getByText('No saved servers yet.').waitFor();
+  await page2.waitForTimeout(1000);
+  assert.equal(await page2.evaluate(() => localStorage.getItem('mumh5.servers')), '[]');
   await page2.getByRole('button', { name: 'Show servers' }).click();
   await page2.getByTitle('Add a server').click();
   await page2.getByRole('button', { name: 'Save and connect' }).click();

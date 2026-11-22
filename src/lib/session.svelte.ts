@@ -1386,6 +1386,11 @@ class Sessions {
 
   // Show a server, connecting if needed
   open(server: SavedServer): void {
+    // A server added for you (the site's default) has no name yet; pick one first
+    if (!server.username.trim()) {
+      ui.editServer = server;
+      return;
+    }
     let s = this.byServer(server.id);
     this.activeId = server.id;
     this.homeShown = false;

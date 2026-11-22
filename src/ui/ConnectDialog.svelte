@@ -24,7 +24,7 @@
   // The name chosen for an identity when it was created, if any
   const identityName = (id: string) => store.identityNames[identities.byId(id || undefined)?.id ?? ''] ?? '';
   // New servers start with the identity's name, else the name you used last
-  const firstName = initial?.username ?? (identityName('') || store.servers.at(-1)?.username || '');
+  const firstName = initial?.username || (identityName('') || store.servers.at(-1)?.username || '');
   let username = $state(firstName);
   // Picking another identity swaps the suggestion, unless the name was typed by hand
   let suggested = firstName;
