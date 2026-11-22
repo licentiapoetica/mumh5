@@ -4,6 +4,8 @@ export const ICON_PATHS: Record<string, string> = {
   'mic-off': 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3M3 3l18 18',
   headphones: 'M3 14v-2a9 9 0 0 1 18 0v2M21 14v7h-4v-7zM3 14v7h4v-7z',
   'headphones-off': 'M3 14v-2a9 9 0 0 1 18 0v2M21 14v7h-4v-7zM3 14v7h4v-7zM3 3l18 18',
+  volume: 'M3 9v6h4l5 4V5L7 9zM16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12',
+  'volume-off': 'M3 9v6h4l5 4V5L7 9zM16 9l6 6M22 9l-6 6',
   settings: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
   plus: 'M12 5v14M5 12h14',
   pipette: 'M12 6l6 6M14 4l2-2 6 6-2 2M13 7l-8 8v4h4l8-8M5 19l-2 2',
