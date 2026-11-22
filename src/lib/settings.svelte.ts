@@ -28,6 +28,11 @@ export interface Settings {
   backgroundFit: BackgroundFit;
   backgroundStrength: number;
   backgroundColor: string;
+  backgroundMark: number | null;    // dot size or grid line width in px; null: the design's own
+  backgroundSpacing: number | null; // distance between dots or grid lines in px; null: the design's own
+  // The channel list (and the Rooms list): nothing, the chat's background, or its own
+  treeBackground: 'none' | 'same' | 'own';
+  treeBackgroundStyle: BackgroundStyle;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
   classicSide: 'left' | 'right'; // the side of the chat the channel list is on in the Classic layout
@@ -52,6 +57,9 @@ export interface Settings {
 export type Arrangement = 'side' | 'classic' | 'stacked';
 export type BackgroundDesign = 'none' | 'image' | 'gradient' | 'grid' | 'dots';
 export type BackgroundFit = 'cover' | 'contain' | 'tile';
+export interface BackgroundStyle {
+  design: BackgroundDesign; fit: BackgroundFit; strength: number; color: string; mark: number | null; spacing: number | null;
+}
 
 export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'forest' | 'ember' | 'ocean' | 'plum' | 'paper' | 'contrast' | 'win95' | typeof GENERATED_THEMES[number]['id'];
 
@@ -88,6 +96,10 @@ const defaults: Settings = {
   backgroundFit: 'cover',
   backgroundStrength: 20,
   backgroundColor: '#5865f2',
+  backgroundMark: null,
+  backgroundSpacing: null,
+  treeBackground: 'same',
+  treeBackgroundStyle: { design: 'none', fit: 'cover', strength: 20, color: '#5865f2', mark: null, spacing: null },
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'stacked',
   classicSide: 'right',

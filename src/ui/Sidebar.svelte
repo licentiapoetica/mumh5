@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Background from './Background.svelte';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import ChannelNode from './ChannelNode.svelte';
@@ -52,7 +53,8 @@
   );
 </script>
 
-<aside class="sidebar" class:fill style:width={resizable && !fill ? `${width}px` : undefined}>
+<aside data-background class="sidebar" class:fill style:width={resizable && !fill ? `${width}px` : undefined}>
+  <Background area="tree" />
   {#if resizable && !fill}<ResizeHandle bind:width edge={handleEdge} min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
   <header class:with-server={serverButton}>
     {#if session.status === 'connected'}<ConnectionWave />{/if}

@@ -99,7 +99,7 @@
 </script>
 
 <section data-background class="rooms" aria-label="Rooms">
-  <Background />
+  <Background area="tree" />
   <nav class="servers" aria-label="Servers">
     {#each store.servers as s, i (s.id)}
       {@const state = stateOf(s.id)}
