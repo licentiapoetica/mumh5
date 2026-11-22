@@ -165,6 +165,18 @@ Shared WebRTC audio tracks are not mixed into the Mumble voice output.
 
 ## Reusable bot API
 
+For a complete walkthrough, API reference, audio/video recipes and controlling the
+CLI from another language, see [Building a bot](BOTS.md). The
+[runnable chat bot](examples/chat-bot.mjs) uses the SDK directly:
+
+```sh
+MUMBLE_HOST=localhost MUMBLE_TRUST_NEW=1 node cli/examples/chat-bot.mjs
+```
+
+Send `!help` or `!ping` from another client. Configure `MUMBLE_ADMIN_USER_IDS` to
+allow registered users to control its channel, mute/deafen state, and shutdown.
+The example also ships in `dist-cli/examples/chat-bot.mjs` after `npm run build:cli`.
+
 Import `cli/index.ts` from source, or `index.mjs` from the standalone build:
 
 ```ts

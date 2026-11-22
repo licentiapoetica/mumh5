@@ -8,7 +8,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 export async function buildCli(directory = path.join(root, 'dist-cli')) {
   await mkdir(directory, { recursive: true });
   await esbuild.build({
-    absWorkingDir: root, entryPoints: { main: 'cli/main.ts', index: 'cli/index.ts', 'video-worker': 'cli/video-worker.ts' },
+    absWorkingDir: root, entryPoints: { main: 'cli/main.ts', index: 'cli/index.ts', 'video-worker': 'cli/video-worker.ts',
+      'examples/chat-bot': 'cli/examples/chat-bot.mjs' },
     outdir: directory, outExtension: { '.js': '.mjs' }, bundle: true, splitting: true,
     platform: 'node', format: 'esm', target: 'node22',
     banner: { js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);" },
@@ -18,7 +19,7 @@ export async function buildCli(directory = path.join(root, 'dist-cli')) {
   const runtime = JSON.parse(await readFile(path.join(root, 'cli/package.json'), 'utf8'));
   await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'mumh5-headless', private: true, type: 'module',
     main: 'index.mjs', exports: './index.mjs', optionalDependencies: runtime.dependencies }, null, 2) + '\n');
-  for (const [source, name] of [['cli/README.md', 'README.md'], ['LICENSE', 'LICENSE'], ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md']]) {
+  for (const [source, name] of [['cli/README.md', 'README.md'], ['cli/BOTS.md', 'BOTS.md'], ['LICENSE', 'LICENSE'], ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md']]) {
     await copyFile(path.join(root, source), path.join(directory, name));
   }
   await mkdir(path.join(directory, 'licenses'), { recursive: true });

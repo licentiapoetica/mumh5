@@ -72,6 +72,8 @@ The [CLI and bot API](cli/README.md) connect directly from Node, without a brows
 or display server. They support text, independent incoming/outgoing voice streams,
 and mumh5 video. Audio and native WebRTC load only when requested.
 `npm run build:cli` creates a standalone server deployment in `dist-cli/`.
+See [Building a bot](cli/BOTS.md) for programmatic calls, chat-command control,
+audio/video examples, and a runnable bot.
 
 ## A look around
 
