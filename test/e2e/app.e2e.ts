@@ -570,7 +570,8 @@ try {
   const dmRow = page.locator('.dm-row', { hasText: 'bob' });
   await dmRow.hover();
   await dmRow.getByRole('button', { name: 'Close conversation with bob' }).click();
-  await page.locator('.sidebar').getByText('Direct messages').waitFor({ state: 'detached' });
+  await page.locator('.sidebar .dm-row').waitFor({ state: 'detached' });
+  await page.locator('.sidebar').getByText('No private chats yet.').waitFor();
   await page.locator('.msg', { hasText: 'psst' }).waitFor({ state: 'detached' });
   console.log('ok: direct message closed');
   await page.locator('.channel .name').first().dblclick();
