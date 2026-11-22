@@ -133,7 +133,7 @@ try {
     assert.match(await homeArt.evaluate(el => getComputedStyle(el).backgroundImage), /blob:/);
   }
   await page.getByRole('radio', { name: 'Rooms', exact: true }).click();
-  // The channel list (the room list here) follows the chat until it gets its own design.
+  // The channel list (the room list here) has none by default, the chat's or its own design.
   const treeMode = (name: string) => page.getByRole('group', { name: 'Channel list background', exact: true }).getByRole('button', { name, exact: true });
   await treeMode('Own design').click();
   await page.getByRole('group', { name: 'Channel list background design', exact: true }).getByRole('button', { name: 'Dots', exact: true }).click();
@@ -153,7 +153,7 @@ try {
   await page.locator('.you').getByRole('button', { name: /^Appearance/ }).click();
   await page.getByRole('button', { name: 'Remove image', exact: true }).click();
   await design('None').waitFor();
-  await treeMode('Same as chat').click();
+  await treeMode('None').click();
   await page.waitForFunction(() => !document.querySelector('.background-art'));
   assert.equal((await saved()).backgroundDesign, 'none');
   assert.equal(await page.evaluate(async () => {

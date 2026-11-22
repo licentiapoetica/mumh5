@@ -98,7 +98,7 @@ const defaults: Settings = {
   backgroundColor: '#5865f2',
   backgroundMark: null,
   backgroundSpacing: null,
-  treeBackground: 'same',
+  treeBackground: 'none',
   treeBackgroundStyle: { design: 'none', fit: 'cover', strength: 20, color: '#5865f2', mark: null, spacing: null },
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'stacked',

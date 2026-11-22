@@ -3,7 +3,7 @@
   import { store } from '../lib/settings.svelte.ts';
 
   const treeModes: { id: 'none' | 'same' | 'own'; name: string }[] = [
-    { id: 'same', name: 'Same as chat' }, { id: 'own', name: 'Own design' }, { id: 'none', name: 'None' }
+    { id: 'none', name: 'None' }, { id: 'same', name: 'Same as chat' }, { id: 'own', name: 'Own design' }
   ];
 </script>
 
