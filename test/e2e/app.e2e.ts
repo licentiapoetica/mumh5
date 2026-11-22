@@ -205,6 +205,9 @@ try {
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
   console.log('ok: connected');
+  // The stacked toolbar names you at its far end
+  await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
+  console.log('ok: you shown in the stacked toolbar');
   await within(new Promise<void>(res => { const check = () => { const u = [...bob.users.values()].find(x => x.name === 'alice'); if (u?.selfMute) res(); else setTimeout(check, 100); }; check(); }), 'mute applied on connect');
   await page.waitForTimeout(800);
   const connectSounds = await page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
