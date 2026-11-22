@@ -20,10 +20,15 @@ const devUrl = process.env.VITE_DEV_SERVER_URL;
 // The lock is per profile. Dev runs stay exempt so they can be open beside an installed build.
 if (app.isPackaged && !app.requestSingleInstanceLock()) app.exit(0);
 
+const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
+  (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
+
 // Screen sharing connects mumh5 users directly. Chromium would hide this computer's addresses
 // behind names that only resolve on the local network, so two people on IPv6 could not reach
 // each other without a helper server. Only this app's own page runs here.
-app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+// EyeDropper: on Wayland the pipette in color fields picks from the wrong place; mumh5 offers the
+// desktop's picker beside them instead (portal-color.ts), so that one is hidden.
+app.commandLine.appendSwitch('disable-features', ['WebRtcHideLocalIpsWithMdns', ...(onWayland() ? ['EyeDropper'] : [])].join(','));
 
 let identityStore: IdentityStore | null = null;
 const identities = () => (identityStore ??= new IdentityStore(app.getPath('userData')));
@@ -168,8 +173,6 @@ ipcMain.handle('preview:fetch', (_e, url: string) => fetchLinkPreview(String(url
 // `chosen` tells the renderer not to ask a second time.
 let screenSources: Electron.DesktopCapturerSource[] = [];
 let pickedSource: string | null = null;
-const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&
-  (process.env.XDG_SESSION_TYPE === 'wayland' || !!process.env.WAYLAND_DISPLAY);
 
 // Sound: PipeWire on Linux (one program or everything but this app), system loopback on Windows
 const shareAudio = new ShareAudio(() => app.getAppMetrics().map(m => m.pid));
