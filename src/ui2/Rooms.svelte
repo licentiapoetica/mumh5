@@ -98,8 +98,7 @@
   }
 </script>
 
-<section data-background class="rooms" aria-label="Rooms">
-  <Background area="tree" />
+<section class="rooms" aria-label="Rooms">
   <nav class="servers" aria-label="Servers">
     {#each store.servers as s, i (s.id)}
       {@const state = stateOf(s.id)}
@@ -136,160 +135,164 @@
     {/if}
   </header>
 
-  {#if connected}
-    <label class="find">
-      <Icon name="search" size={16} />
-      <input type="search" placeholder="Find a room or a person" aria-label="Find a room or a person" bind:value={query} />
-    </label>
-  {/if}
-
-  <div class="scroll" data-user-list="rooms" role="presentation" oncontextmenu={listMenu}>
+  <!-- The background starts under the bars at the top -->
+  <div class="tree-bg" data-background>
+    <Background area="tree" />
     {#if connected}
-      {#if textRooms.length}
-        <h2>Text channels</h2>
-        <ul>
-          {#each textRooms as r (r.channel.id)}
-            {@const c = r.channel}
-            {@const key = `ch:${c.id}` as const}
-            <li class="entry" data-menu-row class:viewing={session.view === key}>
-              <button class="main" onclick={() => openChat(key)} oncontextmenu={e => menu.show(e, channelMenu(c))}>
-                <span class="glyph"><Icon name="hash" size={18} /></span>
-                <span class="text">
-                  <span class="name">{c.name}</span>
-                  <span class="sub">{last(key) || r.path || 'No messages yet'}</span>
-                </span>
-                {#if session.unread[key]}<span class="badge">{session.unread[key]}</span>{/if}
-              </button>
-              <button class="icon-btn" aria-label="More for {c.name}" onclick={e => menu.show(e, channelMenu(c))}><Icon name="more" size={18} /></button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-
-      <h2>Rooms</h2>
-      <ul>
-        {#each voiceRooms as r (r.channel.id)}
-          {@const c = r.channel}
-          {@const users = session.usersIn(c.id)}
-          {@const here = self?.channelId === c.id}
-          {@const open = isOpen(c.id)}
-          {@const key = `ch:${c.id}` as const}
-          <li class="room" class:here class:open class:empty={!users.length}>
-            <div class="entry" data-menu-row class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
-              ondragover={e => { if (canDrop(c.id)) { e.preventDefault(); dropRoom = c.id; } }}
-              ondragleave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropRoom = null; }}
-              ondrop={e => dropUsers(e, c.id)}>
-              <button class="main" aria-expanded={open} onclick={() => (opened[c.id] = !open)}>
-                <span class="text">
-                  <span class="name">{#if !c.canEnter}<Icon name="lock" size={14} />{/if}{c.name || 'Root'}</span>
-                  {#if r.path}<span class="sub">in {r.path}</span>{/if}
-                </span>
-                {#if users.length && !open}
-                  <span class="faces" aria-label="{users.length} {users.length === 1 ? 'person' : 'people'}">
-                    {#each users.slice(0, 4) as u (u.session)}<Avatar name={u.name} size={26} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
-                    {#if users.length > 4}<span class="extra">+{users.length - 4}</span>{/if}
-                  </span>
-                {/if}
-                {#if session.unread[key]}<span class="badge">{session.unread[key]}</span>{/if}
-              </button>
-              {#if here}
-                <span class="tag">You are here</span>
-              {:else}
-                <button class="join" aria-label="Join {c.name || 'Root'}" onclick={() => session.joinChannel(c.id)}>{c.canEnter ? 'Join' : 'Unlock'}</button>
-              {/if}
-              <button class="icon-btn" aria-label="More for {c.name || 'Root'}" onclick={e => menu.show(e, channelMenu(c))}><Icon name="more" size={18} /></button>
-            </div>
-            {#if open}
-              <div class="inside">
-                {#if about(c)}<p class="about">{about(c)}</p>{/if}
-                {#if users.length}
-                  <ul class="people">
-                    {#each users as u (u.session)}
-                      {@const me = u.session === self?.session}
-                      {@const mark = voiceMark(u)}
-                      {@const onSphere = !!mark && store.settings.avatars === 'spheres'}
-                      <li>
-                        <button class="person" data-menu-row use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
-                          {#if mark && onSphere}
-                            <span class="mark face" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={22} /></span>
-                          {:else}
-                            <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
-                          {/if}
-                          <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
-                          <RoleBadges user={u} />
-                          {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
-                          {#if u.recording}<span class="rec">REC</span>{/if}
-                          {#if mark && !onSphere}<span class="mark" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
-                        </button>
-                      </li>
-                    {/each}
-                  </ul>
-                {:else}
-                  <p class="nobody">Nobody here.</p>
-                {/if}
-                <div class="acts">
-                  <button class="btn" onclick={() => openChat(key)}>Chat</button>
-                  <button class="btn" onclick={() => { session.showChannel(c.id, 'info'); ui.panelOpen = true; }}>Details</button>
-                </div>
-              </div>
-            {/if}
-          </li>
-        {:else}
-          <li class="none">Nothing matches "{query}".</li>
-        {/each}
-      </ul>
-
-      {#if dms.length}
-        <h2>Direct messages</h2>
-        <ul>
-          {#each dms as dm (dm.key)}
-            <li class="entry" data-menu-row class:viewing={session.view === dm.key}
-              oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
-              <button class="main" onclick={() => openChat(dm.key)}>
-                <Avatar name={dm.user?.name ?? '?'} size={32} src={session.avatar(dm.user?.session)} />
-                <span class="text">
-                  <span class="name" class:gone={!dm.user}>{dm.user ? store.displayName(dm.user) : 'Offline user'}</span>
-                  <span class="sub">{last(dm.key)}</span>
-                </span>
-                {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
-              </button>
-              <button class="icon-btn dm-close" title="Close conversation" aria-label="Close conversation with {dm.user ? store.displayName(dm.user) : 'offline user'}"
-                onclick={() => session.closeDm(dm.key)}><Icon name="x" size={16} /></button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      <UserSelection list="rooms" />
-    {:else if session.status === 'idle' && (session.disconnectInfo || session.reconnectDelay != null)}
-      {@const d = session.disconnectInfo}
-      <div class="ended" class:bad={d?.kind === 'kicked' || d?.kind === 'banned'}>
-        <h2>
-          {#if d?.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
-          {:else if d?.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
-          {:else if d?.kind === 'rejected'}The server refused the connection
-          {:else if d}Connection lost
-          {:else}Could not connect{/if}
-        </h2>
-        {#if d ? d.reason : session.error}<p class="reason">{d ? d.reason : session.error}</p>{/if}
-        {#if session.reconnectDelay != null}
-          <p role="status">Retrying in {session.reconnectDelay} second{session.reconnectDelay === 1 ? '' : 's'}.</p>
-          <button class="btn" onclick={() => session.cancelReconnect()}>Cancel auto-reconnect</button>
-        {/if}
-        <button class="btn primary" onclick={() => session.reconnect()}>Reconnect</button>
-      </div>
-    {:else if session.status === 'connecting'}
-      <p class="blank">Connecting...</p>
-    {:else}
-      <div class="blank">
-        {#if session.error}<p class="error">{session.error}</p>{/if}
-        <p>Choose a server above, or add one.</p>
-        <div class="acts">
-          <button class="btn primary" onclick={onadd}>Add a server</button>
-          {#if desktop}<button class="btn" onclick={onbrowse}>Browse public servers</button>{/if}
-          <button class="btn" onclick={() => { ui.settingsTab = 'identities'; ui.settingsOpen = true; }}>Manage identities</button>
-        </div>
-      </div>
+      <label class="find">
+        <Icon name="search" size={16} />
+        <input type="search" placeholder="Find a room or a person" aria-label="Find a room or a person" bind:value={query} />
+      </label>
     {/if}
+
+    <div class="scroll" data-user-list="rooms" role="presentation" oncontextmenu={listMenu}>
+      {#if connected}
+        {#if textRooms.length}
+          <h2>Text channels</h2>
+          <ul>
+            {#each textRooms as r (r.channel.id)}
+              {@const c = r.channel}
+              {@const key = `ch:${c.id}` as const}
+              <li class="entry" data-menu-row class:viewing={session.view === key}>
+                <button class="main" onclick={() => openChat(key)} oncontextmenu={e => menu.show(e, channelMenu(c))}>
+                  <span class="glyph"><Icon name="hash" size={18} /></span>
+                  <span class="text">
+                    <span class="name">{c.name}</span>
+                    <span class="sub">{last(key) || r.path || 'No messages yet'}</span>
+                  </span>
+                  {#if session.unread[key]}<span class="badge">{session.unread[key]}</span>{/if}
+                </button>
+                <button class="icon-btn" aria-label="More for {c.name}" onclick={e => menu.show(e, channelMenu(c))}><Icon name="more" size={18} /></button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        <h2>Rooms</h2>
+        <ul>
+          {#each voiceRooms as r (r.channel.id)}
+            {@const c = r.channel}
+            {@const users = session.usersIn(c.id)}
+            {@const here = self?.channelId === c.id}
+            {@const open = isOpen(c.id)}
+            {@const key = `ch:${c.id}` as const}
+            <li class="room" class:here class:open class:empty={!users.length}>
+              <div class="entry" data-menu-row class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
+                ondragover={e => { if (canDrop(c.id)) { e.preventDefault(); dropRoom = c.id; } }}
+                ondragleave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropRoom = null; }}
+                ondrop={e => dropUsers(e, c.id)}>
+                <button class="main" aria-expanded={open} onclick={() => (opened[c.id] = !open)}>
+                  <span class="text">
+                    <span class="name">{#if !c.canEnter}<Icon name="lock" size={14} />{/if}{c.name || 'Root'}</span>
+                    {#if r.path}<span class="sub">in {r.path}</span>{/if}
+                  </span>
+                  {#if users.length && !open}
+                    <span class="faces" aria-label="{users.length} {users.length === 1 ? 'person' : 'people'}">
+                      {#each users.slice(0, 4) as u (u.session)}<Avatar name={u.name} size={26} speaking={talking(u.session)} src={session.avatar(u.session)} />{/each}
+                      {#if users.length > 4}<span class="extra">+{users.length - 4}</span>{/if}
+                    </span>
+                  {/if}
+                  {#if session.unread[key]}<span class="badge">{session.unread[key]}</span>{/if}
+                </button>
+                {#if here}
+                  <span class="tag">You are here</span>
+                {:else}
+                  <button class="join" aria-label="Join {c.name || 'Root'}" onclick={() => session.joinChannel(c.id)}>{c.canEnter ? 'Join' : 'Unlock'}</button>
+                {/if}
+                <button class="icon-btn" aria-label="More for {c.name || 'Root'}" onclick={e => menu.show(e, channelMenu(c))}><Icon name="more" size={18} /></button>
+              </div>
+              {#if open}
+                <div class="inside">
+                  {#if about(c)}<p class="about">{about(c)}</p>{/if}
+                  {#if users.length}
+                    <ul class="people">
+                      {#each users as u (u.session)}
+                        {@const me = u.session === self?.session}
+                        {@const mark = voiceMark(u)}
+                        {@const onSphere = !!mark && store.settings.avatars === 'spheres'}
+                        <li>
+                          <button class="person" data-menu-row use:selectUser={{ id: u.session }} draggable="true" title={SELECT_HINT} aria-pressed={session.selectedUsers.includes(u.session)} onclick={e => openProfile(u.session, e.currentTarget)} oncontextmenu={e => menu.show(e, userMenu(u))}>
+                            {#if mark && onSphere}
+                              <span class="mark face" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={22} /></span>
+                            {:else}
+                              <Avatar name={u.name} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
+                            {/if}
+                            <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
+                            <RoleBadges user={u} />
+                            {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
+                            {#if u.recording}<span class="rec">REC</span>{/if}
+                            {#if mark && !onSphere}<span class="mark" class:bad={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
+                          </button>
+                        </li>
+                      {/each}
+                    </ul>
+                  {:else}
+                    <p class="nobody">Nobody here.</p>
+                  {/if}
+                  <div class="acts">
+                    <button class="btn" onclick={() => openChat(key)}>Chat</button>
+                    <button class="btn" onclick={() => { session.showChannel(c.id, 'info'); ui.panelOpen = true; }}>Details</button>
+                  </div>
+                </div>
+              {/if}
+            </li>
+          {:else}
+            <li class="none">Nothing matches "{query}".</li>
+          {/each}
+        </ul>
+
+        {#if dms.length}
+          <h2>Direct messages</h2>
+          <ul>
+            {#each dms as dm (dm.key)}
+              <li class="entry" data-menu-row class:viewing={session.view === dm.key}
+                oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }]); }}>
+                <button class="main" onclick={() => openChat(dm.key)}>
+                  <Avatar name={dm.user?.name ?? '?'} size={32} src={session.avatar(dm.user?.session)} />
+                  <span class="text">
+                    <span class="name" class:gone={!dm.user}>{dm.user ? store.displayName(dm.user) : 'Offline user'}</span>
+                    <span class="sub">{last(dm.key)}</span>
+                  </span>
+                  {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
+                </button>
+                <button class="icon-btn dm-close" title="Close conversation" aria-label="Close conversation with {dm.user ? store.displayName(dm.user) : 'offline user'}"
+                  onclick={() => session.closeDm(dm.key)}><Icon name="x" size={16} /></button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <UserSelection list="rooms" />
+      {:else if session.status === 'idle' && (session.disconnectInfo || session.reconnectDelay != null)}
+        {@const d = session.disconnectInfo}
+        <div class="ended" class:bad={d?.kind === 'kicked' || d?.kind === 'banned'}>
+          <h2>
+            {#if d?.kind === 'kicked'}You were kicked{d.by ? ` by ${d.by}` : ''}
+            {:else if d?.kind === 'banned'}You were banned{d.by ? ` by ${d.by}` : ''}
+            {:else if d?.kind === 'rejected'}The server refused the connection
+            {:else if d}Connection lost
+            {:else}Could not connect{/if}
+          </h2>
+          {#if d ? d.reason : session.error}<p class="reason">{d ? d.reason : session.error}</p>{/if}
+          {#if session.reconnectDelay != null}
+            <p role="status">Retrying in {session.reconnectDelay} second{session.reconnectDelay === 1 ? '' : 's'}.</p>
+            <button class="btn" onclick={() => session.cancelReconnect()}>Cancel auto-reconnect</button>
+          {/if}
+          <button class="btn primary" onclick={() => session.reconnect()}>Reconnect</button>
+        </div>
+      {:else if session.status === 'connecting'}
+        <p class="blank">Connecting...</p>
+      {:else}
+        <div class="blank">
+          {#if session.error}<p class="error">{session.error}</p>{/if}
+          <p>Choose a server above, or add one.</p>
+          <div class="acts">
+            <button class="btn primary" onclick={onadd}>Add a server</button>
+            {#if desktop}<button class="btn" onclick={onbrowse}>Browse public servers</button>{/if}
+            <button class="btn" onclick={() => { ui.settingsTab = 'identities'; ui.settingsOpen = true; }}>Manage identities</button>
+          </div>
+        </div>
+      {/if}
+    </div>
   </div>
 </section>
 
@@ -325,6 +328,7 @@
   .find:focus-within { border-color: var(--accent); }
   .find input { border: 0; background: none; padding: 0; height: 100%; font-size: 15px; box-shadow: none; }
 
+  .tree-bg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 16px; }
   h2 { margin: 18px 8px 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
 

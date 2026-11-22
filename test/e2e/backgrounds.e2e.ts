@@ -140,7 +140,11 @@ try {
   assert.equal((await saved()).treeBackgroundStyle.design, 'dots');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.chat2 > .background-art').waitFor();
-  await page.locator('.rooms > .background-art[data-design="dots"]').waitFor();
+  const treeArt = page.locator('.rooms .tree-bg > .background-art[data-design="dots"]');
+  await treeArt.waitFor();
+  // It starts under the bar with the connection wave, not behind it.
+  const topBar = await page.locator('.rooms .top').boundingBox();
+  assert.ok((await treeArt.boundingBox())!.y >= topBar!.y + topBar!.height);
   assert.match(await page.locator('.chat2 > .background-art').evaluate(el => getComputedStyle(el).backgroundImage), /blob:/);
   await shot('background-rooms');
   for (const width of [1280, 390]) {
