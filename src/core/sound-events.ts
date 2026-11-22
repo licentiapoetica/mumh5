@@ -87,6 +87,21 @@ export const PACK_PATHS: Partial<Record<SoundEvent, string>> = {
   channelMoved: 'ChannelNotification/ChannelMoved.wav'
 };
 
+// Clips the standard pack lacks. A pack that has one plays it for that event;
+// otherwise the event keeps its PACK_PATHS clip or short tone.
+export const PACK_VARIANTS: Partial<Record<SoundEvent, string>> = {
+  connectionLost: 'ServerNotification/ConnectionLost.wav',
+  userMovedOut: 'UserNotification/UserMovedOut.wav',
+  shareStarted: 'UserNotification/ScreenShareStarted.wav',
+  shareStopped: 'UserNotification/ScreenShareStopped.wav',
+  viewerJoined: 'UserNotification/ScreenWatchStarted.wav',
+  viewerLeft: 'UserNotification/ScreenWatchStopped.wav',
+  poke: 'MessageNotification/Poked.wav',
+  messageSent: 'MessageNotification/MessageSent.wav',
+  uploadDone: 'MessageNotification/FileReceived.wav',
+  uploadFailed: 'MessageNotification/FileTransferFailed.wav'
+};
+
 export function defaultSoundSettings(): SoundSettings {
   return { enabled: true, volume: 0.6, on: {}, custom: {}, clips: {}, packs: [] };
 }

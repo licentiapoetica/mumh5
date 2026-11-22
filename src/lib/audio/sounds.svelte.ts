@@ -4,7 +4,7 @@ import { desktop, isWeb } from '../native.ts';
 import { putBlob, getBlob, deleteBlob } from '../blobstore.ts';
 import { zipSync } from 'fflate';
 import { isPackClip, listAudioPack, readAudioPack, readPackClip } from '../../core/audio-pack.ts';
-import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, defaultSoundSettings, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
+import { SOUND_EVENTS, PACK_PATHS, PACK_VARIANTS, QUIET_EVENTS, defaultSoundSettings, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
 import { proxyInfo } from '../web.svelte.ts';
 import { DEFAULT_AUDIO_PACK_LIMITS, audioSize, type AudioPackLimits } from '../../core/audio-pack-limits.ts';
 import { renderTones } from './tones.ts';
@@ -262,7 +262,12 @@ class Sounds {
     return chosen && this.packClips.includes(chosen) ? chosen : '';
   }
 
-  clipFor(ev: SoundEvent): string | undefined { return this.selectedClip(ev) || PACK_PATHS[ev]; }
+  automaticClip(ev: SoundEvent): string | undefined {
+    const variant = PACK_VARIANTS[ev];
+    return variant && this.packClips.includes(variant) ? variant : PACK_PATHS[ev];
+  }
+
+  clipFor(ev: SoundEvent): string | undefined { return this.selectedClip(ev) || this.automaticClip(ev); }
 
   // Puts files set aside by a pack switch back in use, for one event or all of them.
   useCustom(ev?: SoundEvent): void {
@@ -377,7 +382,10 @@ class Sounds {
     const entry = await this.rememberPack(file.name, file, clips);
     await this.activatePack(entry, this.openPack(bytes, clips.keys(), this.limits));
     return {
-      assigned: SOUND_EVENTS.filter(e => clips.has(PACK_PATHS[e.id] ?? '')).map(e => `${PACK_PATHS[e.id]}: ${e.name}`),
+      assigned: SOUND_EVENTS.flatMap(e => {
+        const path = this.automaticClip(e.id);
+        return path && clips.has(path) ? [`${path}: ${e.name}`] : [];
+      }),
       unmatched: [],
       failed: []
     };
