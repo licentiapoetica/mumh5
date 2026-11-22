@@ -200,7 +200,7 @@
     </div>
   </article>
   {#if tip && tipReaction}
-    <div class="reactors" id={tipId} role="tooltip" use:portal style="left:{tipPos.x}px;top:{tipPos.y}px"
+    <div class="reactors" id={tipId} role="tooltip" bind:this={tipEl} use:portal style="left:{tipPos.x}px;top:{tipPos.y}px"
       onpointerenter={() => clearTimeout(hideTimer)} onpointerleave={() => hideTip(120)}>
       <div class="rh"><span class="e">{tipReaction.emoji}</span><span class="n">{tipReaction.who.length}</span></div>
       <ul>{#each names(tipReaction) as n}<li>{n}</li>{/each}</ul>
