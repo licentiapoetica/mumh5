@@ -100,7 +100,7 @@
 <p class="help">Audio pack: <strong>{s.pack?.name ?? 'Chatterbox female (standard)'}</strong>. {sounds.packClips.length} clips available.</p>
 <p class="help">Each ZIP or notification folder adds a pack to your library. Select a saved pack above, or switch back to the standard pack at any time. Importing the same pack again keeps one copy.</p>
 <p class="help">ZIP packs use notification folders at the root, for example <code>AudioNotification/SelfMute.wav</code>. Missing clips use the standard pack. Selecting a pack sets your individual files aside without deleting them, and keeps your event choices and clip selections. TeamSpeak 3 folders with <code>settings.ini</code> are also supported.</p>
-<p class="help">Quiet defaults play only connection loss, direct messages and pokes. Enable other events below. Importing a pack keeps your event choices. Sounds play one at a time without a queue. Those three and mic changes replace the clip playing, other events are skipped while one plays.</p>
+<p class="help">Quiet defaults play only connection loss, direct messages and pokes. Enable other events below. Importing a pack keeps your event choices. Sounds play one at a time without a queue. Each new enabled notification stops the previous clip and starts from the beginning.</p>
 {#if !sounds.loaded || !sounds.clipsReady}<p class="help" role="status">Loading audio pack...</p>{/if}
 {#if sounds.busy}<p class="help" role="status">Saving sounds...</p>{/if}
 {#if report}

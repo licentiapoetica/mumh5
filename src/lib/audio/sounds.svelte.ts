@@ -4,7 +4,7 @@ import { desktop, isWeb } from '../native.ts';
 import { putBlob, getBlob, deleteBlob } from '../blobstore.ts';
 import { zipSync } from 'fflate';
 import { isPackClip, listAudioPack, readAudioPack, readPackClip } from '../../core/audio-pack.ts';
-import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, STATE_EVENTS, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
+import { SOUND_EVENTS, PACK_PATHS, QUIET_EVENTS, upgradeSoundSettings, type SoundEvent, type SoundSettings, type SoundPack } from '../../core/sound-events.ts';
 import { proxyInfo } from '../web.svelte.ts';
 import { DEFAULT_AUDIO_PACK_LIMITS, audioSize, type AudioPackLimits } from '../../core/audio-pack-limits.ts';
 import { renderTones } from './tones.ts';
@@ -57,7 +57,6 @@ class Sounds {
   private generation = 0;
   private watchdog: ReturnType<typeof setTimeout> | undefined;
   private saveBlocked = false;
-  private lastPlayed = new Map<SoundEvent, number>();
 
   constructor() {
     voice.onPtt = down => { void this.play(down ? 'pttDown' : 'pttUp'); };
@@ -466,28 +465,19 @@ class Sounds {
     this.watchdog = setTimeout(() => { if (generation === this.generation) this.stop(); }, ms);
   }
 
-  // No queue: routine events are dropped while a clip plays instead of building a backlog
-  // of speech. Previews, mic state changes and alerts replace the current clip.
+  // Claim the slot before loading audio so a slower, older request cannot play later.
   async play(ev: SoundEvent, force = false): Promise<void> {
     await this.ready;
     const silent = () => !force && (!this.settings.enabled || !this.isOn(ev) || !this.settings.volume);
     if (silent()) return;
-    // Before the start timer: the first sound may have to download the standard pack
-    if (!this.ownFile(ev)) await this.prepare();
-    if (silent()) return;
-    const state = STATE_EVENTS.has(ev);
-    const replaces = force || state || QUIET_EVENTS.has(ev);
-    if (!replaces && this.playing) return;
-    const now = performance.now();
-    if (!force && !state && now - (this.lastPlayed.get(ev) ?? -Infinity) < 1500) return;
-    this.lastPlayed.set(ev, now);
-    if (replaces) this.stop();
+    this.stop();
     const generation = this.generation;
     this.playing = true;
-    this.guard(generation, START_LIMIT);
     try {
       const source = await this.source(ev);
       if (generation !== this.generation) return;
+      if (silent()) { this.stop(); return; }
+      this.guard(generation, START_LIMIT);
       const el = new Audio(source) as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
       this.active = el;
       // Any way a clip can end frees the slot, including a system pause or a decode error
@@ -499,7 +489,8 @@ class Sounds {
       if (generation !== this.generation) return;
       if (!force && (!this.settings.enabled || !this.isOn(ev))) { this.stop(); return; }
       await el.play();
-      if (generation === this.generation) this.guard(generation, Number.isFinite(el.duration) ? el.duration * 1000 + 1000 : UNKNOWN_LENGTH_LIMIT);
+      if (generation !== this.generation) { el.pause(); return; }
+      this.guard(generation, Number.isFinite(el.duration) ? el.duration * 1000 + 1000 : UNKNOWN_LENGTH_LIMIT);
       const log = ((window as any).__mumh5Sounds ??= []) as string[];
       log.push(ev);
       if (log.length > 50) log.shift();
