@@ -19,7 +19,7 @@ import { ownAvatar } from './avatar.svelte.ts';
 import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
 import { encodePoke, decodePoke } from '../core/poke.ts';
-import { messageRef, textRef, type Reaction } from '../core/reactions.ts';
+import { copyReactions, messageRef, textRef, type Reaction } from '../core/reactions.ts';
 import { reactions } from './reactions.ts';
 import { ui } from './ui.svelte.ts';
 import { notifyPoke } from './notify.ts';
@@ -1000,14 +1000,14 @@ export class Session {
   // ─── Chat ───────────────────────────────────────────────────────────────────
 
   // time: for messages from earlier, which go where they belong in the log. quiet: not counted as unread.
-  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean; raw?: string; historyId?: string } = {}): void {
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean; raw?: string; historyId?: string; reactions?: Reaction[] } = {}): void {
     // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
     if (!this.logs[key]) this.logs[key] = [];
     const log = this.logs[key];
     const time = opts.time ?? Date.now();
     let at = log.length;
     while (at > 0 && log[at - 1].time > time) at--;
-    log.splice(at, 0, { ...entry, reactions: [], id: nextId++, time, historyId: opts.historyId });
+    log.splice(at, 0, { ...entry, reactions: opts.reactions ?? [], id: nextId++, time, historyId: opts.historyId });
     if (opts.raw !== undefined && !opts.quiet) chatHistory.record(this, key, opts.raw, log[at]);
     if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
     // Files announced just now; ones from earlier wait for a click
@@ -1035,7 +1035,7 @@ export class Session {
     if (!currentChatMessage(message.time, Date.now(), historyHours(store.settings.chatHistoryHours) * 60 * 60 * 1000) || this.logs[key]?.some(e => e.historyId === message.id)) return;
     this.push(key, { kind: 'text', author: message.author, authorSession: null, self: message.self,
       ref: messageRef(message.raw), ...render(message.raw, store.trustedHosts, true) },
-      { time: message.time, quiet: true, historyId: message.id });
+      { time: message.time, quiet: true, historyId: message.id, reactions: message.reactions && copyReactions(message.reactions) });
   }
 
   // A text channel message: live, kept from earlier, or handed over by another client
@@ -1046,7 +1046,7 @@ export class Session {
     this.push(`ch:${m.c}`, {
       kind: 'text', author: online ? store.displayName(online) : m.n, authorSession: online?.session ?? null, self, ref: textRef(m.i),
       ...renderIncoming(m.h, store.trustedHosts, true)
-    }, { time: m.t, quiet });
+    }, { time: m.t, quiet, reactions: m.x && copyReactions(m.x) });
   }
 
   private system(key: string, html: string, trusted = false): void {
@@ -1380,6 +1380,13 @@ export class Session {
     this.push(key, { kind: 'text', author: client.self?.name ?? '', authorSession: client.session, self: true, ref: messageRef(html), ...rendered });
     chatHistory.record(this, key, html, this.logs[key].find(e => e.id === entryId));
     return true;
+  }
+
+  // The reactions of a message changed: keep them with the saved history
+  reacted(key: string, entry: ChatEntry): void {
+    const channel = key.startsWith('ch:') ? Number(key.slice(3)) : NaN;
+    if (this.isText(channel) && entry.ref?.startsWith('t:')) textChannels.reacted(this, channel, entry.ref.slice(2), entry.reactions);
+    else chatHistory.reacted(this, key, entry);
   }
 
   // Reactions need plugin data, so a 1.4 server; only mumh5 clients see them

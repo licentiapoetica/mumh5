@@ -7,6 +7,7 @@
 import { encodeSignal, SignalAssembler } from './share-signal.ts';
 import { stripAdmins } from './admins.ts';
 import { stripRoles } from './roles.ts';
+import type { Reaction } from './reactions.ts';
 
 export const TEXT_DATA_ID = 'mumh5.text';
 
@@ -35,7 +36,8 @@ export const HAND_OVER = 50;
 export const MAX_HTML = 24000;
 
 // i: id, c: channel, t: time, n: author name, k: author certificate hash, h: html
-export interface TextMsg { i: string; c: number; t: number; n: string; k: string; h: string }
+// x: reactions, kept on this computer only (never handed over)
+export interface TextMsg { i: string; c: number; t: number; n: string; k: string; h: string; x?: Reaction[] }
 
 export const encodeText = (type: TextType, body?: unknown) => encodeSignal(type, body === undefined ? undefined : JSON.stringify(body));
 

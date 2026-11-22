@@ -89,6 +89,24 @@ export function applyReaction(list: readonly Reaction[], emoji: string, who: Rea
   return rest.length ? list.map((r, j) => (j === i ? { emoji, who: rest } : r)) : list.filter((_, j) => j !== i);
 }
 
+// Reactions read back from storage; anything malformed is left out
+export function readReactions(v: unknown): Reaction[] {
+  if (!Array.isArray(v)) return [];
+  const out: Reaction[] = [];
+  for (const r of v.slice(0, MAX_KINDS)) {
+    if (!r || typeof r.emoji !== 'string' || !isEmoji(r.emoji) || !Array.isArray(r.who) || out.some(o => o.emoji === r.emoji)) continue;
+    const who: Reactor[] = [];
+    for (const w of r.who.slice(0, 500)) {
+      if (w && typeof w.k === 'string' && w.k.length <= 200 && typeof w.name === 'string' && w.name.length <= 200 && !who.some(o => o.k === w.k)) who.push({ k: w.k, name: w.name });
+    }
+    if (who.length) out.push({ emoji: r.emoji, who });
+  }
+  return out;
+}
+
+// A plain copy, for storage (state proxies cannot be cloned into IndexedDB)
+export const copyReactions = (list: readonly Reaction[]): Reaction[] => list.map(r => ({ emoji: r.emoji, who: r.who.map(w => ({ k: w.k, name: w.name })) }));
+
 // "alice, bob and 3 others"
 export function reactorNames(names: string[], max = 3): string {
   if (names.length <= max) return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0] ?? '';

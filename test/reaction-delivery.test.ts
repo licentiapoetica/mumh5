@@ -24,8 +24,11 @@ function setup(t: TestContext) {
   const self = { session: 1, name: 'Alice', hash: 'alice', channelId: 0 };
   const peer = { session: 2, name: 'Bob', hash: 'bob', channelId: 0 };
   const sent: { to: number[]; sig: ReactSignal }[] = [];
+  // Every change is handed to the session, which keeps it with the saved history
+  const saved: { key: string; emojis: string[] }[] = [];
   const s = {
     status: 'connected', logs: { 'ch:0': [] }, isText: () => false,
+    reacted: (key: string, entry: ChatEntry) => saved.push({ key, emojis: entry.reactions.map(r => r.emoji) }),
     client: {
       self, session: 1, serverVersionNum: 0x010500, users: new Map([[1, self], [2, peer]]),
       sendPluginData(to: number[], id: string, packet: Uint8Array) {
@@ -47,7 +50,7 @@ function setup(t: TestContext) {
     for (const emoji of ['\u{1F600}', THUMBS, '\u{1F389}', '\u2764\uFE0F']) reactions.toggle(s, 'ch:0', entry.id, emoji);
     assert.equal(sent.length, 4);
   }
-  return { s, sent, add, fill };
+  return { s, sent, saved, add, fill };
 }
 
 for (const author of [1, 2]) {
@@ -67,7 +70,7 @@ for (const author of [1, 2]) {
 }
 
 test('queued changes to the same reaction send only its final state', t => {
-  const { s, sent, add, fill } = setup(t);
+  const { s, sent, saved, add, fill } = setup(t);
   const entry = add(1, 'hello');
   fill();
   reactions.toggle(s, 'ch:0', entry.id, THUMBS);
@@ -76,6 +79,11 @@ test('queued changes to the same reaction send only its final state', t => {
   assert.equal(sent.length, 5);
   assert.equal(sent[4].sig.on, false);
   assert.deepEqual(entry.reactions, []);
+  assert.deepEqual(saved.slice(-2), [{ key: 'ch:0', emojis: [THUMBS] }, { key: 'ch:0', emojis: [] }]);
+  // One that arrives is kept too
+  reactions.receive(s, 2, REACT_DATA_ID, new TextEncoder().encode(JSON.stringify({ c: 0, r: messageRef('hello'), s: 2, a: 0, e: THUMBS, on: true })));
+  assert.deepEqual(entry.reactions.map(r => r.who.map(w => w.k)), [['bob']]);
+  assert.deepEqual(saved.at(-1), { key: 'ch:0', emojis: [THUMBS] });
 });
 
 test('queued reaction age is measured at transmission with subsecond precision', t => {
