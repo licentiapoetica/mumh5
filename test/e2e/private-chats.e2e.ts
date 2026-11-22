@@ -62,12 +62,24 @@ try {
       assert.ok(dimensions.channelOverflow && dimensions.privateOverflow, `${mode}: lists scroll separately (${JSON.stringify(dimensions)})`);
       await chats.locator('.scroll').evaluate(el => { el.scrollTop = el.scrollHeight; });
       assert.equal(await chats.locator('.private-scroll').evaluate(el => el.scrollTop), 0);
+      await page.evaluate(async () => {
+        const module = '/src/lib/session.svelte.ts';
+        const { session } = await import(module);
+        session.unread = { 'ch:1': 3, 'dm:100': 2 };
+      });
       await chats.getByRole('button', { name: /^Direct messages/ }).click();
       assert.equal(await chats.locator('.private-scroll').isVisible(), false);
+      assert.equal(await chats.getByRole('button', { name: /^Direct messages/ }).locator('.badge').textContent(), '2', `${mode}: direct-message header counts only private unreads`);
       await chats.getByRole('button', { name: /^Direct messages/ }).click();
       await chats.getByRole('button', { name: /^Channels and chats/ }).click();
       assert.equal(await chats.locator('.lists').isVisible(), false);
+      assert.equal(await chats.getByRole('button', { name: /^Channels and chats/ }).locator('.badge').textContent(), '5', `${mode}: collapsed group includes channel and private unreads`);
       await chats.getByRole('button', { name: /^Channels and chats/ }).click();
+      await page.evaluate(async () => {
+        const module = '/src/lib/session.svelte.ts';
+        const { session } = await import(module);
+        session.unread = {};
+      });
     }
     console.log(`ok: ${mode} private chats remain visible, size to content, scroll independently and collapse`);
   }

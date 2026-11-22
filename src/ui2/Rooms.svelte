@@ -142,7 +142,8 @@
     </label>
   {/if}
 
-  <ConversationLists count={dms.length} unread={dms.reduce((n, dm) => n + (session.unread[dm.key] ?? 0), 0)} enabled={connected}>
+  <ConversationLists count={dms.length} unread={Object.values(session.unread).reduce((n, count) => n + count, 0)}
+    messagesUnread={dms.reduce((n, dm) => n + (session.unread[dm.key] ?? 0), 0)} enabled={connected}>
     {#snippet messages()}
       <ul>
         {#each dms as dm (dm.key)}

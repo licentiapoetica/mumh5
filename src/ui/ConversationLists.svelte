@@ -2,8 +2,8 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { children, messages, count, unread = 0, enabled = true }: {
-    children: Snippet; messages: Snippet; count: number; unread?: number; enabled?: boolean;
+  let { children, messages, count, unread = 0, messagesUnread = 0, enabled = true }: {
+    children: Snippet; messages: Snippet; count: number; unread?: number; messagesUnread?: number; enabled?: boolean;
   } = $props();
   let collapsed = $state(false);
   let messagesCollapsed = $state(false);
@@ -24,7 +24,7 @@
         <button class="heading" aria-expanded={!messagesCollapsed} onclick={() => (messagesCollapsed = !messagesCollapsed)}>
           <Icon name={messagesCollapsed ? 'arrow-right' : 'arrow-down'} size={14} />
           <span>Direct messages</span><span class="count">{count}</span>
-          {#if unread}<span class="badge">{unread}</span>{/if}
+          {#if messagesUnread}<span class="badge">{messagesUnread}</span>{/if}
         </button>
         <div class="private-scroll" hidden={messagesCollapsed}>
           {#if count}{@render messages()}{:else}<p>No private chats yet.</p>{/if}

@@ -77,7 +77,8 @@
     {/if}
   </header>
 
-  <ConversationLists count={dms.length} unread={dms.reduce((n, dm) => n + (session.unread[dm.key] ?? 0), 0)}>
+  <ConversationLists count={dms.length} unread={Object.values(session.unread).reduce((n, count) => n + count, 0)}
+    messagesUnread={dms.reduce((n, dm) => n + (session.unread[dm.key] ?? 0), 0)}>
     {#snippet messages()}
       <ul class="tree">
         {#each dms as dm (dm.key)}
