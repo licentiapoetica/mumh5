@@ -42,7 +42,7 @@
 
 <!-- Stacked layout always names the channel here; other layouts need tabs for private chats. -->
 {#if session.status === 'connected' && (always || dms.length)}
-  <div class="tabs-wrap" class:clear={mode !== 'none'} data-background>
+  <div class="tabs-wrap" class:clear={mode === 'chat'} class:own={mode === 'tree'} data-background>
   {#if mode === 'tree'}<Background area="tree" />{/if}
   <div class="chat-tabs" role="tablist" aria-label="Open chats" bind:this={strip}>
     <div class="chat-tab" class:active={session.view === channelKey}>
@@ -72,7 +72,7 @@
 <style>
   .tabs-wrap { flex: none; background: var(--bg-1); }
   .tabs-wrap.clear { background: none; }
-  .tabs-wrap.clear .chat-tabs { background: none; }
+  .tabs-wrap.clear .chat-tabs, .tabs-wrap.own .chat-tabs { background: none; }
   .chat-tabs { position: relative; flex: none; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; background: var(--bg-1); border-bottom: 1px solid var(--line); }
   .chat-tab { flex: none; display: flex; max-width: 200px; border-right: 1px solid var(--line); border-top: 2px solid transparent; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
   .chat-tab:hover { background: var(--bg-hover); color: var(--text); }
