@@ -6,6 +6,7 @@
 <script lang="ts">
   import Background from './Background.svelte';
   import { store } from '../lib/settings.svelte.ts';
+  import { areaBackground } from '../lib/background.svelte.ts';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import { session } from '../lib/session.svelte.ts';
@@ -25,6 +26,8 @@
   });
   // Stacked only: the bar can show the channel list's or the chat's background instead of a plain one
   const mode = $derived(always ? store.settings.tabBarBackground ?? 'none' : 'none');
+  // A gradient flows from the list into the bar, so the line between them goes (the handle still shows on hover)
+  const seam = $derived(mode === 'tree' && areaBackground('tree')?.style.design === 'gradient');
 
   const serverId = $derived(session.server?.id ?? '');
   $effect(() => {
@@ -52,7 +55,7 @@
 
 <!-- Stacked layout always names the channel here; other layouts need tabs for private chats. -->
 {#if session.status === 'connected' && (always || dms.length)}
-  <div class="tabs-wrap" class:clear={mode === 'chat'} class:own={mode === 'tree'} data-background>
+  <div class="tabs-wrap" class:clear={mode === 'chat'} class:own={mode === 'tree'} class:seam data-background>
   {#if mode === 'tree'}<Background area="tree" reach={listH || undefined} />{/if}
   <div class="chat-tabs" role="tablist" aria-label="Open chats" bind:this={strip}>
     <div class="chat-tab" class:active={session.view === channelKey}>
@@ -80,6 +83,8 @@
 {/if}
 
 <style>
+  /* Only when the bar sits right under the list, with no stream between */
+  :global(.stack:has(> .chat > .tabs-wrap.seam:is(:first-child, .background-art + .tabs-wrap)) > .tree) { border-bottom-width: 0; }
   .tabs-wrap { flex: none; overflow: hidden; background: var(--bg-1); }
   .tabs-wrap.clear { background: none; }
   .tabs-wrap.clear .chat-tabs, .tabs-wrap.own .chat-tabs { background: none; }
