@@ -2061,6 +2061,18 @@ try {
     });
     assert.ok(lineOffset < 0.5, `people's line is ${lineOffset}px off their channel's line`);
     console.log('ok: tree lines end at the last channel and connect people to their channel');
+    const setTreeLines = async (on: boolean) => {
+      await page.getByRole('button', { name: 'Configure', exact: true }).click();
+      await page.getByRole('tab', { name: 'Appearance' }).click();
+      await page.getByRole('checkbox', { name: 'Show tree lines', exact: true }).setChecked(on);
+      await page.getByRole('button', { name: 'Done', exact: true }).click();
+    };
+    const treeMarks = page.locator('.sidebar .tree :is(.branch, .stem, .trunk, .root-mark)');
+    await setTreeLines(false);
+    assert.equal(await treeMarks.count(), 0);
+    await setTreeLines(true);
+    assert.ok(await treeMarks.count() > 0);
+    console.log('ok: tree lines turn off and on in Appearance');
 
     // ─── Text channels: read and written without joining, between mumh5 clients ───
     await page.getByRole('button', { name: 'Configure', exact: true }).click();

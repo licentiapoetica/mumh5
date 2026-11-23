@@ -121,6 +121,8 @@
     {/each}
   </div>
 {/if}
+<label class="role-check"><input type="checkbox" checked={store.settings.treeLines}
+  onchange={e => { store.settings.treeLines = e.currentTarget.checked; store.saveSettings(); }} /> Show tree lines</label>
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
 {/if}
 
