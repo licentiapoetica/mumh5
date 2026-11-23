@@ -1,7 +1,7 @@
 // The order of the toolbar's buttons and spacers, and which buttons are hidden.
 // Hidden buttons keep their place, so showing one again puts it back where it was.
 
-export type ToolId = 'info' | 'mic' | 'deafen' | 'camera' | 'screen' | 'profile' | 'settings' | 'tree';
+export type ToolId = 'info' | 'mic' | 'deafen' | 'camera' | 'screen' | 'profile' | 'settings' | 'tree' | 'you';
 export type ToolbarItem = ToolId | 'sep';
 export interface ToolbarLayout { items: ToolbarItem[]; hidden: ToolId[] }
 
@@ -13,12 +13,13 @@ export const TOOLS: { id: ToolId; label: string; icon: string }[] = [
   { id: 'screen', label: 'Share screen', icon: 'screen' },
   { id: 'profile', label: 'Edit profile', icon: 'message' },
   { id: 'settings', label: 'Configure', icon: 'settings' },
-  { id: 'tree', label: 'Expand or collapse all', icon: 'filter' }
+  { id: 'tree', label: 'Expand or collapse all', icon: 'filter' },
+  { id: 'you', label: 'Name and picture', icon: 'user' }
 ];
 
 // The first spacer sets the server button apart
 export const DEFAULT_TOOLBAR: ToolbarLayout = {
-  items: ['sep', 'info', 'mic', 'deafen', 'camera', 'screen', 'sep', 'profile', 'sep', 'settings', 'sep', 'tree'],
+  items: ['sep', 'info', 'mic', 'deafen', 'camera', 'screen', 'sep', 'profile', 'sep', 'settings', 'sep', 'tree', 'you'],
   hidden: []
 };
 
@@ -61,11 +62,14 @@ export function removeToolbarSpacer(layout: ToolbarLayout, index: number): Toolb
   return { items: layout.items.filter((_, i) => i !== index), hidden: [...layout.hidden] };
 }
 
-/** What to draw, with each item's place in the layout. A spacer at the start needs something before it. */
-export function visibleToolbarItems(layout: ToolbarLayout, hasLead: boolean): { item: ToolbarItem; index: number }[] {
+/**
+ * What to draw, with each item's place in the layout. A spacer at the start needs something before it.
+ * hasYou: whether this bar can show your name, so a spacer never leans on a name that is not drawn.
+ */
+export function visibleToolbarItems(layout: ToolbarLayout, hasLead: boolean, hasYou = true): { item: ToolbarItem; index: number }[] {
   const shown = layout.items
     .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item === 'sep' || !layout.hidden.includes(item));
+    .filter(({ item }) => item === 'sep' || (!layout.hidden.includes(item) && (hasYou || item !== 'you')));
   if (hasLead) return shown;
   const first = shown.findIndex(s => s.item !== 'sep');
   return first < 0 ? [] : shown.slice(first);
