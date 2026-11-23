@@ -13,11 +13,24 @@ import { openTls } from './tls-transport.ts';
 import { udpChannel } from './udp-voice.ts';
 import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
 import { pickColor } from './portal-color.ts';
+import { seedDevProfile } from './dev-profile.ts';
 
 const devUrl = process.env.VITE_DEV_SERVER_URL;
 
-// A second copy on one profile gets empty browser storage and loses what it saves there.
-// The lock is per profile. Dev runs stay exempt so they can be open beside an installed build.
+// Two copies on one profile wait seconds for each other's storage lock before the page can draw,
+// and the later one loses what it saves. Dev runs get their own profile, so they can stay open
+// beside an installed build.
+if (devUrl && !app.commandLine.hasSwitch('user-data-dir')) {
+  const own = path.join(app.getPath('appData'), 'mumh5-dev');
+  if (seedDevProfile(app.getPath('userData'), own)) app.setPath('userData', own);
+}
+// Closed to the tray, a dev copy would otherwise outlive `npm run dev` unnoticed
+if (devUrl) {
+  const parent = process.ppid;
+  setInterval(() => { if (process.ppid !== parent) app.quit(); }, 1000).unref();
+}
+
+// The lock is per profile
 if (app.isPackaged && !app.requestSingleInstanceLock()) app.exit(0);
 
 const onWayland = () => process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11' &&

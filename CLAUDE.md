@@ -120,6 +120,7 @@ Voice runs on one server at a time (where you last joined a channel); background
 - The desktop is Wayland and Electron picks it automatically, so windows appear on the user's screen even with `DISPLAY=:99`. For hidden runs: `Xvfb :99`, `--ozone-platform=x11`, and unset `WAYLAND_DISPLAY` and `XDG_SESSION_TYPE`.
 - The user often has their own mumh5 (`npm run dev`) running. Only stop processes started with a `mumh5-e2e` profile; never kill Electron processes in general.
 - `pkill -f pattern` matches the invoking shell; use `pkill -f "[p]attern"`.
+- `npm run dev` uses its own profile, `mumh5-dev` beside the normal one, filled once from it. Two copies on one profile block each other's storage for seconds at page load, which shows as a blank window.
 
 ## Commits
 

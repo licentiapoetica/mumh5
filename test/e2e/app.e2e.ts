@@ -906,11 +906,15 @@ try {
   // The split between chat and channel list drags
   const handle = page.getByRole('separator', { name: 'Resize channel list' });
   const hb = (await handle.boundingBox())!;
+  // Its line is the lower edge of the tab bar, not the edge between the list and the tabs
+  const tabBar = await box('.tabs-wrap');
+  assert.ok(Math.abs(hb.y - (tabBar.y + tabBar.height - 1)) <= 1, `stacked: handle under the tabs (${hb.y}, bar ends at ${tabBar.y + tabBar.height})`);
   await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
   await page.mouse.down();
-  await page.mouse.move(hb.x + hb.width / 2, hb.y + 60, { steps: 4 });
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2 + 60, { steps: 4 });
   await page.mouse.up();
-  assert.ok((await box('.sidebar')).height > treeBox.height + 40, 'stacked: split resizes');
+  const dragged = (await box('.sidebar')).height - treeBox.height;
+  assert.ok(Math.abs(dragged - 60) <= 2, `stacked: split follows the pointer without a jump (${dragged})`);
   // Dragged past the bottom, the split stops where the message box still fits
   const hb2 = (await handle.boundingBox())!;
   await page.mouse.move(hb2.x + hb2.width / 2, hb2.y + hb2.height / 2);

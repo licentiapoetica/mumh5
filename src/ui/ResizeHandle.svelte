@@ -25,7 +25,10 @@
     resizing = true;
     document.body.style.userSelect = 'none';
     const box = (handle.parentElement as HTMLElement).getBoundingClientRect();
-    const move = (ev: PointerEvent) => setWidth(edge === 'left' ? box.right - ev.clientX : edge === 'top' ? box.bottom - ev.clientY : edge === 'bottom' ? ev.clientY - box.top : ev.clientX - box.left);
+    // A bottom handle can be placed lower than its panel's edge (under the tab bar)
+    const own = handle.getBoundingClientRect();
+    const shift = edge === 'bottom' ? own.top + own.height / 2 - box.bottom : 0;
+    const move = (ev: PointerEvent) => setWidth(edge === 'left' ? box.right - ev.clientX : edge === 'top' ? box.bottom - ev.clientY : edge === 'bottom' ? ev.clientY - box.top - shift : ev.clientX - box.left);
     const up = () => {
       resizing = false;
       document.body.style.userSelect = '';
@@ -65,7 +68,7 @@
   .resize.bottom { bottom: -4px; top: auto; }
   .resize.top:hover, .resize.top:focus-visible, .resize.top.active,
   .resize.bottom:hover, .resize.bottom:focus-visible, .resize.bottom.active {
-    background: linear-gradient(to bottom, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+    background: linear-gradient(to bottom, transparent var(--line-at, 3px), var(--accent) var(--line-at, 3px), var(--accent) calc(var(--line-at, 3px) + 2px), transparent calc(var(--line-at, 3px) + 2px));
   }
   .resize:hover, .resize:focus-visible, .resize.active {
     background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
