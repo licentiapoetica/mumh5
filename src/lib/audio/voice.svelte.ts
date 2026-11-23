@@ -540,10 +540,26 @@ class VoiceEngine {
     }
     const encoder = new AudioEncoder({
       output: chunk => this.onEncoded(chunk),
-      error: e => { this.error = `Encoder: ${e.message}`; }
+      // A browser may take back the codec of a tab in the background that sat idle (quiet in voice
+      // activity mode); onFrame builds a new one when speech starts. Only real faults are shown.
+      error: e => { if (e.name !== 'QuotaExceededError') this.error = `Encoder: ${e.message}`; }
     });
     encoder.configure(this.encoderConfig());
     this.encoder = encoder;
+  }
+
+  private lastRevive = 0;
+
+  // The encoder, made again if it was closed (reclaimed by the browser, or failed). At most once
+  // a second, so a codec that cannot start does not make a loop.
+  private encoderReady(): boolean {
+    const configured = () => this.encoder?.state === 'configured';
+    if (configured()) return true;
+    const now = performance.now();
+    if (!this.ctx || now - this.lastRevive < 1000) return false;
+    this.lastRevive = now;
+    try { this.configureEncoder(); } catch (e) { this.error = `Encoder: ${(e as Error).message}`; }
+    return configured();
   }
 
   private canTalk(): boolean {
@@ -572,7 +588,7 @@ class VoiceEngine {
       this.lastMutedReminder = now;
       this.onTalkingWhileMuted?.();
     }
-    wanted &&= this.canTalk() && !!this.encoder && this.encoder.state === 'configured';
+    wanted &&= this.canTalk() && this.encoderReady();
 
     if (wanted && !this.open) { this.open = true; this.transmitting = true; }
     if (!wanted && this.open) { this.endTransmission(); return; }
@@ -666,6 +682,11 @@ class VoiceEngine {
       this.decoders.set(session, d);
       if (user) this.setSessionGain(session, this.settings.userVolumes[userKey(user)] ?? 1);
     }
+    // The browser took the decoder back (a tab in the background): start a new one
+    if (d.decoder instanceof WasmDecoder === false && (d.decoder as AudioDecoder).state === 'closed') {
+      this.dropSession(p.session);
+      return this.receive(raw);
+    }
     if (d.lastFrame >= 0 && p.frame > d.lastFrame + 6 && p.frame - d.lastFrame < 500) this.stats.lost++;
     d.lastFrame = p.frame;
 
@@ -676,7 +697,10 @@ class VoiceEngine {
           this.stats.decoded++;
           this.playback?.port.postMessage({ session: p.session, pcm }, [pcm.buffer]);
         }
-      } else d.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: p.frame * 10000, data: p.opus }));
+      } else {
+        try { d.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: p.frame * 10000, data: p.opus })); }
+        catch { this.dropSession(p.session); }
+      }
     }
     if (!this.talking[p.session]) this.talking[p.session] = true;
     if (d.timer) clearTimeout(d.timer);
