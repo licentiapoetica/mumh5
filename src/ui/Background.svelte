@@ -2,10 +2,10 @@
   import { areaBackground, backgroundCss, type AreaBackground, type BackgroundArea } from '../lib/background.svelte.ts';
 
   // area: which setting applies; source: an explicit style instead (the settings preview)
-  let { area = 'main', source }: { area?: BackgroundArea; source?: AreaBackground } = $props();
+  let { area = 'main', source, strip = false }: { area?: BackgroundArea; source?: AreaBackground; strip?: boolean } = $props();
 
   const from = $derived(source ?? areaBackground(area));
-  const css = $derived(from && backgroundCss(from.style, from.image.url));
+  const css = $derived(from && backgroundCss(from.style, from.image.url, strip));
 </script>
 
 {#if css}

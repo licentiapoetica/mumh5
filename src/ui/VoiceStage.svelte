@@ -267,7 +267,6 @@
   $effect(() => () => popIn());
 </script>
 
-{#if voice.error && session.status === 'connected'}<div class="bar bad" role="alert"><span>Voice is not working: {voice.error}</span></div>{/if}
 {#if share.error}<div class="bar bad" role="alert"><span>{share.error}</span><button class="btn" onclick={() => (share.error = '')}>Dismiss</button></div>{/if}
 
 {#snippet switcher()}

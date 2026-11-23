@@ -43,7 +43,7 @@
 <!-- Stacked layout always names the channel here; other layouts need tabs for private chats. -->
 {#if session.status === 'connected' && (always || dms.length)}
   <div class="tabs-wrap" class:clear={mode === 'chat'} class:own={mode === 'tree'} data-background>
-  {#if mode === 'tree'}<Background area="tree" />{/if}
+  {#if mode === 'tree'}<Background area="tree" strip />{/if}
   <div class="chat-tabs" role="tablist" aria-label="Open chats" bind:this={strip}>
     <div class="chat-tab" class:active={session.view === channelKey}>
       <button role="tab" aria-selected={session.view === channelKey} onclick={() => session.selectView(channelKey)}>

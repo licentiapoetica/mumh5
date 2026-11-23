@@ -132,13 +132,16 @@ export function patternSize(style: BackgroundStyle) {
 }
 
 /** CSS for a style; persisted values are validated before they are interpolated. */
-export function backgroundCss(style: BackgroundStyle, imageUrl: string | null) {
+// strip: a thin bar, where a gradient fades sideways instead of repeating the full composition
+export function backgroundCss(style: BackgroundStyle, imageUrl: string | null, strip = false) {
   const design = style.design;
   const image = design === 'image' ? imageUrl : null;
   const color = /^#[\da-f]{6}$/i.test(style.color) ? style.color : '#5865f2';
   const pattern = design === 'grid' || design === 'dots';
   const { mark, spacing } = patternSize(style);
-  const paint = image ? `url("${image}")` : design === 'gradient'
+  const paint = image ? `url("${image}")` : design === 'gradient' && strip
+    ? `linear-gradient(90deg, ${color}, var(--accent))`
+    : design === 'gradient'
     ? `radial-gradient(ellipse at top left, ${color}, transparent 75%), radial-gradient(ellipse at bottom right, var(--accent), transparent 75%)`
     : design === 'grid' ? `linear-gradient(${color} ${mark}px, transparent ${mark}px), linear-gradient(90deg, ${color} ${mark}px, transparent ${mark}px)`
     : design === 'dots' ? `radial-gradient(${color} ${mark}px, transparent ${mark}px)` : null;

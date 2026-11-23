@@ -1,6 +1,7 @@
 <script lang="ts">
   import Background from './Background.svelte';
   import Icon from './Icon.svelte';
+  import { voice } from '../lib/audio/voice.svelte.ts';
   import Avatar from './Avatar.svelte';
   import ChannelNode from './ChannelNode.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
@@ -80,6 +81,7 @@
         {#if marked}<span class="mark">{#if session.status === 'connected'}<span class="dot"></span>{/if}</span>{/if}
         {#if session.status === 'connected'}
           Connected{#if session.rtt} , {session.rtt} ms{/if}
+          {#if voice.error}<span class="voice-bad" role="alert" title={voice.error}>Voice not working</span>{/if}
         {:else if session.status === 'connecting'}Connecting...
         {:else if session.reconnectDelay != null}Waiting to reconnect
         {:else}Not connected{/if}
@@ -149,6 +151,7 @@
   .server-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mark { flex: none; width: 7px; display: flex; justify-content: center; }
   .mark :global(svg) { flex: none; }
+  .voice-bad { color: var(--danger); white-space: nowrap; }
   .status { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
   .dot { width: 7px; height: 7px; background: var(--speaking); }
   .tree-bg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
