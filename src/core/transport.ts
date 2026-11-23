@@ -8,6 +8,28 @@ export interface Transport {
   udp?: UdpChannel;
 }
 
+// The server speaks first, and its Version can arrive before the client is attached (the
+// certificate check and platform info come between). Without it, a 1.5 server gets voice in the
+// old format and drops all of it, so what comes early is kept for the client.
+export class HeldData {
+  private held: Uint8Array[] = [];
+  private receiver: ((chunk: Uint8Array) => void) | null = null;
+
+  get handler(): ((chunk: Uint8Array) => void) | null {
+    return this.receiver;
+  }
+
+  set handler(fn: ((chunk: Uint8Array) => void) | null) {
+    this.receiver = fn;
+    if (fn) for (const chunk of this.held.splice(0)) fn(chunk);
+  }
+
+  push(chunk: Uint8Array): void {
+    if (this.receiver) this.receiver(chunk);
+    else this.held.push(chunk);
+  }
+}
+
 export interface UdpChannel {
   setup(key: Uint8Array, clientNonce: Uint8Array, serverNonce: Uint8Array, protobuf: boolean): void;
   setServerNonce(nonce: Uint8Array): void;
