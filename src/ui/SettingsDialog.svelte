@@ -15,6 +15,8 @@
   import { files } from '../lib/files.svelte.ts';
   import { formatBytes } from '../lib/html.ts';
   import { updates, build } from '../lib/updates.svelte.ts';
+  import { credits } from '../lib/credits.ts';
+  const repoUrl = `https://github.com/${build.repo}`;
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
 
@@ -221,6 +223,13 @@
     </select>
   {:else if tab === 'about'}
     <p class="about">mumh5 {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
+    <p class="help">A Mumble client for desktop and browser, MIT licensed. Built by Kibi, with code, tests and documentation written using Claude in Claude Code.</p>
+    <p class="links">
+      <a href={repoUrl} target="_blank" rel="noopener noreferrer">Repository</a>
+      <a href="{repoUrl}/graphs/contributors" target="_blank" rel="noopener noreferrer">Contributors</a>
+      <a href="{repoUrl}/issues" target="_blank" rel="noopener noreferrer">Report a problem</a>
+      <a href="{repoUrl}/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">License notices</a>
+    </p>
     {#if updates.possible}
       <label class="check"><input type="checkbox" bind:checked={s.updateCheck} onchange={() => store.saveSettings()} /> Check for updates</label>
       <p class="help">{updates.web
@@ -240,6 +249,13 @@
     {:else}
       <p class="help">{isWeb ? 'This site is updated by whoever runs it.' : 'This build does not know its commit, so it cannot check for updates.'}</p>
     {/if}
+    <h3>Credits</h3>
+    <p class="help">mumh5 is not affiliated with the Mumble project. Mumble is a trademark of its respective owners. Licenses are listed in full in the license notices.</p>
+    <ul class="credits">
+      {#each credits as c (c.name)}
+        <li><a href={c.url} target="_blank" rel="noopener noreferrer">{c.name}</a> <span class="lic">{c.license}</span><br /><span class="what">{c.what}</span></li>
+      {/each}
+    </ul>
   {:else}
     <p class="help">Servers recognize you by your certificate. The default is used unless a server is set to another one.{isWeb ? ' Certificates are kept in this browser and passed to the proxy when you connect.' : ''}</p>
     <IdentityList />
@@ -290,5 +306,9 @@
   select:disabled, input:disabled { opacity: 0.5; }
   textarea { resize: vertical; }
   .about { margin: 6px 0 0; font-size: 14px; }
+  .links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; font-size: 14px; }
+  .credits { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .credits .lic { margin-left: 6px; font-size: 12px; color: var(--text-faint); }
+  .credits .what { color: var(--text-dim); }
   .link { color: var(--link); font-size: inherit; }
 </style>
