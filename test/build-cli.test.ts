@@ -6,11 +6,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import { buildCli } from '../scripts/build-cli.mjs';
+import { buildCli } from '../scripts/build-legacy-cli.mjs';
 
 const run = promisify(execFile);
 
-test('standalone CLI and audio SDK run outside the repository without installed dependencies', async () => {
+test('legacy Node interoperability fixture and audio SDK run outside the repository without installed dependencies', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'mumh5-cli-build-'));
   try {
     await buildCli(directory);

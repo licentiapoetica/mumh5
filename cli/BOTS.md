@@ -1,4 +1,10 @@
-# Building a bot
+# Legacy Node bot API
+
+For the current client, see [Rust bot development](../rust-cli/BOTS.md). This guide
+describes the previous Node API retained for interoperability testing. Repository
+`npm run cli` and `npm run build:cli` now target Rust; these legacy examples must
+be run directly from source.
+
 
 There are two programmatic interfaces. Neither starts a browser or display session.
 

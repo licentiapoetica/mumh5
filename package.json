@@ -29,10 +29,10 @@
     "themes": "node scripts/gen-themes.mjs",
     "proto": "pbjs -t static-module -w es6 --keep-case --no-delimited --no-service --no-comments --force-number proto/Mumble.proto -o src/core/mumble-pb.js && pbjs -t static-module -w es6 --keep-case --no-delimited --no-service --no-comments --force-number proto/MumbleUDP.proto -o src/core/mumble-udp-pb.js",
     "screenshots": "node test/e2e/screenshots.ts",
-    "cli": "node cli/main.ts",
-    "cli:setup": "npm --prefix cli ci",
+    "cli": "cargo run --manifest-path rust-cli/Cargo.toml --",
+    "cli:setup": "cargo build --manifest-path rust-cli/Cargo.toml",
     "test:e2e:cli": "node test/e2e/cli.e2e.ts",
-    "build:cli": "node scripts/build-cli.mjs"
+    "build:cli": "node scripts/build-rust-cli.mjs"
   },
   "build": {
     "appId": "dev.f0ck.mumh5",

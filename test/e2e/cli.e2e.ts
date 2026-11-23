@@ -21,7 +21,8 @@ class ProcessBot {
   sequence = 0;
   exit: Promise<{ code: number | null; signal: string | null }>;
   constructor(name: string, extra: string[]) {
-    this.child = spawn(process.execPath, [process.env.CLI_TEST_ENTRY || 'cli/main.ts', '--server', host, '--port', String(port), '--name', name,
+    const binary = process.env.CLI_TEST_BINARY || (process.env.CLI_TEST_ENTRY ? undefined : path.resolve('rust-cli/target/debug/mumh5-cli'));
+    this.child = spawn(binary || process.execPath, [...(binary ? [] : [process.env.CLI_TEST_ENTRY!]), ...(process.env.CLI_TEST_TCP_ONLY === '1' ? ['--tcp-only'] : []), '--server', host, '--port', String(port), '--name', name,
       '--state-dir', path.join(directory, name), '--trust-new', ...extra], { stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, DISPLAY: '', WAYLAND_DISPLAY: '' } });
     createInterface({ input: this.child.stdout }).on('line', line => { if (line.startsWith('{')) this.events.push(JSON.parse(line)); else this.stderr += line + '\n'; });
@@ -113,11 +114,22 @@ try {
     assert.deepEqual(frameErrors, []);
   } finally { clearInterval(timer); }
   await sdk.video.unwatch();
+  await sdk.video.start(160, 120);
+  await a.command('watch', { user: sdk.protocol.session });
+  const sdkSession = sdk.protocol.session;
+  const sdkPixels = Buffer.alloc(light.length, 128); sdkPixels.fill(110, 0, 160 * 120);
+  const sdkTimer = setInterval(() => sdk!.video.push(sdkPixels), 100);
+  try { await a.wait(e => e.event === 'video' && e.session === sdkSession); await new Promise(resolve => setTimeout(resolve, 300)); }
+  finally { clearInterval(sdkTimer); }
+  console.log('ok: native receiver also decodes VP8 sent by the existing Node WebRTC peer');
   await sdk.close(); sdk = undefined;
   for (const bot of bots) assert.equal(bot.events.some(e => e.event === 'mediaError'), false, JSON.stringify(bot.events.filter(e => e.event === 'mediaError')));
+  if (!process.env.CLI_TEST_ENTRY && process.env.CLI_TEST_TCP_ONLY !== '1') {
+    assert.equal((await a.command('list')).result.udp, true, 'Rust voice authenticated UDP with the real server');
+  }
   await Promise.all(bots.map(bot => bot.close()));
-  for (const [name, expected] of [['a-video', 180], ['b-video', 60]] as const) {
-    const files = await readdir(path.join(directory, name)); assert.ok(files.length);
+  for (const [name, expected, peer] of [['a-video', 180, bReady.session], ['b-video', 60, aReady.session]] as const) {
+    const files = (await readdir(path.join(directory, name))).filter(file => file.startsWith(`video-${peer}-`)); assert.ok(files.length);
     const bytes = await readFile(path.join(directory, name, files[0]));
     assert.match(bytes.subarray(0, 70).toString(), /^YUV4MPEG2 W160 H120/);
     const frame = bytes.indexOf(Buffer.from('FRAME\n')) + 6;

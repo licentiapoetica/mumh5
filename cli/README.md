@@ -1,4 +1,11 @@
-# Headless client and bot API
+# Legacy Node interoperability client
+
+The default CLI is now the [native Rust client](../rust-cli/README.md). This Node
+implementation is retained as an interoperability test peer and migration reference.
+The instructions below describe the legacy client; use `node cli/main.ts` directly
+and `npm --prefix cli ci` for its optional video runtime. `npm run cli`,
+`npm run cli:setup`, and `npm run build:cli` now build/run Rust.
+
 
 The CLI connects directly to Mumble from Node. It does not launch a browser,
 Electron, Chromium, or a display server. It supports voice, channel/private text,

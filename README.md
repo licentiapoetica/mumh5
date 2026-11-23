@@ -68,12 +68,13 @@ Automated macOS builds are disabled. To use mumh5 on macOS, build it on a Mac fr
 
 ## Headless client and bots
 
-The [CLI and bot API](cli/README.md) connect directly from Node, without a browser
-or display server. They support text, independent incoming/outgoing voice streams,
-and mumh5 video. Audio and native WebRTC load only when requested.
-`npm run build:cli` creates a standalone server deployment in `dist-cli/`.
-See [Building a bot](cli/BOTS.md) for programmatic calls, chat-command control,
-audio/video examples, and a runnable bot.
+The [native Rust CLI and bot API](rust-cli/README.md) connect directly to Mumble,
+without Node.js, Electron, a browser, or a display server at runtime. They support
+text, independent incoming/outgoing voice streams, and mumh5 video. Audio and video
+processing start only when requested. `npm run build:cli` packages the release
+binary and guides into `dist-cli-rust/`.
+See [Building a bot](rust-cli/BOTS.md) for the Rust library, JSON control from other
+languages, and allowlisted chat commands.
 
 ## A look around
 

@@ -7,3 +7,7 @@ release/
 *.log
 .env
 dist-cli/
+
+/rust-cli/target/
+
+/dist-cli-rust/

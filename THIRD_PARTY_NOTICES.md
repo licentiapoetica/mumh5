@@ -47,6 +47,19 @@ the node-webrtc BSD 2-Clause license. Its notices, including bundled WebRTC and
 other native libraries, are retained in `cli/licenses/` and copied to the standalone
 CLI's `licenses/` directory. The desktop and browser builds do not include this runtime.
 
+## Native Rust headless client
+
+`rust-cli/` uses the Rust dependencies pinned in `rust-cli/Cargo.lock`, including
+webrtc-rs (MIT/Apache-2.0), Tokio (MIT), prost (Apache-2.0), and the Opus bindings
+(MIT). The release packaging script copies resolved dependency license/notice files
+and a version/license index into `dist-cli-rust/licenses/`. Mumble protocol
+attribution above also applies to Rust code generated from the protocol definitions.
+
+The native CLI dynamically links the platform's OpenSSL, libopus and, with video
+enabled, libvpx. Their licenses are supplied with the corresponding system packages.
+The small libvpx binding in `rust-cli/native/video.c` is part of this project's MIT
+code. The native CLI does not distribute Electron, node-webrtc, or Node.js.
+
 ## Standard notification voice pack
 
 `src/assets/default-audio-pack.zip` is the supplied `mumble-en-chatterbox-female.zip`:

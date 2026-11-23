@@ -30,7 +30,7 @@ jobs:
       - run: npm test
 
   headless:
-    name: Headless client and bot integration
+    name: Rust headless client and bot integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
@@ -38,6 +38,7 @@ jobs:
         image: mumblevoip/mumble-server:latest
         env:
           MUMBLE_CONFIG_AUTOBANATTEMPTS: '0'
+          MUMBLE_SUPERUSER_PASSWORD: cli-test-only
         ports:
           - 64749:64738/tcp
           - 64749:64738/udp
@@ -50,14 +51,36 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             cli/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-cli -> target
+      - name: Install native codec and TLS headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libopus-dev libvpx-dev protobuf-compiler pkg-config
       - run: npm ci
-      - run: npm run cli:setup
+      # The Node SDK is an interoperability test peer, not part of the Rust runtime.
+      - run: npm --prefix cli ci
+      - run: cargo fmt --manifest-path rust-cli/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path rust-cli/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path rust-cli/Cargo.toml
+      - run: cargo test --locked --manifest-path rust-cli/Cargo.toml --no-default-features
       - run: npm run build:cli
-      - run: npm --prefix dist-cli install --ignore-scripts --no-audit --no-fund
       - run: npm run test:e2e:cli
         env:
           MUMBLE_TEST_HOST: 127.0.0.1:64749
-          CLI_TEST_ENTRY: dist-cli/main.mjs
+          CLI_TEST_BINARY: ./dist-cli-rust/mumh5-cli
+      - run: npm run test:e2e:cli
+        env:
+          MUMBLE_TEST_HOST: 127.0.0.1:64749
+          CLI_TEST_BINARY: ./dist-cli-rust/mumh5-cli
+          CLI_TEST_TCP_ONLY: '1'
+      - run: node test/e2e/rust-bot.e2e.ts
+        env:
+          MUMBLE_TEST_HOST: 127.0.0.1:64749
+          MUMBLE_SUPERUSER_PASSWORD: cli-test-only
+          CLI_TEST_BINARY: ./dist-cli-rust/mumh5-cli
 
   # Pull requests run checks and headless integration without packaging the app.
   desktop:

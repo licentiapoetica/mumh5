@@ -1,0 +1,57 @@
+[package]
+name = "mumh5-headless"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Native headless Mumble client and bot library"
+build = "build.rs"
+
+[lib]
+name = "mumh5_headless"
+
+[[bin]]
+name = "mumh5-cli"
+path = "src/main.rs"
+
+[features]
+default = ["video"]
+video = ["dep:webrtc"]
+
+[dependencies]
+anyhow = "1"
+aes = "0.8"
+base64 = "0.22"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+flate2 = "1"
+hex = "0.4"
+openssl = "0.10"
+opus = "0.3"
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-openssl = "0.6"
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4"] }
+webrtc = { version = "0.17.3", optional = true }
+
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"
+prost-build = "0.14"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false
