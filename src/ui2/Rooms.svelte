@@ -334,8 +334,8 @@
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 16px; }
   h2 { margin: 18px 8px 6px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); }
 
-  .entry { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-right: 4px; transition: background 100ms var(--ease), color 100ms var(--ease); }
-  .entry:hover, .entry.viewing { background: var(--bg-hover); }
+  .entry { display: flex; align-items: center; gap: 4px; min-height: 56px; padding-right: 4px; transition: background 260ms var(--ease), color 260ms var(--ease); }
+  .entry:hover, .entry.viewing { background: var(--bg-hover); transition-duration: 70ms; }
   .entry.drop-target { background: var(--bg-active); outline: 2px solid var(--accent); outline-offset: -2px; }
   .main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 12px; padding: 8px; text-align: left; }
   .glyph { flex: none; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-dim); }
@@ -359,8 +359,8 @@
   .inside { padding: 0 8px 12px 8px; }
   .about { margin: 0 8px 8px; font-size: 14px; color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .nobody { margin: 0 8px 8px; font-size: 14px; color: var(--text-faint); }
-  .person { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 4px 8px; text-align: left; transition: background 100ms var(--ease), color 100ms var(--ease); }
-  .person:hover { background: var(--bg-hover); }
+  .person { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 4px 8px; text-align: left; transition: background 260ms var(--ease), color 260ms var(--ease); }
+  .person:hover { background: var(--bg-hover); transition-duration: 70ms; }
   .pname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pname.talking { color: var(--speaking); }
   .pname em { margin-left: 6px; font-style: normal; font-size: 12px; color: var(--text-faint); }

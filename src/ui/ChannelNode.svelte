@@ -351,8 +351,8 @@
   .branch.person { width: 21px; }
   /* Stops at the voice icon in the indent */
   .branch.person.marked { width: 9px; }
-  .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
-  .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); }
+  .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); transition: background 260ms var(--ease), color 260ms var(--ease); }
+  .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); transition-duration: 70ms; }
   .channel.selected { background: var(--bg-active); color: var(--text); }
   /* Drop targets: the whole row for "into", a line with a square end for "in front of" and "behind" */
   .channel { position: relative; }
