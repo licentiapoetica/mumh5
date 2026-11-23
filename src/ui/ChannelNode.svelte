@@ -131,7 +131,7 @@
         const selection = session.selectedUsers;
         clearTimeout(timer);
         // Your own channel's chat returns at once: a double click there only picks the same chat again
-        if (here && session.view !== `ch:${channel.id}`) { session.selectView(`ch:${channel.id}`); onnavigate(); return; }
+        if (here && session.view !== `ch:${channel.id}`) { session.selectedChannel = channel.id; session.selectView(`ch:${channel.id}`); onnavigate(); return; }
         timer = setTimeout(() => { if (selection === session.selectedUsers) single(el); }, 220);
       },
       ondblclick: () => { clearTimeout(timer); double(); }
