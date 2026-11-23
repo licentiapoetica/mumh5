@@ -9,14 +9,22 @@
 
   voice.refreshDevices();
 
-  // Open above the button it came from, kept on screen
+  // Under the button it came from; above it when the button is near the bottom of the window
   $effect(() => {
     if (!el) return;
     const r = el.getBoundingClientRect();
+    const below = q.bottom + 8;
     pos = {
       x: Math.max(8, Math.min(q.x - r.width / 2, window.innerWidth - r.width - 8)),
-      y: Math.max(8, q.y - r.height - 8)
+      y: below + r.height <= window.innerHeight - 8 ? below : Math.max(8, q.top - r.height - 8)
     };
+  });
+
+  // The button stays lit while its popup is open; the catcher takes its real hover away
+  $effect(() => {
+    const button = q.anchor;
+    button.dataset.quickOpen = '';
+    return () => { delete button.dataset.quickOpen; };
   });
 
   const close = () => (ui.quickAudio = null);

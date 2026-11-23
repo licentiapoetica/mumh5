@@ -15,8 +15,9 @@
 
   function quick(e: MouseEvent, kind: 'input' | 'output') {
     e.preventDefault();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    ui.quickAudio = { kind, x: r.left + r.width / 2, y: r.top };
+    const anchor = e.currentTarget as HTMLElement;
+    const r = anchor.getBoundingClientRect();
+    ui.quickAudio = { kind, anchor, x: r.left + r.width / 2, top: r.top, bottom: r.bottom };
   }
 </script>
 
@@ -51,7 +52,7 @@
 <style>
   .controls { display: flex; gap: 4px; }
   button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--text); background: var(--bg-3); }
-  button:hover:not(:disabled) { background: var(--bg-active); }
+  button:hover:not(:disabled), .controls :global(button[data-quick-open]) { background: var(--bg-active); }
   button.on { background: var(--danger); color: #fff; }
   button.live, button.live:hover:not(:disabled) { background: var(--speaking); color: var(--bg-0); }
   .large { gap: 10px; justify-content: center; }

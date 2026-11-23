@@ -52,8 +52,9 @@
 
   function openQuick(e: MouseEvent, kind: 'input' | 'output') {
     e.preventDefault();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    ui.quickAudio = { kind, x: r.left + r.width / 2, y: r.top, tools: editRequest(e) };
+    const anchor = e.currentTarget as HTMLElement;
+    const r = anchor.getBoundingClientRect();
+    ui.quickAudio = { kind, anchor, x: r.left + r.width / 2, top: r.top, bottom: r.bottom, tools: editRequest(e) };
   }
 </script>
 

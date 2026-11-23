@@ -41,7 +41,7 @@ class Ui {
   settingsOpen = $state(false);
   wizard = $state<'setup' | 'add' | null>(null);
   // Quick audio popover from right-clicking mute (input) or deafen (output); tools: opened from the toolbar
-  quickAudio = $state<{ kind: 'input' | 'output'; x: number; y: number; tools?: ToolbarEdit } | null>(null);
+  quickAudio = $state<{ kind: 'input' | 'output'; anchor: HTMLElement; x: number; top: number; bottom: number; tools?: ToolbarEdit } | null>(null);
   // The toolbar's editor, from right-clicking it
   toolbarEdit = $state<ToolbarEdit | null>(null);
   settingsTab = $state<'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about'>('voice');

@@ -282,6 +282,8 @@
 :root[data-theme="win95"] .btn:hover:not(:disabled),
 :root[data-theme="win95"] .icon-btn:hover,
 :root[data-theme="win95"] .tool:hover:not(:disabled) { background: #c0c0c0; color: #000; }
+/* Hover looks like rest here, so the button with an open popup is pressed in */
+:root[data-theme="win95"] .icon-btn[data-quick-open] { box-shadow: var(--sunken); }
 
 /* Text fields: sunken and white */
 :root[data-theme="win95"] input:not([type=range]):not([type=checkbox]):not([type=color]),
