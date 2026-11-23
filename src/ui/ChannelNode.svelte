@@ -130,6 +130,8 @@
         const el = e.currentTarget as HTMLElement;
         const selection = session.selectedUsers;
         clearTimeout(timer);
+        // Your own channel's chat returns at once: a double click there only picks the same chat again
+        if (here && session.view !== `ch:${channel.id}`) { session.selectView(`ch:${channel.id}`); onnavigate(); return; }
         timer = setTimeout(() => { if (selection === session.selectedUsers) single(el); }, 220);
       },
       ondblclick: () => { clearTimeout(timer); double(); }
@@ -219,11 +221,7 @@
 
   const openText = () => { session.selectView(`ch:${channel.id}`); onnavigate(); };
   const channelClicks = $derived(isText ? { onclick: openText } : clickOrDouble(
-    () => {
-      // Back from a text channel or a private chat: your own channel's chat comes straight back
-      if (here && session.view !== `ch:${channel.id}`) { session.selectView(`ch:${channel.id}`); onnavigate(); return; }
-      session.selectedChannel = channel.id;
-    },
+    () => { session.selectedChannel = channel.id; },
     () => { session.joinChannel(channel.id); onnavigate(); }
   ));
 </script>
