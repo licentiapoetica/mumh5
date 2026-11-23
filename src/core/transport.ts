@@ -4,8 +4,6 @@ export interface Transport {
   close(): void;
   onData: ((chunk: Uint8Array) => void) | null;
   onClose: ((reason: string) => void) | null;
-  // Bytes accepted but not yet sent, where the platform can tell (the WebSocket on the web)
-  readonly buffered?: number;
   // Encrypted UDP for voice, where the platform has it (desktop); absent on the web
   udp?: UdpChannel;
 }

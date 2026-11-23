@@ -43,8 +43,6 @@ export class WebSocketTransport implements Transport {
     };
   }
 
-  get buffered(): number { return this.ws.bufferedAmount; }
-
   send(bytes: Uint8Array): void {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(bytes as Uint8Array<ArrayBuffer>);
   }

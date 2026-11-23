@@ -556,7 +556,7 @@ class VoiceEngine {
   private sendPacket(opus: Uint8Array, last: boolean): void {
     const client = this.client;
     if (!client) return;
-    client.sendVoice(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice), last);
+    client.sendVoice(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice));
     this.frameCounter += this.settings.frameMs / 10;
     this.stats.sent++;
   }
