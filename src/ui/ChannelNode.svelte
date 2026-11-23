@@ -142,6 +142,7 @@
   let zone = $state<Zone | null>(null);
   const dragging = $derived(drag.item?.kind === 'channel' && drag.item.id === channel.id);
   const open = $derived(expanded && (children.length > 0 || users.length > 0));
+  const lines = $derived(store.settings.treeLines);
 
   function intoAllowed(): boolean {
     const d = drag.item;
@@ -225,15 +226,15 @@
 
 <!-- Behind an open channel is below its people and subchannels; the line is drawn there -->
 <li class:after-end={zone === 'after' && open} style:--indent="{8 + depth * 14}px" style:--d={depth}>
-  <div class="row channel" data-menu-row class:is-root={channel.id === 0} class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
+  <div class="row channel" data-menu-row class:is-root={lines && channel.id === 0} class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
     style:padding-left="{8 + depth * 14}px"
     oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
     ondragover={onDragOver}
     ondragleave={onDragLeave}
     ondrop={onDrop} bind:this={rowEl}
     onmouseenter={hoverRow} onmousemove={trackPointer} onmouseleave={leaveRow}>
-    {#if depth > 0}<span class="branch" class:end={last} class:leaf={!children.length && !users.length}></span>{/if}
-    {#if open}<span class="stem" class:from-root={channel.id === 0}></span>{/if}
+    {#if lines && depth > 0}<span class="branch" class:end={last} class:leaf={!children.length && !users.length}></span>{/if}
+    {#if lines && open}<span class="stem" class:from-root={channel.id === 0}></span>{/if}
     <!-- Root is always open, so it has a node like a root commit instead of a caret -->
     {#if channel.id !== 0 && (children.length || users.length)}
       <button class="caret" class:collapsed={!expanded} onclick={() => session.toggleExpanded(channel.id)}
@@ -242,7 +243,7 @@
       </button>
     {:else if channel.id !== 0}
       <span class="caret"></span>
-    {:else}
+    {:else if lines}
       <span class="root-mark"><Icon name="root" size={15} /></span>
     {/if}
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
@@ -281,19 +282,19 @@
           () => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }
         )}
         <li>
-          <button class="row user" data-menu-row class:self={isSelf} style:padding-left="{34 + depth * 14}px"
+          <button class="row user" data-menu-row class:self={isSelf} style:padding-left="{40 + depth * 14}px"
             draggable="true"
             use:selectUser={{ id: u.session, onselect: () => clearTimeout(timer) }}
             aria-pressed={session.selectedUsers.includes(u.session)}
             title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
-            <span class="branch person" class:end={lastRow} class:marked={mark && store.settings.avatars !== 'spheres'}></span>
+            {#if lines}<span class="branch person" class:end={lastRow} class:marked={mark && store.settings.avatars !== 'spheres'}></span>{/if}
             <UserSelectMark id={u.session} />
             <!-- The icon takes a sphere's place; beside a picture it sits in the indent. Names stay aligned either way -->
             {#if mark && store.settings.avatars === 'spheres'}
               <span class="state face" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={18} /></span>
             {:else}
-              {#if mark}<span class="state voice" style:left="{18 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
+              {#if mark}<span class="state voice" style:left="{24 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
               <Avatar name={store.displayName(u)} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             {/if}
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
@@ -314,7 +315,7 @@
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
           </button>
-          {#if !lastRow}<span class="trunk person"></span>{/if}
+          {#if lines && !lastRow}<span class="trunk person"></span>{/if}
         </li>
       {/each}
     </ul>
@@ -327,7 +328,7 @@
     </ul>
   {/if}
   <!-- Last in the item, so it paints over the hover background of the rows it passes -->
-  {#if depth > 0 && !last}<span class="trunk"></span>{/if}
+  {#if lines && depth > 0 && !last}<span class="trunk"></span>{/if}
 </li>
 
 <style>
@@ -346,9 +347,10 @@
   .row.is-root { align-items: baseline; }
   .root-mark { flex: none; display: inline-flex; position: relative; top: calc(7.5px - 0.364em); margin-right: -1px; color: var(--line-strong); }
   .branch.person, .trunk.person { left: calc(15px + var(--d) * 14px); }
-  .branch.person { width: 16px; }
+  /* As long as a channel's line, so pictures start where channel names do */
+  .branch.person { width: 21px; }
   /* Stops at the voice icon in the indent */
-  .branch.person.marked { width: 3px; }
+  .branch.person.marked { width: 9px; }
   .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
   .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); }
   .channel.selected { background: var(--bg-active); color: var(--text); }

@@ -57,6 +57,7 @@ export interface Settings {
   roleIcons: 'all' | 'top' | 'off'; // role icons next to names
   roleColors: boolean;   // names in the color of their top role
   avatars: 'pictures' | 'spheres'; // spheres replace pictures and letters, except in chat, members, profiles and voice tiles
+  treeLines: boolean;     // lines and a root node in the channel tree
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -128,7 +129,8 @@ const defaults: Settings = {
   pokeNotify: true,
   roleIcons: 'all',
   roleColors: true,
-  avatars: 'spheres'
+  avatars: 'spheres',
+  treeLines: true
 };
 
 // Where in Settings each setting is reset; parts of Appearance are its headings.
@@ -145,7 +147,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   backgroundColor: 'appearance.background', backgroundMark: 'appearance.background', backgroundSpacing: 'appearance.background',
   treeBackground: 'appearance.tree', treeBackgroundStyle: 'appearance.tree',
   publicListUrl: 'kept',
-  arrangement: 'appearance.layout', classicSide: 'appearance.layout',
+  arrangement: 'appearance.layout', classicSide: 'appearance.layout', treeLines: 'appearance.layout',
   railHidden: 'kept',
   interface: 'appearance.interface',
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
