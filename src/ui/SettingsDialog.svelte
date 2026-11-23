@@ -102,11 +102,47 @@
     }
   });
   const checkedAt = $derived(updates.lastCheck ? new Date(updates.lastCheck).toLocaleString() : '');
+
+  // Narrow layout: the tab row has no scrollbar; the wheel and dragging move it sideways
+  function dragScroll(node: HTMLElement) {
+    let startX = 0, startLeft = 0, down = false, moved = false;
+    const wheel = (e: WheelEvent) => {
+      if (node.scrollWidth <= node.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      node.scrollLeft += e.deltaY;
+    };
+    const press = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      down = true; moved = false; startX = e.clientX; startLeft = node.scrollLeft;
+    };
+    const move = (e: PointerEvent) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      if (!moved && Math.abs(dx) < 5) return;
+      moved = true;
+      node.scrollLeft = startLeft - dx;
+    };
+    const release = () => { down = false; };
+    // A drag must not count as a click on the tab under the pointer
+    const click = (e: MouseEvent) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } };
+    node.addEventListener('wheel', wheel, { passive: false });
+    node.addEventListener('pointerdown', press);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', release);
+    node.addEventListener('click', click, true);
+    return { destroy() {
+      node.removeEventListener('wheel', wheel);
+      node.removeEventListener('pointerdown', press);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', release);
+      node.removeEventListener('click', click, true);
+    } };
+  }
 </script>
 
 <Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880} height={760} bind:body>
   <div class="layout">
-  <div class="tabs" role="tablist">
+  <div class="tabs" role="tablist" use:dragScroll>
     {#each tabs as t (t.id)}
       <button role="tab" aria-selected={tab === t.id} class:active={tab === t.id} onclick={() => open(t.id)}>{t.label}</button>
     {/each}
@@ -231,10 +267,17 @@
   .reset { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); }
   @media (max-width: 760px) {
     .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
-    .tabs { position: static; flex-direction: row; overflow-x: auto; margin: 8px 0 4px; padding-top: 0; border-bottom: 1px solid var(--line); }
+    /* Stays at the top while the section scrolls under it; the body's 8px top padding is covered */
+    .tabs { position: sticky; top: -8px; z-index: 1; flex-direction: row; overflow-x: auto; scrollbar-width: none; user-select: none;
+      margin: -8px -24px 12px; padding: 8px 24px 0; background: var(--bg-1); border-bottom: 1px solid var(--line); }
+    .tabs::-webkit-scrollbar { display: none; }
     .tabs button { padding: 8px 12px; }
+    /* Slightly dimmer than --text-dim so the active tab stands out; 90% keeps every scheme above 4.5:1 on --bg-1 */
+    .tabs button:not(.active) { color: color-mix(in srgb, var(--text-dim) 90%, var(--bg-1)); }
+    .tabs button:not(.active):hover { color: var(--text); }
     .tabs button:hover { background: none; }
-    .tabs button.active { background: none; box-shadow: inset 0 -2px 0 var(--accent); }
+    /* Same weight as the others: a bolder active tab is wider and shifts the row on click */
+    .tabs button.active { background: none; font-weight: 500; box-shadow: inset 0 -2px 0 var(--accent); }
   }
   h3 { margin: 24px 0 0; font-size: 15px; font-weight: 650; }
   .stun-custom { margin-top: 6px; }
