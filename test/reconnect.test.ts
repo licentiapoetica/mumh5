@@ -111,9 +111,26 @@ test('connection loss retries with bounded backoff, reset only by a lasting conn
   t.mock.timers.tick(30_000);
   await flush();
   sync(s);
-  t.mock.timers.tick(61_000);
+  // A healthy connection: the server keeps answering while the minute passes
+  for (let i = 0; i < 12; i++) { (s.client as any).lastRx = Date.now(); t.mock.timers.tick(5000); }
+  t.mock.timers.tick(1000);
   s.client!.emit('close', 'Connection lost after a while');
   assert.equal(s.reconnectDelay, 5);
+});
+
+test('a connection that stops answering is closed and retried', async t => {
+  const s = setup(t);
+  await s.connect(server(true));
+  sync(s);
+  assert.equal(s.reconnectDelay, null);
+  t.mock.timers.tick(20_000);
+  assert.equal(s.status, 'idle');
+  assert.ok(s.reconnectDelay !== null);
+  // Back on screen while the countdown runs: retry at once
+  const before = control.opens;
+  s.nudge();
+  await flush();
+  assert.equal(control.opens, before + 1);
 });
 
 test('the countdown goes down every second', async t => {

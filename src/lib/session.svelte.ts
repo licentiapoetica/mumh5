@@ -571,6 +571,15 @@ export class Session {
     this.tick++;
   }
 
+  // The page came back or the network returned: check a live connection, retry a waiting one now
+  nudge(): void {
+    if (this.client?.synced) this.client.probe();
+    else if (this.reconnectTimer !== null && this.server) {
+      this.clearRetry();
+      void this.connect($state.snapshot(this.server) as SavedServer, true);
+    }
+  }
+
   // The user stops waiting for the next automatic reconnect
   cancelReconnect(): void {
     this.clearRetry();
@@ -1793,6 +1802,10 @@ class Sessions {
     if (!self.selfDeaf) s.client.setSelfDeaf(true);
   }
 
+  nudgeAll(): void {
+    for (const s of this.list) s.nudge();
+  }
+
   private fromBackground(s: Session): void {
     const prev = this.saved.get(s);
     this.saved.delete(s);
@@ -1802,6 +1815,12 @@ class Sessions {
 }
 
 export const sessions = new Sessions();
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sessions.nudgeAll(); });
+  window.addEventListener('online', () => sessions.nudgeAll());
+  window.addEventListener('pageshow', e => { if (e.persisted) sessions.nudgeAll(); });
+}
 
 // The session of the server on screen. Forwards to the active Session so components keep
 // using `session.x`; methods are bound to the real instance so async work stays with its server.

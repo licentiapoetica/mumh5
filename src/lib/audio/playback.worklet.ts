@@ -9,11 +9,15 @@ interface Speaker {
   playing: boolean;
   gain: number;
   peak: number;
+  dryAt: number;      // clock when the queue last ran empty, -1 while playing
 }
 
 class PlaybackProcessor extends AudioWorkletProcessor {
   private speakers = new Map<number, Speaker>();
-  private jitter = Math.round(sampleRate * 0.06);
+  private base = Math.round(sampleRate * 0.06);   // the chosen buffer
+  private jitter = this.base;                        // grows after underruns, decays while smooth
+  private sinceUnderrun = 0;
+  private clock = 0;                                // samples processed
   private maxQueue = Math.round(sampleRate * 0.4);
   private gains = new Map<number, number>();
   private sinceReport = 0;
@@ -27,7 +31,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
         this.gains.set(m.session, m.gain);
         const s = this.speakers.get(m.session);
         if (s) s.gain = m.gain;
-      } else if (m.jitterMs !== undefined) this.jitter = Math.round(sampleRate * m.jitterMs / 1000);
+      } else if (m.jitterMs !== undefined) this.jitter = this.base = Math.round(sampleRate * m.jitterMs / 1000);
       else if (m.drop !== undefined) this.speakers.delete(m.drop);
       else if (m.clear) this.speakers.clear();
     };
@@ -36,9 +40,15 @@ class PlaybackProcessor extends AudioWorkletProcessor {
   private push(session: number, pcm: Float32Array) {
     let s = this.speakers.get(session);
     if (!s) {
-      s = { chunks: [], offset: 0, queued: 0, playing: false, gain: this.gains.get(session) ?? 1, peak: 0 };
+      s = { chunks: [], offset: 0, queued: 0, playing: false, gain: this.gains.get(session) ?? 1, peak: 0, dryAt: -1 };
       this.speakers.set(session, s);
     }
+    // Audio again soon after running dry is an underrun; a longer gap is the speaker pausing
+    if (!s.playing && s.dryAt >= 0 && this.clock - s.dryAt < sampleRate * 0.3) {
+      this.jitter = Math.min(Math.round(sampleRate * 0.24), this.jitter + Math.round(sampleRate * 0.03));
+      this.sinceUnderrun = 0;
+    }
+    s.dryAt = -1;
     s.chunks.push(pcm);
     s.queued += pcm.length;
     // Too far behind (e.g. after a stall): drop the oldest audio to catch up
@@ -72,7 +82,11 @@ class PlaybackProcessor extends AudioWorkletProcessor {
         s.queued -= take;
         if (s.offset === c.length) { s.chunks.shift(); s.offset = 0; }
       }
-      if (!s.chunks.length) s.playing = false; // ran dry: buffer again before resuming
+      if (!s.chunks.length) {
+        // Ran dry: buffer again before resuming (push() widens the buffer if audio follows at once)
+        s.playing = false;
+        s.dryAt = this.clock + i;
+      }
     }
     // Soft clip so several loud speakers do not distort harshly
     for (let i = 0; i < n; i++) {
@@ -80,6 +94,14 @@ class PlaybackProcessor extends AudioWorkletProcessor {
       if (v > 1 || v < -1) mix[i] = Math.tanh(v);
     }
     for (let ch = 1; ch < out.length; ch++) out[ch].set(mix);
+
+    this.clock += n;
+    // Ten smooth seconds give back 10 ms
+    this.sinceUnderrun += n;
+    if (this.sinceUnderrun >= sampleRate * 10 && this.jitter > this.base) {
+      this.jitter = Math.max(this.base, this.jitter - Math.round(sampleRate * 0.01));
+      this.sinceUnderrun = 0;
+    }
 
     this.sinceReport += n;
     if (this.sinceReport >= sampleRate / 10) {

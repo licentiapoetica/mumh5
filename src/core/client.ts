@@ -8,6 +8,8 @@ export const CLIENT_RELEASE = 'mumh5 0.2.0';
 const VERSION = { major: 1, minor: 5, patch: 0 };
 // Often enough for the connection wave to follow the link
 const PING_INTERVAL_MS = 5000;
+// Nothing heard for this long: the connection is dead (a half-open socket after a network switch)
+const SILENCE_LIMIT_MS = 15000;
 
 // Murmur drops these messages without telling the client when they come too fast
 // (leaky bucket, defaults messageburst=5 and messagelimit=1/s). Its bucket restarts its timer
@@ -204,6 +206,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
   private reader = new FrameReader();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
+  private lastTick = 0;
+  private lastRx = 0;          // when anything last arrived from the server
   private bucket = 0;          // our estimate of the server's bucket level
   private lastLimited = 0;     // when the last rate-limited message was sent
   private queue: Uint8Array[] = [];
@@ -236,7 +240,9 @@ export class MumbleClient extends Emitter<ClientEvents> {
       // Ask the server for a fresh nonce (an empty CryptSetup)
       udp.onResync = () => this.send('CryptSetup', {});
     }
+    this.lastRx = Date.now();
     transport.onData = chunk => {
+      this.lastRx = Date.now();
       try {
         this.reader.push(chunk, (id, body) => this.handleFrame(id, body));
       } catch (e) {
@@ -516,8 +522,26 @@ export class MumbleClient extends Emitter<ClientEvents> {
 
   // ─── Incoming ──────────────────────────────────────────────────────────────
 
+  // Asks now and gives the server a short time to answer; used when the page comes back or the
+  // network returns, where a half-open socket would otherwise look fine for a long while.
+  probe(): void {
+    if (this.closed || !this.transport) return;
+    const asked = Date.now();
+    this.ping();
+    setTimeout(() => {
+      if (!this.closed && this.lastRx < asked) this.disconnect('Connection lost');
+    }, 4000);
+  }
+
   private ping(): void {
     const at = Date.now();
+    // The timer may have been paused with the page: only silence while it ran counts
+    if (this.synced && at - this.lastRx > SILENCE_LIMIT_MS && at - this.lastTick < 2 * PING_INTERVAL_MS) {
+      this.lastTick = at;
+      this.disconnect('Connection timed out');
+      return;
+    }
+    this.lastTick = at;
     this.link.sent(at);
     this.send('Ping', { timestamp: at });
   }

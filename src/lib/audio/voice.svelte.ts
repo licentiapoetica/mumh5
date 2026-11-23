@@ -127,6 +127,11 @@ class VoiceEngine {
     window.addEventListener('keyup', e => this.onKey(e, false));
     // Released keys are not reported while the window is in the background
     window.addEventListener('blur', () => { this.pttDown = false; });
+    // iOS and Android suspend the audio context on a call, a lock or a route change
+    const wake = () => { if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {}); };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+    window.addEventListener('pointerdown', wake, { passive: true });
+    window.addEventListener('keydown', wake, { passive: true });
     navigator.mediaDevices?.addEventListener('devicechange', () => this.refreshDevices());
   }
 
@@ -209,10 +214,14 @@ class VoiceEngine {
       this.capture.port.onmessage = e => this.onFrame(e.data.frame, e.data.rms);
       this.inputGainNode.connect(this.capture);
 
+      ctx.addEventListener('statechange', () => {
+        if (this.ctx === ctx && (ctx.state as string) === 'interrupted') ctx.resume().catch(() => {});
+      });
       await this.applyOutputDevice();
       await this.syncInput();
       this.configureEncoder();
-      await ctx.resume();
+      // Safari can leave this pending outside a gesture; the wake handlers above finish it later
+      ctx.resume().catch(() => {});
       this.levelTimer = setInterval(() => { this.level = this.levelRaw; }, 50);
       this.running = true;
       // Not awaited: voice works with the browser's filter until the model is ready
