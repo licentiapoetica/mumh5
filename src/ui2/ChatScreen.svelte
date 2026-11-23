@@ -19,7 +19,7 @@
   const mine = $derived(!isDm && session.self?.channelId === id);
   const title = $derived(connected ? session.viewTitle() : 'Chat');
   const topic = $derived(isDm || !connected ? '' : channelTopic(session.channel(id)?.description ?? ''));
-  const kind = $derived(isDm ? 'Direct message' : isText ? 'Text channel' : mine ? 'Your room' : 'Room you are not in');
+  const kind = $derived(isDm ? 'Direct message' : isText ? 'Text channel, everyone on the server' : mine ? 'Your room' : 'Room you are not in');
 
   function more(e: MouseEvent) {
     if (isDm) {
