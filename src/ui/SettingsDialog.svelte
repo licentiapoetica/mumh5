@@ -273,7 +273,8 @@
     .tabs::-webkit-scrollbar { display: none; }
     .tabs button { padding: 8px 12px; }
     .tabs button:hover { background: none; }
-    .tabs button.active { background: none; box-shadow: inset 0 -2px 0 var(--accent); }
+    /* Same weight as the others: a bolder active tab is wider and shifts the row on click */
+    .tabs button.active { background: none; font-weight: 500; box-shadow: inset 0 -2px 0 var(--accent); }
   }
   h3 { margin: 24px 0 0; font-size: 15px; font-weight: 650; }
   .stun-custom { margin-top: 6px; }
