@@ -104,8 +104,9 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--text-dim
 .btn:hover:not(:disabled) { background: var(--bg-hover); border-color: color-mix(in srgb, var(--line), var(--text) 22%); }
 .btn:active:not(:disabled) { background: var(--bg-active); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn.primary:active:not(:disabled) { background: var(--accent); }
+/* A custom theme can have a hover color the usual label cannot be read on */
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-hover-text, var(--accent-text)); }
+.btn.primary:active:not(:disabled) { background: var(--accent); color: var(--accent-text); }
 .btn.danger { background: transparent; border-color: color-mix(in srgb, var(--danger) 60%, transparent); color: var(--danger); }
 .btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: var(--danger); }
 

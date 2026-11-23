@@ -2,9 +2,9 @@ import { loadList, save } from './storage.ts';
 import { store } from './settings.svelte.ts';
 import { ui, type PromptRequest } from './ui.svelte.ts';
 import {
-  CHAT_SIZE, COLOR_KEYS, THEME_FILE_MAX, defaultIndicator, deriveColors, fixColors, isCustomTheme, normalizeHex, parseThemeFile,
+  CHAT_SIZE, COLOR_KEYS, THEME_FILE_MAX, defaultIndicator, deriveColors, fixColors, hoverLabel, isCustomTheme, normalizeHex, parseThemeFile,
   sanitizeTheme, themeFile, themeFileName, uniqueThemeName, type ColorKey, type CustomTheme, type CustomThemeId, type OrbLook,
-  type ThemeColors, type ThemeIndicator
+  type OrbState, type ThemeColors, type ThemeIndicator
 } from './custom-themes.ts';
 
 const KEY = 'mumh5.customThemes';
@@ -33,6 +33,7 @@ function builtInColors(id: string): ThemeColors {
   const read = (k: ColorKey) => normalizeHex(css.getPropertyValue(`--${k}`));
   const filled = deriveColors(read('bg-2') ?? '#1a1b1f', read('text') ?? '#e6e7ea', read('accent') ?? '#7c6cff');
   const colors = Object.fromEntries(COLOR_KEYS.map(k => [k, read(k) ?? filled[k]])) as ThemeColors;
+  colors['accent-hover-text'] = hoverLabel(colors['accent-text'], colors['accent-hover']);
   probe.remove();
   return colors;
 }
@@ -57,6 +58,8 @@ class ThemeStudio {
   }
   get shown(): CustomTheme | null { return this.place !== 'closed' && this.draft ? this.draft : this.active; }
   get waiting(): boolean { return !!this.draft && this.place === 'closed'; }
+  // Built-in schemes color a talking name; in a custom theme that is its own choice
+  get colorsTalkingName(): boolean { return !this.shown || this.shown.indicator.name !== null; }
   get canUndo(): boolean { return this.history.length > 0; }
   get dirty(): boolean { return !!this.draft && JSON.stringify($state.snapshot(this.draft)) !== this.opened; }
 
@@ -138,16 +141,25 @@ class ThemeStudio {
   }
 
   /** One setting of the speaking indicator, for one state. */
-  setOrb<K extends keyof OrbLook>(state: keyof ThemeIndicator, key: K, value: OrbLook[K]) {
+  setOrb<K extends keyof OrbLook>(state: OrbState, key: K, value: OrbLook[K]) {
     if (!this.draft || this.draft.indicator[state][key] === value) return;
     this.remember(`orb:${state}:${key}`);
     this.draft.indicator[state][key] = value;
+  }
+
+  /** The color of a talking person's name; null leaves the name as it is. */
+  setTalkingName(color: string | null) {
+    if (!this.draft || this.draft.indicator.name === color) return;
+    this.remember('orb:name');
+    this.draft.indicator.name = color;
   }
 
   setColor(key: ColorKey, value: string) {
     if (!this.draft || this.draft.colors[key] === value) return;
     this.remember(key);
     this.draft.colors[key] = value;
+    // The label on a hovered button follows when the new color would hide it
+    if (key === 'accent-hover') this.draft.colors['accent-hover-text'] = hoverLabel(this.draft.colors['accent-hover-text'], value);
   }
 
   /** One of the three main colors; the shades follow it. */

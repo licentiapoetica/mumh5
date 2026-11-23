@@ -6,6 +6,7 @@
   import RoleBadges from '../ui/RoleBadges.svelte';
   import { session } from '../lib/session.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
+  import { studio } from '../lib/theme-studio.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { userMenu, openProfile } from '../lib/actions.ts';
@@ -55,7 +56,7 @@
                 <UserSelectMark id={u.session} />
                 <Avatar name={store.displayName(u)} size={40} speaking={talking(u.session)} src={session.avatar(u.session)} keep />
                 <span class="text">
-                  <span class="name" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
+                  <span class="name" class:talking={studio.colorsTalkingName && talking(u.session)} style:color={studio.colorsTalkingName && talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
                   <span class="sub">{me ? 'You' : session.roleLabel(u)}{u.deaf || u.selfDeaf ? ', deafened' : u.mute || u.selfMute || u.suppress ? ', muted' : ''}{session.sharing[u.session] ? `, sharing ${session.sharing[u.session]}` : ''}{u.recording ? ', recording' : ''}</span>
                 </span>
                 <RoleBadges user={u} size={16} />
@@ -93,7 +94,7 @@
   .main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 12px; padding: 8px; text-align: left; }
   .text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .name.talking { color: var(--speaking); }
+  .name.talking { color: var(--name-talking, var(--speaking)); }
   .sub { font-size: 13px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .icon-btn { flex: none; width: 40px; height: 40px; }
   .none { padding: 12px 8px; color: var(--text-dim); }

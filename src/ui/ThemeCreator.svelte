@@ -7,7 +7,7 @@
   import { studio, type MainColor } from '../lib/theme-studio.svelte.ts';
   import {
     CHAT_SIZE, COLOR_GROUPS, ORB_GLOW_MAX, ORB_SHAPES, ORB_SIZE, THEME_FONTS, THEME_NAME_MAX, colorProblems, normalizeHex,
-    type ColorKey, type OrbShape, type ThemeFont, type ThemeIndicator
+    type ColorKey, type OrbShape, type OrbState, type ThemeFont
   } from '../lib/custom-themes.ts';
 
   // docked: over the app's edge, where no window of its own could open
@@ -45,7 +45,7 @@
   </div>
 {/snippet}
 
-{#snippet orbState(state: keyof ThemeIndicator, title: string)}
+{#snippet orbState(state: OrbState, title: string)}
   {@const look = studio.draft!.indicator[state]}
   {@const set = (hex: string) => studio.setOrb(state, 'color', hex)}
   <div class="orb-head">
@@ -105,7 +105,7 @@
       <div class="sample" aria-hidden="true">
         <div class="people">
           <span><span class="orb-slot"><SpeakOrb box={20} /></span>Idle</span>
-          <span><span class="orb-slot"><SpeakOrb speaking box={20} /></span>Talking</span>
+          <span style:color={d.indicator.name ?? undefined}><span class="orb-slot"><SpeakOrb speaking box={20} /></span>Talking</span>
         </div>
         <div><strong>Sam</strong> <span class="time">12:04</span></div>
         <p>A message with a <span class="a">link</span> in it.</p>
@@ -127,6 +127,19 @@
         <p class="help">The mark beside people in the lists. The other colors do not change it.</p>
         {@render orbState('idle', 'Idle')}
         {@render orbState('talking', 'Talking')}
+        <label class="check"><input type="checkbox" checked={d.indicator.name !== null}
+          onchange={e => studio.setTalkingName(e.currentTarget.checked ? d.indicator.talking.color : null)} /> Color the name while talking</label>
+        {#if d.indicator.name}
+          {@const nameColor = d.indicator.name}
+          {@const setName = (hex: string) => studio.setTalkingName(hex)}
+          <div class="color">
+            <label for="tc-talking-name">Name color</label>
+            <input id="tc-talking-name" aria-label="Talking name color" type="color" value={nameColor} oninput={e => setName(e.currentTarget.value)} />
+            <input class="hex" aria-label="Talking name color code" spellcheck="false" maxlength="7" value={nameColor}
+              onchange={e => typed(e.currentTarget, nameColor, setName)} />
+            <PickColor label="Pick the name color from the screen" size={16} onpick={setName} />
+          </div>
+        {/if}
       {:else}
         <label for="tc-from">Copy colors from</label>
         <select id="tc-from" value="" onchange={e => { if (e.currentTarget.value) studio.copyColors(e.currentTarget.value); e.currentTarget.value = ''; }}>

@@ -132,6 +132,15 @@ try {
   assert.equal(await talkingMark.getAttribute('width'), '20');
   assert.match(await talkingMark.evaluate(el => getComputedStyle(el).filter), /drop-shadow/);
   assert.equal(await panel(win).getByLabel('Talking shape', { exact: true }).locator('option[value="none"]').count(), 0, 'a talking person always shows');
+  // A talking name keeps its color unless this is chosen; the connected color has no say
+  const nameColor = panel(win).getByLabel('Talking name color', { exact: true });
+  assert.equal(await nameColor.count(), 0);
+  assert.equal(await rootVar('--name-talking'), '');
+  await panel(win).getByLabel('Color the name while talking').check();
+  await setColor(win, 'Talking name color', '#00ddff');
+  await waitVar('--name-talking', '#00ddff');
+  await panel(win).getByLabel('Color the name while talking').uncheck();
+  await waitVar('--name-talking', '');
   await shot(win, 'theme-creator-indicator');
   await button(panel(win), 'Quick').click();
   await setColor(win, 'Accent', '#00c2a8');
@@ -244,6 +253,41 @@ try {
   await waitVar('--accent', originalAccent);
   assert.equal((await themes()).length, 2);
   console.log('ok: delete and reset');
+
+  // A theme saved before hover labels existed: black accent, white hover, light label
+  const amoled = path.join(temp, 'amoled.json');
+  const { 'accent-hover-text': _unset, ...olderColors } = exported.colors;
+  await writeFile(amoled, JSON.stringify({ ...exported, name: 'Amoled',
+    colors: { ...olderColors, accent: '#000000', 'accent-hover': '#ffffff', 'accent-text': '#d4d4d4' } }));
+  await page.getByLabel('Import theme file').setInputFiles(amoled);
+  await page.getByRole('radio', { name: 'Amoled', exact: true }).waitFor();
+  const mainButton = button(page, 'Create theme');
+  await mainButton.hover();
+  await page.waitForFunction(el => {
+    const s = getComputedStyle(el as Element);
+    return s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(11, 11, 11)';
+  }, await mainButton.elementHandle());
+  await page.mouse.move(2, 2);
+  // Turning the hover white in the creator takes a white label along
+  win = await opening(button(page, 'Edit Amoled'));
+  await button(panel(win), 'All colors').click();
+  await setColor(win, 'Accent hover', '#000000');
+  await setColor(win, 'Text on accent hover', '#ffffff');
+  await setColor(win, 'Accent hover', '#ffffff');
+  await win.waitForFunction(() => (document.querySelector('[aria-label="Text on accent hover code"]') as HTMLInputElement).value === '#0b0b0b');
+  await panel(win).getByText('Contrast is fine').waitFor();
+  const saveButton = button(panel(win), 'Save');
+  await saveButton.hover();
+  await win.waitForFunction(el => {
+    const s = getComputedStyle(el as Element);
+    return s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(11, 11, 11)';
+  }, await saveButton.elementHandle());
+  // Back at the colors it opened with, so there is nothing to ask about
+  await closing(win, button(panel(win), 'Cancel'));
+  await button(page, 'Delete Amoled').click();
+  await button(page.getByRole('dialog', { name: 'Delete Amoled?' }), 'Delete').click();
+  await page.getByRole('radio', { name: 'Amoled', exact: true }).waitFor({ state: 'detached' });
+  console.log('ok: a main button stays readable under the pointer');
 
   // A phone has no windows: the creator covers the app, whose layout stays as it is
   await page.setViewportSize({ width: 400, height: 800 });

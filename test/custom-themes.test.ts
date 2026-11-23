@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  COLOR_KEYS, applyThemeStyle, colorProblems, contrast, defaultIndicator, deriveColors, fixColors, normalizeHex, orbLook,
+  COLOR_KEYS, applyThemeStyle, colorProblems, contrast, defaultIndicator, deriveColors, fixColors, hoverLabel, normalizeHex, orbLook,
   parseThemeFile, sanitizeTheme, themeFile, themeFileName, uniqueThemeName, type CustomTheme, type ThemeColors
 } from '../src/lib/custom-themes.ts';
 
@@ -12,8 +12,43 @@ const theme = (colors: ThemeColors): CustomTheme => ({
   id, name: 'Test', colors, font: 'serif', chatSize: 17,
   indicator: {
     idle: { color: '#333333', shape: 'ring', size: 60, glow: 0, border: false },
-    talking: { color: '#ff00aa', shape: 'sphere', size: 100, glow: 6, border: true }
+    talking: { color: '#ff00aa', shape: 'sphere', size: 100, glow: 6, border: true },
+    name: '#00ddff'
   }
+});
+
+test('a main button stays readable under the pointer', () => {
+  const base = deriveColors('#000000', '#ffffff', '#000000');
+  const older: Partial<ThemeColors> = { ...base, 'accent-hover': '#ffffff', 'accent-text': '#d4d4d4' };
+  delete older['accent-hover-text'];
+  const t = sanitizeTheme({ colors: older }, id)!;
+  assert.equal(t.colors['accent-hover-text'], '#0b0b0b', 'a theme saved before this color gets a readable one');
+  assert.deepEqual(colorProblems(t.colors), []);
+  const chosen = { ...t.colors, 'accent-hover-text': '#d4d4d4' };
+  assert.deepEqual(colorProblems(chosen).map(p => p.key), ['accent-hover-text']);
+  assert.deepEqual(colorProblems(fixColors(chosen)), []);
+  assert.equal(fixColors(chosen)['accent-text'], '#d4d4d4', 'the label on the plain button is left alone');
+});
+
+test('a hovered main button never gets a label it hides', () => {
+  const props = new Map<string, string>();
+  const style = { setProperty: (k: string, v: string) => void props.set(k, v), removeProperty: (k: string) => { props.delete(k); return ''; } };
+  const colors = { ...deriveColors('#000000', '#ffffff', '#000000'), 'accent-hover': '#ffffff', 'accent-hover-text': '#ffffff' };
+  applyThemeStyle(style, theme(colors));
+  assert.equal(props.get('--accent-hover-text'), '#0b0b0b', 'white on white');
+  const missing: Partial<ThemeColors> = { ...colors, 'accent-text': '#d4d4d4' };
+  delete missing['accent-hover-text'];
+  applyThemeStyle(style, theme(missing as ThemeColors));
+  assert.equal(props.get('--accent-hover-text'), '#0b0b0b', 'a theme in memory from before this color');
+  applyThemeStyle(style, theme({ ...colors, 'accent-hover': '#102030', 'accent-hover-text': '#ffcc00' }));
+  assert.equal(props.get('--accent-hover-text'), '#ffcc00', 'a readable choice is kept');
+});
+
+test('a talking name has its own color, and none unless chosen', () => {
+  const colors = deriveColors('#16181d', '#eceef2', '#7c6cff');
+  assert.equal(sanitizeTheme({ colors }, id)!.indicator.name, null, 'not the connected color');
+  assert.equal(sanitizeTheme({ colors, indicator: { name: 'red;x:url(y)' } }, id)!.indicator.name, null);
+  assert.equal(sanitizeTheme({ colors, indicator: { name: '#0df' } }, id)!.indicator.name, '#00ddff');
 });
 
 test('the indicator is kept per state and checked like everything else in a file', () => {
@@ -68,7 +103,8 @@ test('the built-in schemes pass the readability check', () => {
   assert.equal(blocks.length, 100);
   for (const [, name, body] of blocks) {
     const v = Object.fromEntries([...body.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6});/gi)].map(m => [m[1], m[2]]));
-    assert.deepEqual(colorProblems({ ...v, rail: v['bg-0'] } as ThemeColors).map(p => `${p.key} ${p.ratio.toFixed(2)}`), [], name);
+    const all = { ...v, rail: v['bg-0'], 'accent-hover-text': hoverLabel(v['accent-text'], v['accent-hover']) } as ThemeColors;
+    assert.deepEqual(colorProblems(all).map(p => `${p.key} ${p.ratio.toFixed(2)}`), [], name);
   }
 });
 
@@ -111,6 +147,7 @@ test('applying a theme and taking it off leaves no variable behind', () => {
   applyThemeStyle(style, theme(deriveColors('#fbfaf7', '#1c1c20', '#b4321f')));
   assert.equal(props.get('--accent'), '#b4321f');
   assert.equal(props.get('--fs-chat'), '17px');
+  assert.equal(props.get('--name-talking'), '#00ddff');
   assert.match(props.get('--font')!, /Georgia/);
   assert.equal(props.get('color-scheme'), 'light');
   applyThemeStyle(style, null);

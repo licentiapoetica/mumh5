@@ -21,10 +21,11 @@ export const COLOR_GROUPS = [
   { name: 'Accent', colors: [
     { key: 'accent', name: 'Accent', note: 'Main buttons and selections' },
     { key: 'accent-hover', name: 'Accent hover', note: 'Main buttons under the pointer' },
-    { key: 'accent-text', name: 'Text on accent', note: 'Labels on main buttons' }
+    { key: 'accent-text', name: 'Text on accent', note: 'Labels on main buttons' },
+    { key: 'accent-hover-text', name: 'Text on accent hover', note: 'Labels on main buttons under the pointer' }
   ] },
   { name: 'Status', colors: [
-    { key: 'speaking', name: 'Connected and active', note: 'Connection wave and status, live marks, names while talking' },
+    { key: 'speaking', name: 'Connected and active', note: 'Connection wave and status, live marks' },
     { key: 'danger', name: 'Danger', note: 'Errors and destructive actions' },
     { key: 'warn', name: 'Warning', note: 'Warnings' }
   ] }
@@ -58,11 +59,14 @@ export const ORB_SIZE = { min: 40, max: 100, normal: 80 } as const;
 export const ORB_GLOW_MAX = 12;
 // border: the rim around the sphere, which by default only the idle state has
 export interface OrbLook { color: string; shape: OrbShape; size: number; glow: number; border: boolean }
-export interface ThemeIndicator { idle: OrbLook; talking: OrbLook }
+export type OrbState = 'idle' | 'talking';
+// name: the color of a talking person's name; null leaves the name as it is
+export interface ThemeIndicator { idle: OrbLook; talking: OrbLook; name: string | null }
 
 export const defaultIndicator = (accent: string): ThemeIndicator => ({
   idle: { color: accent, shape: 'sphere', size: ORB_SIZE.normal, glow: 0, border: true },
-  talking: { color: accent, shape: 'sphere', size: ORB_SIZE.normal, glow: 0, border: false }
+  talking: { color: accent, shape: 'sphere', size: ORB_SIZE.normal, glow: 0, border: false },
+  name: null
 });
 
 /** What to draw; the built-in schemes keep the sphere in their accent. */
@@ -122,6 +126,10 @@ export function readableOn(color: string, backgrounds: string[], min: number): s
 }
 
 const labelOn = (color: string) => contrast('#ffffff', color) >= contrast('#0b0b0b', color) ? '#ffffff' : '#0b0b0b';
+const LABEL_MIN = 3.5;
+
+/** A main button's label under the pointer: the usual one while it stays readable there. */
+export const hoverLabel = (label: string, hover: string) => contrast(label, hover) >= LABEL_MIN ? label : labelOn(hover);
 
 /** A full palette from the three colors people choose first; those three stay exactly as chosen. */
 export function deriveColors(background: string, text: string, accent: string): ThemeColors {
@@ -130,6 +138,7 @@ export function deriveColors(background: string, text: string, accent: string): 
   const bg0 = light ? toText(0.1) : mix(background, '#000000', 0.42);
   const bg1 = light ? toText(0.05) : mix(background, '#000000', 0.2);
   const surfaces = [bg0, bg1, background];
+  const accentHover = mix(accent, light ? '#000000' : '#ffffff', 0.14);
   return {
     'bg-0': bg0, 'bg-1': bg1, 'bg-2': background, rail: bg0,
     'bg-3': toText(light ? 0.08 : 0.07),
@@ -141,8 +150,9 @@ export function deriveColors(background: string, text: string, accent: string): 
     'text-faint': mix(text, background, 0.52),
     link: readableOn(mix(accent, text, 0.3), surfaces, 4.5),
     accent,
-    'accent-hover': mix(accent, light ? '#000000' : '#ffffff', 0.14),
+    'accent-hover': accentHover,
     'accent-text': labelOn(accent),
+    'accent-hover-text': hoverLabel(labelOn(accent), accentHover),
     speaking: readableOn(light ? '#1f9d4c' : '#3bd16f', [background], 3),
     danger: readableOn(light ? '#d33a34' : '#f0504a', [background], 3),
     warn: readableOn(light ? '#b7791f' : '#e8b23c', [background], 3)
@@ -155,7 +165,8 @@ const READABILITY: { key: ColorKey; on: ColorKey[]; min: number }[] = [
   { key: 'text', on: TEXT_ON, min: 4.5 },
   { key: 'text-dim', on: TEXT_ON, min: 4.5 },
   { key: 'link', on: ['bg-2'], min: 4 },
-  { key: 'accent-text', on: ['accent'], min: 3.5 },
+  { key: 'accent-text', on: ['accent'], min: LABEL_MIN },
+  { key: 'accent-hover-text', on: ['accent-hover'], min: LABEL_MIN },
   { key: 'speaking', on: ['bg-2'], min: 2.5 },
   { key: 'danger', on: ['bg-2'], min: 2.5 },
   { key: 'warn', on: ['bg-2'], min: 2.5 }
@@ -209,6 +220,8 @@ export function sanitizeTheme(raw: unknown, id: CustomThemeId): CustomTheme | nu
   if (!background || !text || !accent) return null;
   const derived = deriveColors(background, text, accent);
   const colors = Object.fromEntries(COLOR_KEYS.map(k => [k, normalizeHex(given[k]) ?? derived[k]])) as ThemeColors;
+  // Themes saved before this color existed: from their own hover, not a derived one
+  colors['accent-hover-text'] = normalizeHex(given['accent-hover-text']) ?? hoverLabel(colors['accent-text'], colors['accent-hover']);
   const size = Number(r.chatSize);
   // Themes saved before the indicator had settings keep the look they had
   const orbs = (r.indicator && typeof r.indicator === 'object' ? r.indicator : {}) as Record<string, unknown>;
@@ -219,7 +232,11 @@ export function sanitizeTheme(raw: unknown, id: CustomThemeId): CustomTheme | nu
     colors,
     font: THEME_FONTS.find(f => f.id === r.font)?.id ?? 'inter',
     chatSize: Number.isFinite(size) ? Math.min(CHAT_SIZE.max, Math.max(CHAT_SIZE.min, Math.round(size))) : CHAT_SIZE.normal,
-    indicator: { idle: sanitizeOrb(orbs.idle, plain.idle, true), talking: sanitizeOrb(orbs.talking, plain.talking, false) }
+    indicator: {
+      idle: sanitizeOrb(orbs.idle, plain.idle, true),
+      talking: sanitizeOrb(orbs.talking, plain.talking, false),
+      name: normalizeHex(orbs.name)
+    }
   };
 }
 
@@ -259,6 +276,10 @@ export function applyThemeStyle(style: Pick<CSSStyleDeclaration, 'setProperty' |
   const stack = theme ? THEME_FONTS.find(f => f.id === theme.font)?.stack : '';
   if (stack) style.setProperty('--font', stack);
   else style.removeProperty('--font');
+  // A label that vanishes under the pointer is never what a theme wants, whatever it holds
+  if (theme) style.setProperty('--accent-hover-text', hoverLabel(theme.colors['accent-hover-text'] ?? theme.colors['accent-text'], theme.colors['accent-hover']));
+  if (theme?.indicator.name) style.setProperty('--name-talking', theme.indicator.name);
+  else style.removeProperty('--name-talking');
   if (theme) {
     style.setProperty('--fs-chat', `${theme.chatSize}px`);
     style.setProperty('--orb-talking', theme.indicator.talking.color);
