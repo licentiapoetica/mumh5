@@ -33,8 +33,8 @@ const codec = createCodec();
 const commentTag = (session: number, hash: Uint8Array) => `c:${session}:${[...hash].join(',')}`;
 const COMMENT_BATCH = 20;
 const COMMENT_PAUSE_MS = 500;
-// How long the "connected" line waits for a new person's chosen name
-const JOIN_NAME_WAIT_MS = 2000;
+// How long a "connected" line may still change to the person's chosen name
+const JOIN_NAME_WAIT_MS = 5000;
 const NAMES_WAIT_MS = 2000;
 const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
 
@@ -141,9 +141,9 @@ export class Session {
   // Long comments to fetch for the names inside them, asked for a few at a time
   private wantedComments = new Set<number>();
   private commentTimer: ReturnType<typeof setTimeout> | null = null;
-  // "connected" lines waiting for the person's chosen name, which arrives in their comment
-  // after the server first announces them
-  private joinNotes = new Map<number, { channel: number; timer: ReturnType<typeof setTimeout> }>();
+  // "connected" lines that still show the account name: the chosen name arrives in the person's
+  // comment after the server first announces them, and then rewrites the line
+  private joinNotes = new Map<number, { key: string; id: number; timer: ReturnType<typeof setTimeout> }>();
   // Pictures of people here as object URLs, made the first time each one is shown
   private pictures = new Map<number, { bytes: Uint8Array; url: string }>();
   // Pictures to fetch, collected while a list renders and asked for in one request
@@ -738,7 +738,7 @@ export class Session {
         if (user.session === self.session) share.entered(this);
         else share.userMoved(this, user);
       }
-      if (changed.includes('comment')) this.flushJoin(user.session);
+      if (changed.includes('comment')) this.updateJoin(user);
       let flips = { mute: false, deaf: false };
       if (self && user.session === self.session) {
         const was = this.own;
@@ -753,9 +753,11 @@ export class Session {
       if (client.synced && self) {
         if (isNew) {
           if (user.channelId === self.channelId) {
-            // A comment that came along already holds the name; otherwise wait a moment for it
-            if (user.comment || client.config.allowHtml === false) this.system(`ch:${self.channelId}`, `${escapeHtml(store.displayName(user))} connected`);
-            else this.joinNotes.set(user.session, { channel: self.channelId, timer: setTimeout(() => this.flushJoin(user.session), JOIN_NAME_WAIT_MS) });
+            const key = `ch:${self.channelId}`;
+            const id = this.system(key, this.joinText(user));
+            if (!user.comment && client.config.allowHtml !== false) {
+              this.joinNotes.set(user.session, { key, id, timer: setTimeout(() => this.joinNotes.delete(user.session), JOIN_NAME_WAIT_MS) });
+            }
           }
         } else if (changed.includes('userId') && user.userId != null) {
           const who = user.session === self.session ? 'You are' : `${escapeHtml(store.displayName(user))} is`;
@@ -780,7 +782,7 @@ export class Session {
         failUserMove(this.userMove, 'Disconnected before the move was confirmed.', user.session);
         this.updateUserMove();
       }
-      this.flushJoin(user.session, user);
+      this.updateJoin(user);
       chatHistory.userLeft(this, user);
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
@@ -1147,7 +1149,7 @@ export class Session {
   // ─── Chat ───────────────────────────────────────────────────────────────────
 
   // time: for messages from earlier, which go where they belong in the log. quiet: not counted as unread.
-  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean; raw?: string; historyId?: string; reactions?: Reaction[] } = {}): void {
+  private push(key: string, entry: Omit<ChatEntry, 'id' | 'time' | 'reactions'>, opts: { time?: number; quiet?: boolean; raw?: string; historyId?: string; reactions?: Reaction[] } = {}): number {
     // Assign first, then push through the stored proxy; pushing onto the raw array would not be reactive
     if (!this.logs[key]) this.logs[key] = [];
     const log = this.logs[key];
@@ -1156,11 +1158,13 @@ export class Session {
     if (!entry.authorIdentity && author) entry = { ...entry, authorIdentity: chatAuthorKey(author) };
     let at = log.length;
     while (at > 0 && log[at - 1].time > time) at--;
-    log.splice(at, 0, { ...entry, reactions: opts.reactions ?? [], id: nextId++, time, historyId: opts.historyId });
+    const id = nextId++;
+    log.splice(at, 0, { ...entry, reactions: opts.reactions ?? [], id, time, historyId: opts.historyId });
     if (opts.raw !== undefined && !opts.quiet) chatHistory.record(this, key, opts.raw, log[at]);
     if (!opts.quiet && (sessions.active !== this || !this.visibleKeys().includes(key))) this.unread[key] = (this.unread[key] ?? 0) + 1;
     // Files announced just now; ones from earlier wait for a click
     if (!opts.quiet && !entry.self) for (const e of entry.embeds) if (e.file) files.offered(this, e.file, entry.authorSession);
+    return id;
   }
 
   persistTextHistory(): Promise<void> { return textChannels.persist(this); }
@@ -1199,18 +1203,23 @@ export class Session {
     }, { time: m.t, quiet, reactions: m.x && copyReactions(m.x) });
   }
 
-  private flushJoin(session: number, gone?: User): void {
-    const note = this.joinNotes.get(session);
-    if (!note) return;
-    clearTimeout(note.timer);
-    this.joinNotes.delete(session);
-    const user = gone ?? this.client?.users.get(session);
-    if (user) this.system(`ch:${note.channel}`, `${escapeHtml(store.displayName(user))} connected`);
+  private joinText(user: User): string {
+    return `${escapeHtml(store.displayName(user))} connected`;
   }
 
-  private system(key: string, html: string, trusted = false): void {
+  // Rewrites the person's "connected" line once their chosen name is known
+  private updateJoin(user: User): void {
+    const note = this.joinNotes.get(user.session);
+    if (!note) return;
+    clearTimeout(note.timer);
+    this.joinNotes.delete(user.session);
+    const entry = this.logs[note.key]?.find(e => e.id === note.id);
+    if (entry) entry.html = this.joinText(user);
+  }
+
+  private system(key: string, html: string, trusted = false): number {
     const rendered = trusted ? renderIncoming(html, store.trustedHosts) : { html, embeds: [] };
-    this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
+    return this.push(key, { kind: 'system', author: '', authorSession: null, self: false, ...rendered });
   }
 
   private receive(client: MumbleClient, msg: TextMessage): void {
