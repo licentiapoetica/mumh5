@@ -1,6 +1,12 @@
-# mumpeer relay: what it is and how mumh5 could use it
+# Mumpeer relay for desktop screen sharing
 
-Research note, 2026-11-21. Sources: `Mumcord/mumcord` at 1a36296 (`specs/04-mumpeer-relay-specification.md`, `crates/p2p`, `crates/engine/src/mumcord.rs`, `crates/engine/src/screen_share/broadcast/`), `Mumcord/mumpeer` 0.3.1 (`docs/protocol.md`, `docs/api.md`), `Mumcord/mumbot` `docs/peer.md`. Nothing here is implemented or tested yet.
+Protocol references from the original research note include `Mumcord/mumcord` at 1a36296 (`specs/04-mumpeer-relay-specification.md`, `crates/p2p`, `crates/engine/src/mumcord.rs`, `crates/engine/src/screen_share/broadcast/`), `Mumcord/mumpeer` 0.3.1 (`docs/protocol.md`, `docs/api.md`), `Mumcord/mumbot` `docs/peer.md`.
+
+## Enable the relay
+
+In the desktop app, open **Settings → Screen sharing → Screen sharing connection**. Both participants must select **Automatic, with mumpeer fallback** or **Mumpeer only**. The automatic mode tries the existing ICE routes first. Mumpeer only uses the community relay from the first offer and fails if either participant cannot use it. The relay operator can see connection addresses and timing. WebRTC encrypts the streams between participants.
+
+The Mumble server needs a registered [mumbot peer](https://github.com/Mumcord/mumbot/blob/v0.6.0/docs/peer.md) connected to [mumpeer](https://github.com/Mumcord/mumpeer/tree/v0.3.0). By default both participants must register on that Mumble server, and mumbot limits each certificate to four open pairs. An operator can adjust these policies. The app shows discovery and trust under **Server information → Mumpeer relay**. A new bot certificate or relay certificate requires approval after first use.
 
 ## What it is
 
@@ -12,7 +18,7 @@ Three parts, none of them touches the Mumble server:
 | mumbot `peer` | A registered bot user on the Mumble server. Announces the relay to Mumcord clients and asks mumpeer for tokens through a secret HTTP API on loopback. |
 | Mumcord client | Asks the bot for a token, connects to mumpeer with its Mumble certificate, sends its already end-to-end encrypted packets through it. |
 
-So a community runs mumpeer + mumbot next to a stock Murmur, and every client that speaks the protocol gets a relay without configuring anything. That is the part we lack: our desktop app only gets a relay when the user types a mumh5 proxy into `settings.relayServer`.
+A community runs mumpeer and mumbot alongside stock Murmur. Eligible clients discover the relay through Mumble plugin data.
 
 ## The contracts a client has to speak
 
@@ -22,7 +28,7 @@ There are two. The bot API (`/v1/status`, `/v1/pairs`, `/v1/broadcasts`, `DELETE
 
 - **Hello**, data id `mumcord.hello`, to everyone: `{"app":"mumcord","v":1,"features":[...],"ask":false}`. The bot only announces to sessions whose hello lists `p2p`, and only gives tokens to pairs where both did. The decoder rejects any `app` other than `mumcord`.
 - **`mumcord.peer`**, compact JSON, at most 1000 bytes:
-  - bot to client: `{"v":1,"t":"relay","host","udp","tcp","fp","state":"up"|"down","seq","u":[...],"bc","pk"}`. `fp` is the SHA-256 of the relay certificate. Accept only from a registered sender with a cert hash; pin (bot hash, fp) on first use per server.
+  - bot to client: `{"v":1,"t":"relay","host","udp","tcp","fp","state":"up"|"down","seq","u":[...],"bc","pk","reg"}`. `fp` is the SHA-256 of the relay certificate. Accept only from a registered sender with a cert hash; pin (bot hash, fp) on first use per server.
   - client to bot: `{"v":1,"t":"token-req","rid":"<16 hex>","peer":<session>,"use":"scr"}`.
   - bot to both: `{"v":1,"t":"token","rid","a","b","tok":"<43 base64url>","ttl"}`; or to the requester `{"v":1,"t":"token-err","rid","r"}` (`denied`, `peer-gone`, `peer-not-mumcord`, `no-hello`, `not-registered`, `group-not-allowed`, `rate-limited`, `relay-down`, `relay-full`, `use-not-allowed`).
   - Broadcasts add `bcast-req`, `bcast`, `bcast-admit`, `bcast-tok`, `bcast-kick`, `bcast-err`.
@@ -38,55 +44,23 @@ There are two. The bot API (`/v1/status`, `/v1/pairs`, `/v1/broadcasts`, `DELETE
 
 QUIC is only needed for the UDP path. Node has no usable QUIC, but TCP alone is a valid client: Mumcord itself falls back to it, and mixed UDP/TCP pairs are allowed.
 
-## What fits mumh5 and what does not
+## How the desktop app connects
 
-Mumcord uses the pair link to carry an inner QUIC connection (`mumcord-p2p`). We use WebRTC. The relay does not care: the payload is opaque. The question is only how to get WebRTC packets into the link, since an `RTCPeerConnection` cannot be given a custom socket.
+1. A client opted into mumpeer sends the mumbot-compatible `mumcord.hello` with the `p2p` feature on login and when other users join. Discovery pins the registered bot's certificate hash and the relay's fingerprint for this server and local identity.
+2. The watch request advertises the pinned relay and the viewer's routing requirement before SDP is exchanged. The sharer chooses relay-only ICE up front when either side requires it. With fallback enabled on both sides, either side's ICE failure can trigger a new offer through mumpeer.
+3. The lower Mumble session number requests the pair after both clients confirm the same share attempt. A new token replaces any existing link for the certificate pair, so reciprocal shares reuse the same link and tag their packets with a one-byte direction.
+4. Electron main connects over TLS 1.3, verifies ALPN and the pinned relay fingerprint, and binds with the exact client identity from the Mumble connection. After both endpoints bind, Electron starts a credentialed TURN listener on loopback for each active share direction. Its relay address and peer address are virtual. Each TURN allocation forwards media and ICE packets to its one permitted peer over the paired TLS link.
+5. The app closes the allocation when the share ends and closes the link when its last allocation is no longer needed. A TCP-only relay path can add latency on lossy links.
 
-| Option | Verdict |
-|---|---|
-| **A. Use mumpeer pairs as a pipe for our WebRTC** (desktop first) | Recommended. Small, fits our architecture, gives desktop users a relay on any server that runs mumbot `peer`. Details below. |
-| B. Watch and send screens with Mumcord users through their broadcasts | Possible, but large: their key exchange (X25519, signed with the Mumble cert key, chunked over `keyreq`/`key`), SFrame (RFC 9605) AES-GCM, the Bovnar media document (`varint(channel) varint(length)`), VP9/AV1 via WebCodecs. Their format changed in 0.9.0 already (legacy 14-byte header to Bovnar profile). A separate project, only if interop with Mumcord users becomes a goal. |
-| C. Make our proxy a mumpeer-compatible relay | Not worth it. mumpeer is one Docker image; we would need QUIC to match it. |
-| D. Copy the security model into `server/turn.ts` | Worth noting: `GET /api/relay` gives credentials to any origin, while mumpeer only forwards between certificates the bot paired. Separate topic. |
+The browser app uses the proxy's existing TURN service. Cameras use the existing WebRTC routes. Mumpeer's camera policy applies to broadcasts, and its pair API supports screen sharing. Mumcord screen-share interoperability would require its separate broadcast signaling, key exchange and media format.
 
-## Option A in detail
+## Test with stock Mumble and upstream services
 
-### Idea
+Start [mumbot's peer-with-relay example](https://github.com/Mumcord/mumbot/tree/v0.6.0/examples/peer-with-relay) or run the release binaries on loopback. Run the test on an idle relay. It registers two generated identities with the test Mumble server, opens the built Electron app twice, and sends synthetic video through the normal share UI.
 
-Electron main runs a small TURN server on `127.0.0.1` whose relayed side is the mumpeer link instead of a UDP socket. The share connection for that viewer is restarted with `iceTransportPolicy: 'relay'` and only this loopback TURN as ICE server. Chromium sends its SRTP/DTLS through TURN as usual; main wraps each packet in a type-1 frame; the other side's main hands it to its browser as coming from the one permitted peer address. WebRTC encryption stays end to end; mumpeer sees bytes, sizes and timing.
+```bash
+npm run build
+MUMBLE_TEST_HOST=127.0.0.1:64738 MUMBLE_SUPERUSER_PASSWORD="$TEST_SUPERUSER_PASSWORD" MUMPEER_TEST_API=http://127.0.0.1:7480 MUMPEER_API_SECRET="$TEST_RELAY_SECRET" npm run test:e2e:mumpeer
+```
 
-One link per pair of people per server, shared by all their streams (screen, cameras): a 1-byte stream index in front of each payload, which only our two clients read. WebRTC packets stay under about 1250 bytes, so they fit the 1500-byte frame. STUN consent checks every few seconds keep the 60 s idle timer from firing.
-
-### Flow
-
-1. On connect, send the hello with `p2p` (see the open decision below). Receive `relay` announcements, validate, pin, keep availability per server (gone 15 s after the bot leaves, at once on `state: "down"`).
-2. Our share signal (`mumh5.share`) gets a flag "I can use this server's relay", like Mumcord's `rl`.
-3. When a share connection fails (ICE `failed`), or the user chose to hide their IP, and both sides set the flag: the sharer sends `token-req` with `use: "scr"`. The bot sends `token` to both.
-4. Each side's main opens TLS to `host:tcp`, checks `fp`, sends `bind`, waits for `ready`, then starts the loopback TURN for that link.
-5. Both renderers rebuild that viewer's connection against the loopback TURN.
-
-### Code
-
-| Where | What |
-|---|---|
-| `src/core/peer-signal.ts` (new) | `mumcord.hello` and `mumcord.peer` encode/decode with Mumcord's limits (size checked before parsing, unknown fields ignored, host/port/fp/rid/tok validated). Unit tests with their example messages. |
-| `src/lib/relay.svelte.ts` (new) | Per server: announcement state machine (none, available, down, bot gone, changed and not trusted, conflict), TOFU pin in `store`, pending token requests with 5 s timeout, reason texts. |
-| `electron/mumpeer.ts` (new) | TLS client (reuse `openTls` with ALPN and `minVersion: 'TLSv1.3'` added, fingerprint check in `onSecure`), framing, bind/ready, errors. Exposed through `preload.ts` as a narrow `relay:open` / `relay:close`. |
-| `electron/turn-bridge.ts` (new) or a refactor of `server/turn.ts` | Allocation, permissions, channels and Send/ChannelData already exist in `turn.ts`; split out the relayed side behind an interface so one implementation is a UDP socket (proxy) and the other a mumpeer link (desktop). |
-| `src/lib/share.svelte.ts` | The flag in offers and answers, the fallback decision, rebuilding the connection with the loopback TURN, "via relay" state for the tile tooltip. |
-| UI, both interfaces | Server info: relay available or why not, Trust new relay / Forget relay. Settings: a peer-to-peer mode (direct then relay, always relay, direct only, off). |
-
-The browser build already has its proxy's TURN. If wanted later, the proxy can open the mumpeer link for it: it already receives the user's identity with each connect, and the same TURN refactor serves both.
-
-### Tests
-
-- Unit: codec round trips and rejects, framing, the availability state machine.
-- Server test: mumbot's `examples/peer-with-relay` compose (Murmur, mumpeer, mumbot `peer`) plus two `MumbleClient`s that send the hello, get the announcement, request a token, bind over TLS and pass bytes. Relay tokens need registered users, so the test registers both.
-- E2E: `test:e2e:share` with that compose and `mumh5.iceDebug` forcing the fallback, so the share has to go through mumpeer.
-
-## Open decisions
-
-1. **The hello.** mumbot only serves clients whose `mumcord.hello` says `app: "mumcord"` and lists `p2p`. Sending that makes Mumcord users see us as Mumcord clients (badge, feature checks). Listing only `p2p` keeps them from sending us screen-share, file or image requests, but it is still misrepresenting. Options: (a) send it anyway with `features: ["p2p"]`; (b) ask Mumcord/mumbot to accept another app in the hello, or a relay-only feature, and wait for that; (c) do (a) behind a setting until (b) lands.
-2. **Desktop only, or the browser build too** (through the proxy).
-3. **Whether to also do option B** (watching Mumcord users' screens). It is what would make mumpeer useful between us and Mumcord users, not only between mumh5 users.
-4. **Licence.** mumpeer and Mumcord are AGPL-3.0, mumh5 is MIT. Implementing the documented protocol is fine; their code must not be copied into mumh5. Their test vectors and message examples are facts we can test against.
+The relay API must be reachable from the test runner. When the services share a Docker network namespace, run the test against a loopback instance of the relay or expose its API to the test environment according to the relay's configuration.

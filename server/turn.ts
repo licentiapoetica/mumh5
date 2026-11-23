@@ -148,11 +148,21 @@ export function turnCredential(secret: string, username: string): string {
   return createHmac('sha1', secret).update(username).digest('base64');
 }
 
-interface Client { key: string; ip: string; port: number; send(bytes: Uint8Array): void; local: string | null }
+export interface TurnAddress { ip: string; port: number }
+
+// A loopback-only TURN listener can relay to one virtual address over a paired transport.
+export interface VirtualTurnPeer {
+  local: TurnAddress;
+  remote: TurnAddress;
+  send(data: Uint8Array): void;
+  receive(fn: (data: Uint8Array) => void): () => void;
+}
+
+interface Client { key: string; ip: string; port: number; send(bytes: Uint8Array): void; local: string | null; closed?(): boolean }
 interface Allocation {
   client: Client;
-  authKey: Buffer;
-  relay: dgram.Socket;
+  socket: dgram.Socket | null;
+  closeRelay(): void;
   relayIp: string;
   permissions: Map<string, number>;
   channels: Map<number, { ip: string; port: number; expires: number }>;
@@ -160,8 +170,10 @@ interface Allocation {
   expires: number;
 }
 
-export async function startTurn(opts: TurnOptions, secret: string): Promise<{ port: number; close(): void }> {
+export async function startTurn(opts: TurnOptions, secret: string, virtual?: VirtualTurnPeer): Promise<{ port: number; close(): void }> {
+  if (virtual && (opts.bind !== '127.0.0.1' || !opts.relay)) throw new Error('Virtual TURN requires a loopback listener');
   const allocations = new Map<string, Allocation>();
+  let closed = false;
   const now = () => Math.floor(Date.now() / 1000);
 
   const nonce = () => { const t = String(now()); return `${t}-${createHmac('sha1', secret).update(`nonce:${t}`).digest('hex').slice(0, 24)}`; };
@@ -172,7 +184,7 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
 
   function free(a: Allocation): void {
     if (allocations.get(a.client.key) === a) allocations.delete(a.client.key);
-    try { a.relay.close(); } catch { /* already closed */ }
+    try { a.closeRelay(); } catch { /* already closed */ }
   }
   const sweep = setInterval(() => { for (const a of allocations.values()) if (a.expires < now()) free(a); }, 15000);
   sweep.unref();
@@ -232,10 +244,14 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
   // traffic stays on loopback and is presented as coming from the announced address.
   const loopback = (ip: string) => ip === '127.0.0.1' || ip === '::1';
   function toPeer(a: Allocation, data: Uint8Array, ip: string, port: number): void {
-    a.relay.send(data, port, ip === a.relayIp ? (net.isIPv4(ip) ? '127.0.0.1' : '::1') : ip);
+    if (virtual) {
+      if (ip === virtual.remote.ip && port === virtual.remote.port) virtual.send(data);
+    } else {
+      a.socket!.send(data, port, ip === a.relayIp ? (net.isIPv4(ip) ? '127.0.0.1' : '::1') : ip);
+    }
   }
 
-  function fromPeer(a: Allocation, data: Buffer, peerIp: string, peerPort: number): void {
+  function fromPeer(a: Allocation, data: Uint8Array, peerIp: string, peerPort: number): void {
     const seen = v4(peerIp);
     const ip = loopback(seen) && !loopback(a.relayIp) ? a.relayIp : seen;
     if ((a.permissions.get(ip) ?? 0) < now()) return;
@@ -296,17 +312,25 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
       const family: 4 | 6 = get(A.REQUESTED_ADDRESS_FAMILY)?.value[0] === 2 ? 6 : 4;
       const mine = [...allocations.values()].filter(a => a.client.ip === client.ip).length;
       if (allocations.size >= opts.maxAllocations || mine >= opts.maxPerAddress) return error(486, 'Allocation Quota Reached');
-      const relayIp = relayAddress(family, client.local);
-      const relay = relayIp ? await bindRelay(family) : null;
-      if (!relay || !relayIp) return error(508, 'Insufficient Capacity');
-      // Another request for the same client may have won while the port was being opened
-      if (allocations.has(client.key)) { relay.close(); return error(437, 'Allocation Mismatch'); }
-      const a: Allocation = { client, authKey: key, relay, relayIp, permissions: new Map(), channels: new Map(), byPeer: new Map(), expires: now() + LIFETIME };
+      const relayIp = virtual ? (family === 4 ? virtual.local.ip : null) : relayAddress(family, client.local);
+      if (!relayIp) return error(508, 'Insufficient Capacity');
+      const socket = virtual ? null : await bindRelay(family);
+      if (!virtual && !socket) return error(508, 'Insufficient Capacity');
+      if (closed || client.closed?.() || allocations.has(client.key)) {
+        socket?.close();
+        return error(437, 'Allocation Mismatch');
+      }
+      const relayPort = virtual?.local.port ?? socket!.address().port;
+      const a: Allocation = {
+        client, socket, relayIp, permissions: new Map(), channels: new Map(), byPeer: new Map(), expires: now() + LIFETIME,
+        closeRelay: () => socket?.close()
+      };
+      if (virtual) a.closeRelay = virtual.receive(data => fromPeer(a, data, virtual.remote.ip, virtual.remote.port));
+      socket?.on('message', (data, from) => fromPeer(a, data, from.address, from.port));
       allocations.set(client.key, a);
-      relay.on('message', (data, from) => fromPeer(a, data, from.address, from.port));
-      opts.log?.(`relay: ${client.key} got ${relayIp}:${relay.address().port} (${allocations.size} in use)`);
+      opts.log?.(`relay: ${client.key} got ${relayIp}:${relayPort} (${allocations.size} in use)`);
       return ok([
-        [A.XOR_RELAYED_ADDRESS, xorAddress(relayIp, relay.address().port, m.header)!],
+        [A.XOR_RELAYED_ADDRESS, xorAddress(relayIp, relayPort, m.header)!],
         [A.LIFETIME, u32(LIFETIME)],
         [A.XOR_MAPPED_ADDRESS, xorAddress(client.ip, client.port, m.header)!]
       ]);
@@ -323,7 +347,7 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
     const peers = m.attrs.filter(a => a.type === A.XOR_PEER_ADDRESS).map(a => unxorAddress(a.value, m.header));
     if (!peers.length || peers.some(p => !p)) return error(400, 'Bad Request');
     // Other clients of this relay are reached at its own address
-    if (peers.some(p => p!.ip !== existing.relayIp && !opts.peerAllowed(p!.ip))) return error(403, 'Forbidden');
+    if (peers.some(p => virtual ? p!.ip !== virtual.remote.ip : p!.ip !== existing.relayIp && !opts.peerAllowed(p!.ip))) return error(403, 'Forbidden');
 
     if (m.type === CREATE_PERMISSION) {
       for (const p of peers) existing.permissions.set(p!.ip, now() + PERMISSION);
@@ -333,6 +357,7 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
     const number = get(A.CHANNEL_NUMBER);
     const channel = number ? new DataView(number.value.buffer, number.value.byteOffset).getUint16(0) : 0;
     const peer = peers[0]!;
+    if (virtual && peer.port !== virtual.remote.port) return error(403, 'Forbidden');
     const peerKey = `${peer.ip}:${peer.port}`;
     if (channel < 0x4000 || channel > 0x7ffe) return error(400, 'Bad Request');
     const boundTo = existing.channels.get(channel), boundAs = existing.byPeer.get(peerKey);
@@ -343,22 +368,28 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
     return ok();
   }
 
-  // UDP: one message per packet
-  const udp = dgram.createSocket(net.isIPv4(opts.bind) ? 'udp4' : 'udp6');
-  udp.on('message', (msg, from) => {
-    const ip = v4(from.address);
-    handle(msg, { key: `udp:${ip}:${from.port}`, ip, port: from.port, local: null, send: bytes => udp.send(bytes, from.port, from.address) }).catch(() => {});
-  });
-  const port = await new Promise<number>((resolve, reject) => {
-    udp.once('error', reject);
-    udp.bind(opts.port, opts.bind, () => { udp.removeAllListeners('error'); udp.on('error', () => {}); resolve(udp.address().port); });
-  });
+  // The public proxy supports both transports. The local listener only needs TCP.
+  const udp = virtual ? null : dgram.createSocket(net.isIPv4(opts.bind) ? 'udp4' : 'udp6');
+  let port = opts.port;
+  if (udp) {
+    udp.on('message', (msg, from) => {
+      const ip = v4(from.address);
+      handle(msg, { key: `udp:${ip}:${from.port}`, ip, port: from.port, local: null, send: bytes => udp.send(bytes, from.port, from.address) }).catch(() => {});
+    });
+    port = await new Promise<number>((resolve, reject) => {
+      udp.once('error', reject);
+      udp.bind(opts.port, opts.bind, () => { udp.removeAllListeners('error'); udp.on('error', () => {}); resolve(udp.address().port); });
+    }).catch(err => { clearInterval(sweep); throw err; });
+  }
 
   // TCP, for browsers and networks that allow no UDP: the same messages, one after another, padded to 4 bytes
+  const clients = new Set<net.Socket>();
   const tcp = net.createServer(socket => {
+    clients.add(socket);
     const ip = v4(socket.remoteAddress ?? ''), remotePort = socket.remotePort ?? 0;
     const client: Client = {
       key: `tcp:${ip}:${remotePort}`, ip, port: remotePort, local: socket.localAddress ? v4(socket.localAddress) : null,
+      closed: () => socket.destroyed,
       send: bytes => {
         if (socket.destroyed) return;
         // A slow reader must not grow our memory; it loses packets instead, like on UDP
@@ -384,22 +415,34 @@ export async function startTurn(opts: TurnOptions, secret: string): Promise<{ po
       }
     });
     socket.on('error', () => {});
-    socket.on('close', () => { const a = allocations.get(client.key); if (a) free(a); });
+    socket.on('close', () => {
+      clients.delete(socket);
+      const a = allocations.get(client.key);
+      if (a?.client === client) free(a);
+    });
   });
   if (opts.relay) {
-    await new Promise<void>(resolve => {
-      // Relaying over UDP still works without the TCP port
-      tcp.once('error', () => resolve());
-      tcp.listen({ port, host: opts.bind }, () => { tcp.removeAllListeners('error'); tcp.on('error', () => {}); resolve(); });
-    });
+    await new Promise<void>((resolve, reject) => {
+      // The public relay can run with UDP alone. The loopback relay needs TCP.
+      tcp.once('error', virtual ? reject : () => resolve());
+      tcp.listen({ port, host: opts.bind }, () => {
+        tcp.removeAllListeners('error');
+        tcp.on('error', () => {});
+        port = (tcp.address() as net.AddressInfo).port;
+        resolve();
+      });
+    }).catch(err => { clearInterval(sweep); throw err; });
   }
 
   return {
     port,
     close() {
+      if (closed) return;
+      closed = true;
       clearInterval(sweep);
       for (const a of [...allocations.values()]) free(a);
-      try { udp.close(); } catch { /* already closed */ }
+      try { udp?.close(); } catch { /* already closed */ }
+      for (const socket of clients) socket.destroy();
       tcp.close();
     }
   };

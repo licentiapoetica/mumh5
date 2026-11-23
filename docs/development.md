@@ -68,7 +68,7 @@ test/       unit, server and end-to-end tests
 
 ## Design notes
 
-- [mumpeer-relay.md](mumpeer-relay.md): Mumcord's community relay (mumpeer and the `mumbot peer` bot), its protocol, and a plan for carrying mumh5's screen sharing through it. Not implemented yet.
+- [mumpeer-relay.md](mumpeer-relay.md) covers desktop screen sharing through a community relay, its protocol, and the integration test.
 
 ## README screenshots
 

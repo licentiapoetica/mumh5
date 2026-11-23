@@ -22,6 +22,7 @@
   const deafened = $derived(self ? self.selfDeaf : sessions.deaf);
 
   // Sharing runs on one server at a time, one stream at a time; the buttons stop it from anywhere
+  const canShareScreen = $derived(session.status === 'connected' && share.screenSupported(sessions.active));
   const canShare = $derived(session.status === 'connected' && share.supported(sessions.active));
   function toggleShare() {
     if (share.screenOn) share.stop();
@@ -109,7 +110,7 @@
         </button>
       {:else if item === 'screen'}
         <button class="icon-btn" data-tool={index} class:live={share.screenOn} title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
-          aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'} disabled={!share.screenOn && (!canShare || share.cameraOn)} onclick={toggleShare}>
+          aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'} disabled={!share.screenOn && (!canShareScreen || share.cameraOn)} onclick={toggleShare}>
           <Icon name="screen" size={18} />
         </button>
       {:else if item === 'profile'}

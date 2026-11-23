@@ -17,6 +17,8 @@ export interface SavedServer {
   autoConnect?: boolean;   // connect when the app starts; off unless chosen
 }
 
+export type ScreenShareRoute = 'standard' | 'fallback' | 'relay-only' | 'direct-only' | 'off';
+
 export interface Settings {
   embedHosts: string[];    // hosts whose media links render inline
   mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
@@ -52,6 +54,7 @@ export interface Settings {
   cameraFps: number;
   cameraMirror: boolean;  // show our own camera mirrored to ourselves, never to others
   shareVolume: number;    // volume of streams we watch, 0 to 1
+  screenShareRoute: ScreenShareRoute;
   relayServer: string;    // a mumh5 web proxy whose STUN and relay to use for screen sharing
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
   shareNoticeSeen: boolean; // the note that screen sharing reveals IP addresses was confirmed
@@ -128,6 +131,7 @@ const defaults: Settings = {
   cameraFps: 30,
   cameraMirror: true,
   shareVolume: 1,
+  screenShareRoute: 'standard',
   relayServer: '',
   stunServer: '',
   shareNoticeSeen: false,
@@ -161,7 +165,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   railHidden: 'kept',
   interface: 'appearance.interface',
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
-  shareQuality: 'sharing', shareVolume: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
+  shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',
   hints: 'accessibility',
   updateCheck: 'about',
@@ -182,6 +186,13 @@ class SettingsStore {
   servers = $state<SavedServer[]>(loadList('mumh5.servers'));
   // Pinned sha256 fingerprints of server certificates, keyed by host:port (trust on first use)
   pins = $state<Record<string, string>>(load('mumh5.pins', {}));
+  mumpeerPins = $state<Record<string, string>>(load('mumh5.mumpeerPins', {}));
+
+  setMumpeerPin(key: string, pin: string | null): void {
+    if (pin) this.mumpeerPins[key] = pin;
+    else delete this.mumpeerPins[key];
+    save('mumh5.mumpeerPins', $state.snapshot(this.mumpeerPins));
+  }
   // Channel passwords that worked (Mumble access tokens), keyed by host:port
   tokens = $state<Record<string, string[]>>(load('mumh5.tokens', {}));
   // Username to suggest when connecting with an identity, keyed by identity id

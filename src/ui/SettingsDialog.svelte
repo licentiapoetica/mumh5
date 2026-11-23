@@ -192,6 +192,17 @@
   {:else if tab === 'video'}
     <VideoSettings />
   {:else if tab === 'sharing'}
+    {#if desktop}
+      <label for="s-share-route">Screen sharing connection</label>
+      <select id="s-share-route" bind:value={s.screenShareRoute} onchange={() => store.saveSettings()}>
+        <option value="standard">Automatic (existing STUN and TURN settings)</option>
+        <option value="fallback">Automatic, with mumpeer fallback</option>
+        <option value="relay-only">Mumpeer only (hide my IP from the other person)</option>
+        <option value="direct-only">Direct only</option>
+        <option value="off">Off</option>
+      </select>
+      <p class="help">Mumpeer uses a relay announced by your Mumble server’s bot. Both desktop users must enable it. The relay operator can see your IP address. Changing this setting ends active screen shares.</p>
+    {/if}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
       <option value="">{isWeb ? 'This site\'s own server' : 'None (same network only)'}</option>

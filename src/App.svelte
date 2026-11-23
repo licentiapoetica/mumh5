@@ -46,6 +46,17 @@
     untrack(() => { void chatHistory.configure(enabled, hours); });
   });
 
+  let lastShareRoute = store.settings.screenShareRoute;
+  $effect(() => {
+    const route = store.settings.screenShareRoute;
+    if (!desktop || route === lastShareRoute) return;
+    lastShareRoute = route;
+    untrack(() => {
+      share.screenPolicyChanged();
+      for (const server of sessions.list) server.mumpeer.policyChanged();
+    });
+  });
+
   let width = $state(window.innerWidth);
   // wide: rail + sidebar + chat + panel; medium: panel as an overlay; narrow: everything but chat in drawers
   const layout = $derived(width >= 1100 ? 'wide' : width >= 760 ? 'medium' : 'narrow');

@@ -1,3 +1,5 @@
+import type { RelayEndpoint } from '../core/mumpeer-signal.ts';
+import type { LocalTurn } from '../../electron/mumpeer.ts';
 import { HeldData, type Transport, type ServerCertInfo, type CertDetails, type UdpChannel } from '../core/transport.ts';
 import type { LoadedSoundSettings, SoundSettings } from '../core/sound-events.ts';
 import { webApi, openWebTransport } from './web.svelte.ts';
@@ -68,7 +70,11 @@ interface NativeApi extends PlatformApi {
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;
-  on(event: 'secure' | 'data' | 'close' | 'udpVoice' | 'udpState' | 'udpResync', fn: (connId: string, ...args: any[]) => void): () => void;
+  relayOpen(connId: string, rid: string, endpoint: RelayEndpoint, token: string, lowSide: boolean): Promise<void>;
+  relayTurn(connId: string, rid: string, lane: number): Promise<LocalTurn>;
+  relayCloseLane(connId: string, rid: string, lane: number): void;
+  relayClose(connId: string, rid: string): void;
+  on(event: 'relayClose' | 'secure' | 'data' | 'close' | 'udpVoice' | 'udpState' | 'udpResync', fn: (connId: string, ...args: any[]) => void): () => void;
   udpSetup(connId: string, key: Uint8Array, cn: Uint8Array, sn: Uint8Array, protobuf: boolean): void;
   udpNonce(connId: string, sn: Uint8Array): void;
   udpSend(connId: string, bytes: Uint8Array): void;
@@ -172,6 +178,18 @@ export class ElectronTransport implements Transport {
       })
     );
     api.open(id, host, port, identityId).catch(e => rejectSecure(e));
+  }
+
+  relayOpen(rid: string, endpoint: RelayEndpoint, token: string, lowSide: boolean): Promise<void> {
+    return this.api.relayOpen(this.id, rid, endpoint, token, lowSide);
+  }
+
+  relayTurn(rid: string, lane: number): Promise<LocalTurn> { return this.api.relayTurn(this.id, rid, lane); }
+  relayCloseLane(rid: string, lane: number): void { this.api.relayCloseLane(this.id, rid, lane); }
+  relayClose(rid: string): void { this.api.relayClose(this.id, rid); }
+
+  onRelayClose(fn: (rid: string, reason: string) => void): () => void {
+    return this.api.on('relayClose', (id, rid, reason) => { if (id === this.id) fn(rid, reason); });
   }
 
   send(bytes: Uint8Array): void { this.api.send(this.id, bytes); }

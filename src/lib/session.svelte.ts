@@ -1,6 +1,7 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, PERM, describeDenial, type Channel, type ChannelAcl, type User, type TextMessage } from '../core/client.ts';
-import { native, desktop, openTransport } from './native.ts';
+import { native, desktop, openTransport, ElectronTransport } from './native.ts';
+import { MumpeerSession } from './mumpeer.svelte.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
 import { chatHistory, type SavedMessage } from './chat-history.ts';
@@ -81,6 +82,7 @@ export type Panel =
 let nextId = 1;
 
 export class Session {
+  readonly mumpeer = new MumpeerSession(this);
   status = $state<'idle' | 'connecting' | 'connected'>('idle');
   error = $state('');
   server = $state<SavedServer | null>(null);
@@ -517,6 +519,7 @@ export class Session {
     const client = new MumbleClient(codec);
     client.forceTcp = voice.settings.forceTcp;
     this.client = client;
+    this.mumpeer.attach(transport instanceof ElectronTransport ? transport : null);
     this.wire(client);
     // TLS is up but the server may still never finish the login
     setTimeout(() => { if (this.client === client && !client.synced) client.disconnect('Login timed out'); }, 20000);
@@ -561,6 +564,7 @@ export class Session {
     client?.disconnect();
     chatHistory.closed(this);
     share.closed(this);
+    this.mumpeer.close();
     textChannels.closed(this);
     files.closed(this);
     reactions.closed(this);
@@ -653,12 +657,14 @@ export class Session {
       }
       // Your picture, kept on this device (servers drop it when you leave unless you are registered)
       ownAvatar.loaded.then(() => { if (live() && ownAvatar.bytes) this.sendPicture(ownAvatar.bytes); });
+      this.mumpeer.hello();
       share.entered(this);
       textChannels.entered(this);
       bump();
     });
     client.on('pluginData', (sender, dataId, data) => {
       if (!live()) return;
+      this.mumpeer.receive(sender, dataId, data);
       share.receive(this, sender, dataId, data);
       textChannels.receive(this, sender, dataId, data);
       files.receive(this, sender, dataId, data);
@@ -726,6 +732,7 @@ export class Session {
         confirmUserMove(this.userMove, user.session, user.channelId);
         this.updateUserMove();
       }
+      this.mumpeer.userChanged(user, !!isNew);
       chatHistory.userChanged(this, user);
       const self = client.self;
       if (changed.includes('comment') && user.commentHash) this.requested.delete(commentTag(user.session, user.commentHash));
@@ -803,6 +810,7 @@ export class Session {
         this.noRetry = true;
       }
       const self = client.self;
+      this.mumpeer.userLeft(user.session);
       share.userMoved(this, user, true);
       textChannels.userLeft(this, user.session);
       files.userLeft(this, user.session);
@@ -909,6 +917,7 @@ export class Session {
       this.client = null;
       chatHistory.closed(this);
       share.closed(this);
+      this.mumpeer.close();
       this.sharing = {};
       textChannels.closed(this);
       files.closed(this);

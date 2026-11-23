@@ -11,6 +11,7 @@
   // Without a connection the buttons show the remembered choice, applied at the next connect
   const muted = $derived(self ? self.selfMute : sessions.mute);
   const deafened = $derived(self ? self.selfDeaf : sessions.deaf);
+  const canShareScreen = $derived(session.status === 'connected' && share.screenSupported(sessions.active));
   const canShare = $derived(session.status === 'connected' && share.supported(sessions.active));
 
   function quick(e: MouseEvent, kind: 'input' | 'output') {
@@ -40,7 +41,7 @@
       <Icon name="camera" size={24} />
       <span>{share.cameraOn ? 'Camera on' : 'Camera'}</span>
     </button>
-    <button class:live={share.screenOn} disabled={!share.screenOn && (!canShare || share.cameraOn)} aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'}
+    <button class:live={share.screenOn} disabled={!share.screenOn && (!canShareScreen || share.cameraOn)} aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'}
       title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
       onclick={() => (share.screenOn ? share.stop() : share.start(sessions.active))}>
       <Icon name="screen" size={24} />

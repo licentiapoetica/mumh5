@@ -216,3 +216,47 @@ test('STUN only: binding is answered, allocation is ignored', async () => {
     turn.close();
   }
 });
+
+test('virtual TURN advertises its allocated address and forwards only to the paired endpoint', async () => {
+  const local = { ip: '192.0.2.1', port: 40000 };
+  const remote = { ip: '192.0.2.2', port: 40000 };
+  let receive: ((data: Uint8Array) => void) | undefined;
+  const outgoing: Uint8Array[] = [];
+  const turn = await startTurn(options({ maxAllocations: 1 }), SECRET, {
+    local, remote, send: bytes => outgoing.push(bytes), receive: fn => {
+      receive = fn;
+      return () => { receive = undefined; };
+    }
+  });
+  const client = await connect(turn.port, 'tcp');
+  try {
+    const { relay, auth, key } = await allocate(client);
+    assert.deepEqual(relay, local);
+    const address = (h: Uint8Array, ip = remote.ip, port = remote.port): [number, Uint8Array] =>
+      [0x0012, xorAddress(ip, port, h)!];
+    let h = header();
+    client.send(build(0x0008, h, [address(h, local.ip), ...auth], key));
+    assert.equal(code(parse(await client.next())!), 403);
+    h = header();
+    client.send(build(0x0008, h, [address(h), ...auth], key));
+    assert.equal(parse(await client.next())?.type, 0x0108);
+    h = header();
+    client.send(build(0x0016, h, [address(h, remote.ip, remote.port + 1), [0x0013, text('wrong port')]]));
+    h = header();
+    client.send(build(0x0016, h, [address(h), [0x0013, text('right port')]]));
+    h = header();
+    // An answered request guarantees earlier TCP frames have been processed.
+    client.send(build(0x0008, h, [address(h), ...auth], key));
+    assert.equal(parse(await client.next())?.type, 0x0108);
+    assert.deepEqual(outgoing.map(bytes => new TextDecoder().decode(bytes)), ['right port']);
+    receive!(text('from the pair'));
+    const incoming = parse(await client.next())!;
+    assert.equal(incoming.type, 0x0017);
+    assert.deepEqual(unxorAddress(attr(incoming, 0x0012)!, incoming.header), remote);
+    assert.equal(new TextDecoder().decode(attr(incoming, 0x0013)), 'from the pair');
+  } finally {
+    client.close();
+    turn.close();
+  }
+  assert.equal(receive, undefined);
+});

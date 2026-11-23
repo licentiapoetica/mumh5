@@ -308,6 +308,8 @@
               {@const kind = session.sharing[u.session]}
               {#if isSelf}
                 <span class="state sharing" title="You are sharing your {kind}"><Icon name={kind} size={14} /></span>
+              {:else if kind === 'screen' && !share.screenSupported(sessions.active)}
+                <span class="state sharing" title="Screen sharing is off"><Icon name={kind} size={14} /></span>
               {:else}
                 <!-- A button cannot sit inside the row's button -->
                 <span class="state sharing" role="button" tabindex="0" title="Sharing their {kind}. Click to watch" aria-label="Watch the {kind} of {store.displayName(u)}"

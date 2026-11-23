@@ -1,6 +1,8 @@
 // Screen-share signalling between mumh5 clients, carried as Mumble plugin data so it works on
 // any server and other clients ignore it. Murmur drops plugin data over 1000 bytes, so session
 // descriptions are compressed and split into chunks.
+import { isRequestId } from './mumpeer-signal.ts';
+
 export const SHARE_DATA_ID = 'mumh5.share';
 
 export const SHARE = {
@@ -10,9 +12,48 @@ export const SHARE = {
   watch: 4,   // let me watch
   leave: 5,   // I stopped watching
   offer: 6,   // session description from the sharer
-  answer: 7   // session description from the viewer
+  answer: 7,  // session description from the viewer
+  flow: 8     // negotiated route and attempt-scoped signaling
 } as const;
 export type ShareType = typeof SHARE[keyof typeof SHARE];
+
+export interface ShareWatchRequest { id: string; relay: string; only: boolean; direct: boolean }
+export type ShareRoute = 'standard' | 'direct' | 'mumpeer';
+export type ShareFlow = { t: 'offer'; id: string; route: ShareRoute; sdp: string; fallback: boolean }
+  | { t: 'answer'; id: string; route: ShareRoute; sdp: string }
+  | { t: 'fallback' | 'relay'; id: string }
+  | { t: 'error'; id: string; reason: string };
+
+function message(text: string | undefined): (Record<string, unknown> & { id: string }) | null {
+  if (!text) return null;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' && value.v === 1 && isRequestId(value.id) ? value : null;
+  } catch { return null; }
+}
+
+export function decodeWatchRequest(text: string | undefined): ShareWatchRequest | null {
+  const msg = message(text);
+  if (!msg || typeof msg.only !== 'boolean' || typeof msg.direct !== 'boolean' || (msg.only && msg.direct)) return null;
+  if (typeof msg.relay !== 'string' || (msg.relay !== '' && !/^[0-9a-f]{40}:[0-9a-f]{64}$/.test(msg.relay))) return null;
+  return { id: msg.id, relay: msg.relay, only: msg.only, direct: msg.direct };
+}
+
+export function decodeShareFlow(text: string | undefined): ShareFlow | null {
+  const msg = message(text);
+  if (!msg) return null;
+  if (msg.t === 'error' && typeof msg.reason === 'string' && msg.reason.length <= 180) {
+    return { t: msg.t, id: msg.id, reason: msg.reason };
+  }
+  if (msg.t === 'fallback' || msg.t === 'relay') return { t: msg.t, id: msg.id };
+  if (msg.route !== 'standard' && msg.route !== 'direct' && msg.route !== 'mumpeer') return null;
+  if (typeof msg.sdp !== 'string' || !msg.sdp) return null;
+  if (msg.t === 'answer') return { t: msg.t, id: msg.id, route: msg.route, sdp: msg.sdp };
+  if (msg.t === 'offer' && typeof msg.fallback === 'boolean') {
+    return { t: msg.t, id: msg.id, route: msg.route, sdp: msg.sdp, fallback: msg.fallback };
+  }
+  return null;
+}
 
 const CHUNK = 900;
 const MAX_CHUNKS = 32;
