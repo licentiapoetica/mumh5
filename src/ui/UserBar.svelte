@@ -162,6 +162,7 @@
   .me.toolbar .you { flex: 1 1 0; min-width: 32px; display: flex; justify-content: flex-end; margin-left: 8px; }
   .me.toolbar .you .profile { max-width: 100%; gap: 8px; padding: 2px 4px; }
   .me.toolbar .you .who { text-align: right; }
+  .me.toolbar .you .who strong { font-size: 13px; font-weight: 500; }
   .me.inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 6px 16px; }
   .me.inline .profile, .me.inline .offline-who { flex: 0 1 220px; }
   .me.inline .tools { justify-content: flex-start; gap: 2px; }
