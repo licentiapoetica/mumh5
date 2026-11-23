@@ -30,7 +30,9 @@
   const here = $derived(session.self?.channelId === channel.id);
   // Read and written without joining: a click opens its chat
   const isText = $derived(session.isText(channel.id));
-  const selected = $derived(isText ? session.view === `ch:${channel.id}` : session.selectedChannel === channel.id || (session.panel.kind === 'channel' && session.panel.id === channel.id && ui.panelOpen));
+  // Without a tab strip the tree is the only place that shows which text channel is open
+  const viewing = $derived(isText && !ui.chatTabs && session.view === `ch:${channel.id}`);
+  const selected = $derived((!isText && session.selectedChannel === channel.id) || (session.panel.kind === 'channel' && session.panel.id === channel.id && ui.panelOpen));
   const unread = $derived(session.unread[`ch:${channel.id}`] ?? 0);
   const total = $derived(session.subtreeUserCount(channel.id));
 
@@ -131,6 +133,8 @@
         const el = e.currentTarget as HTMLElement;
         const selection = session.selectedUsers;
         clearTimeout(timer);
+        // Your own channel's chat returns at once: a double click there only picks the same chat again
+        if (here && session.view !== `ch:${channel.id}`) { session.selectedChannel = channel.id; session.selectView(`ch:${channel.id}`); onnavigate(); return; }
         timer = setTimeout(() => { if (selection === session.selectedUsers) single(el); }, 220);
       },
       ondblclick: () => { clearTimeout(timer); double(); }
@@ -227,7 +231,7 @@
 
 <!-- Behind an open channel is below its people and subchannels; the line is drawn there -->
 <li class:after-end={zone === 'after' && open} style:--indent="{8 + depth * 14}px" style:--d={depth}>
-  <div class="row channel" data-menu-row class:is-root={lines && channel.id === 0} class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
+  <div class="row channel" data-menu-row class:is-root={lines && channel.id === 0} class:here class:selected class:viewing class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
     style:padding-left="{8 + depth * 14}px"
     oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
     ondragover={onDragOver}
@@ -368,6 +372,8 @@
   .channel.after::before, li.after-end::before { bottom: -2px; }
   .channel.after::after, li.after-end::after { bottom: -6px; }
   .channel.before, .channel.after, .channel.target { background: var(--bg-hover); color: var(--text); }
+  .channel.viewing { box-shadow: inset 3px 0 0 var(--accent); }
+  .channel.viewing .label { color: var(--text); font-weight: 600; }
   .channel.here .label { color: var(--text); font-weight: 600; }
   .caret { width: 14px; flex: none; display: inline-flex; justify-content: center; color: var(--text-faint); }
   .caret.collapsed svg { transform: rotate(-90deg); }

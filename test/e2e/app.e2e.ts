@@ -2233,6 +2233,15 @@ try {
     await page.locator('.chat .msg', { hasText: 'text hello' }).waitFor();
     console.log('ok: text channel created, opened without joining, message reaches others');
 
+    // Narrow: the text channel is a tab beside the voice channel's, which keeps its own tab
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.locator('.chat-tab [role="tab"]', { hasText: 'notes' }).waitFor();
+    assert.equal(await page.locator('.chat-tab [role="tab"]').first().locator('.name').textContent(), voiceChannel, 'first tab stays on the voice channel');
+    await page.locator('.chat-tab', { hasText: 'notes' }).locator('.close').click();
+    assert.equal(await page.locator('.chat-tab', { hasText: 'notes' }).count(), 0);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    console.log('ok: text channel as a closable tab next to the voice channel tab');
+
     // Files go into text channels too, announced with a preview that fits a text channel message
     const notePng = path.join(userData, 'note.png');
     writeFileSync(notePng, testPng(800, 600));

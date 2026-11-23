@@ -19,7 +19,7 @@
   const mine = $derived(!isDm && session.self?.channelId === id);
   const title = $derived(connected ? session.viewTitle() : 'Chat');
   const topic = $derived(isDm || !connected ? '' : channelTopic(session.channel(id)?.description ?? ''));
-  const kind = $derived(isDm ? 'Direct message' : isText ? 'Text channel' : mine ? 'Your room' : 'Room you are not in');
+  const kind = $derived(isDm ? 'Direct message' : isText ? 'Text channel, everyone on the server' : mine ? 'Your room' : 'Room you are not in');
 
   function more(e: MouseEvent) {
     if (isDm) {
@@ -37,7 +37,7 @@
   <header>
     {#if back}<button class="icon-btn" aria-label="Back to rooms" onclick={onback}><Icon name="back" /></button>{/if}
     <div class="title">
-      <h1><Icon name={isDm ? 'message' : 'hash'} size={18} />{title}</h1>
+      <h1><Icon name={isDm ? 'message' : isText ? 'hash' : 'volume'} size={18} />{title}</h1>
       {#if connected}<span title={topic}>{kind}{topic ? `. ${topic}` : ''}</span>{/if}
     </div>
     {#if connected}<button class="icon-btn" aria-label="More for {title}" onclick={more}><Icon name="more" /></button>{/if}

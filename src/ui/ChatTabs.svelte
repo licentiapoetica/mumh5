@@ -1,6 +1,8 @@
 <script module lang="ts">
   // Per server: the channel chat the first tab returns to after a private chat
   const lastChannel = $state<Record<string, `ch:${number}`>>({});
+// Per server: text channels opened as tabs (closing a tab only hides it)
+const openText = $state<Record<string, number[]>>({});
 </script>
 
 <script lang="ts">
@@ -51,10 +53,23 @@
   const serverId = $derived(session.server?.id ?? '');
   $effect(() => {
     const view = session.view;
-    if (view.startsWith('ch:') && serverId) lastChannel[serverId] = view as `ch:${number}`;
+    if (!view.startsWith('ch:') || !serverId) return;
+    const id = Number(view.slice(3));
+    if (session.isText(id)) {
+      const list = openText[serverId] ?? [];
+      if (!list.includes(id)) openText[serverId] = [...list, id];
+    } else lastChannel[serverId] = view as `ch:${number}`;
   });
+  // Channels that stopped being text channels or were removed lose their tab
+  const texts = $derived((openText[serverId] ?? []).filter(id => session.channel(id) && session.isText(id))
+    .map(id => ({ key: `ch:${id}` as `ch:${number}`, id, name: session.viewTitle(`ch:${id}`) })));
+  function closeText(id: number) {
+    openText[serverId] = (openText[serverId] ?? []).filter(x => x !== id);
+    delete session.unread[`ch:${id}`];
+    if (session.view === `ch:${id}`) session.selectView(channelKey);
+  }
   const channelKey = $derived.by((): `ch:${number}` => {
-    if (session.view.startsWith('ch:')) return session.view as `ch:${number}`;
+    if (session.view.startsWith('ch:') && !session.isText(Number(session.view.slice(3)))) return session.view as `ch:${number}`;
     const kept = lastChannel[serverId];
     return kept && session.channel(Number(kept.slice(3))) ? kept : `ch:${session.self?.channelId ?? 0}`;
   });
@@ -72,18 +87,29 @@
   ]);
 </script>
 
-<!-- Stacked layout always names the channel here; other layouts need tabs for private chats. -->
-{#if session.status === 'connected' && (always || dms.length)}
+<!-- Order: your voice channel's chat, open text channels, private chats. Stacked layout always shows it. -->
+{#if session.status === 'connected' && (always || dms.length || texts.length)}
   <div class="tabs-wrap" class:clear={mode === 'chat'} class:own={mode === 'tree'} class:seam data-background bind:this={bar}>
   {#if mode === 'tree'}<Background area="tree" reach={seam ? undefined : listH || undefined} />{/if}
   <div class="chat-tabs" role="tablist" aria-label="Open chats" bind:this={strip}>
     <div class="chat-tab" class:active={session.view === channelKey}>
       <button role="tab" aria-selected={session.view === channelKey} onclick={() => session.selectView(channelKey)}>
-        <Icon name="hash" size={16} />
+        <Icon name="volume" size={16} />
         <span class="name">{session.viewTitle(channelKey)}</span>
         {#if session.unread[channelKey]}<span class="badge">{session.unread[channelKey]}</span>{/if}
       </button>
     </div>
+    {#each texts as t (t.key)}
+      <div class="chat-tab" class:active={session.view === t.key} role="presentation"
+        onauxclick={e => { if (e.button === 1) closeText(t.id); }}>
+        <button role="tab" aria-selected={session.view === t.key} title="Text channel: {t.name}" onclick={() => session.selectView(t.key)}>
+          <Icon name="hash" size={16} />
+          <span class="name">{t.name}</span>
+          {#if session.unread[t.key]}<span class="badge">{session.unread[t.key]}</span>{/if}
+        </button>
+        <button class="close" title="Close tab" aria-label="Close tab for {t.name}" onclick={() => closeText(t.id)}><Icon name="x" size={14} /></button>
+      </div>
+    {/each}
     {#each dms as dm (dm.key)}
       <div class="chat-tab" class:active={session.view === dm.key} role="presentation"
         oncontextmenu={e => dmMenu(e, dm.key)}

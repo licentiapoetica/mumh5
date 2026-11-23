@@ -32,6 +32,7 @@
   import { identities } from './lib/identities.svelte.ts';
   import { session, sessions } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
+  import { desktop } from './lib/native.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
   import { applyThemeStyle, isCustomTheme } from './lib/custom-themes.ts';
   import { studio } from './lib/theme-studio.svelte.ts';
@@ -74,6 +75,7 @@
   // The phone drawer holds the server list and the channels together, hidden or not
   // Private chats: tabs above the chat where the channel list is not always beside it, a list in it otherwise
   const chatTabs = $derived(arrangement === 'stacked' || layout === 'narrow');
+  $effect(() => { ui.chatTabs = chatTabs; });
   const inDrawer = $derived(layout === 'narrow' && arrangement === 'side' && !home);
   // Home on request lies over the server view: unmounting it would lose drafts and stop stream audio
   const homeOver = $derived(sessions.homeShown && !home);
@@ -89,11 +91,23 @@
   });
 
   // Servers marked to connect at start, once the identities are ready (not during first-run setup)
+  // Test clients (MUMH5_TEST_SERVER=host:port): that server is always saved and joined at start
+  function seedTestServer() {
+    const m = /^(.+):(\d+)$/.exec(desktop?.testServer ?? '');
+    if (!m) return;
+    const [, host, port] = m;
+    const known = store.servers.find(s => s.host === host && s.port === Number(port));
+    if (known?.autoConnect && known.username) return;
+    store.upsertServer({ id: crypto.randomUUID(), label: 'Local test', username: 'tester', password: '', ...known, host, port: Number(port), autoConnect: true });
+  }
   let started = false;
   $effect(() => {
     if (started || !identities.loaded || !identities.setupDone) return;
     started = true;
-    untrack(() => sessions.connectOnStart(store.servers));
+    untrack(() => {
+      seedTestServer();
+      sessions.connectOnStart(store.servers);
+    });
   });
 
   // Color scheme on the root element; dark is the stylesheet default

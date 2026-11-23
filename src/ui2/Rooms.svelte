@@ -179,11 +179,11 @@
             {@const open = isOpen(c.id)}
             {@const key = `ch:${c.id}` as const}
             <li class="room" class:here class:open class:empty={!users.length}>
-              <div class="entry" data-menu-row class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
+              <div class="entry" data-menu-row class:viewing={here && session.view === key} class:drop-target={dropRoom === c.id && drag.item?.kind === 'user'} role="presentation" oncontextmenu={e => menu.show(e, channelMenu(c))}
                 ondragover={e => { if (canDrop(c.id)) { e.preventDefault(); dropRoom = c.id; } }}
                 ondragleave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropRoom = null; }}
                 ondrop={e => dropUsers(e, c.id)}>
-                <button class="main" aria-expanded={open} onclick={() => (opened[c.id] = !open)}>
+                <button class="main" aria-expanded={open} onclick={() => (here && session.view !== key ? openChat(key) : (opened[c.id] = !open))}>
                   <span class="text">
                     <span class="name">{#if !c.canEnter}<Icon name="lock" size={14} />{/if}{c.name || 'Root'}</span>
                     {#if r.path}<span class="sub">in {r.path}</span>{/if}
