@@ -642,14 +642,31 @@ try {
   await page.locator('.me').getByRole('button', { name: 'Unmute', exact: true }).waitFor();
 
   // Right-click on mute / deafen opens quick audio options
-  await page.locator('.me').getByRole('button', { name: 'Unmute', exact: true }).click({ button: 'right' });
+  const micButton = page.locator('.me').getByRole('button', { name: 'Unmute', exact: true });
+  await micButton.click({ button: 'right' });
   const micPop = page.getByRole('dialog', { name: 'Microphone' });
   await micPop.getByLabel('Microphone').waitFor();
   await micPop.getByRole('radio', { name: 'Always on' }).waitFor();
+  const under = { button: (await micButton.boundingBox())!, pop: (await micPop.boundingBox())! };
+  assert.ok(under.pop.y >= under.button.y + under.button.height, 'quick audio opens under the button');
+  // Lit while its popup is open, with the pointer elsewhere
+  await page.mouse.move(under.pop.x + 5, under.pop.y + 5);
+  const micHandle = await micButton.elementHandle();
+  await page.waitForFunction(b => getComputedStyle(b as Element).backgroundColor !== 'rgba(0, 0, 0, 0)', micHandle);
   await micPop.getByLabel(/Input volume/).fill('1.5');
   await micPop.getByText('Input volume: 150%').waitFor();
   await page.keyboard.press('Escape');
   await micPop.waitFor({ state: 'detached' });
+  await page.waitForFunction(b => getComputedStyle(b as Element).backgroundColor === 'rgba(0, 0, 0, 0)', micHandle);
+  // No room below: it opens above instead of covering the button
+  await micButton.evaluate((b: HTMLElement) => { b.style.position = 'fixed'; b.style.bottom = '0'; b.style.zIndex = '150'; });
+  await micButton.click({ button: 'right' });
+  await micPop.getByLabel('Microphone').waitFor();
+  const over = { button: (await micButton.boundingBox())!, pop: (await micPop.boundingBox())! };
+  assert.ok(over.pop.y + over.pop.height <= over.button.y, 'quick audio opens above a button at the bottom');
+  await page.keyboard.press('Escape');
+  await micPop.waitFor({ state: 'detached' });
+  await micButton.evaluate((b: HTMLElement) => { b.style.position = b.style.bottom = b.style.zIndex = ''; });
   await page.locator('.me').getByRole('button', { name: 'Deafen', exact: true }).click({ button: 'right' });
   const outPop = page.getByRole('dialog', { name: 'Output' });
   await outPop.getByLabel('Output device').waitFor();
