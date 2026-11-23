@@ -9,6 +9,7 @@
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
+  import { normalizeToolbar, visibleToolbarItems } from '../core/toolbar.ts';
 
   // You and your buttons, under the channel list and on the start screen.
   // toolbar: the buttons in one row along the top (stacked layout, like the desktop client), you at the far end
@@ -34,10 +35,25 @@
     session.setAllExpanded(!allOpen);
   }
 
+  // The server button stays first: with the rail hidden it is the way back to it
+  const serverButton = $derived(toolbar && store.settings.railHidden);
+  const items = $derived(visibleToolbarItems(normalizeToolbar(store.settings.toolbar), serverButton));
+
+  function editRequest(e: MouseEvent) {
+    const at = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-tool]') : null;
+    return { x: e.clientX, y: e.clientY, index: at ? Number(at.dataset.tool) : null, spacers: toolbar || inline };
+  }
+
+  function customize(e: MouseEvent) {
+    if (e.defaultPrevented) return; // mute and deafen have their own popup
+    e.preventDefault();
+    ui.toolbarEdit = editRequest(e);
+  }
+
   function openQuick(e: MouseEvent, kind: 'input' | 'output') {
     e.preventDefault();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    ui.quickAudio = { kind, x: r.left + r.width / 2, y: r.top };
+    ui.quickAudio = { kind, x: r.left + r.width / 2, y: r.top, tools: editRequest(e) };
   }
 </script>
 
@@ -46,7 +62,7 @@
     {#if self}
       <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
         oncontextmenu={e => menu.show(e, userMenu(self))}>
-        <Avatar name={store.displayName(self)} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} />
+        <Avatar name={store.displayName(self)} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         <span class="who">
           <strong>{store.displayName(self)}</strong>
           <span>{voice.error ? 'Voice unavailable' : voice.settings.mode === 'ptt' && !self.selfMute ? (voice.pttDown ? 'Talking' : 'Push to talk') : session.channel(self.channelId)?.name || 'Root'}</span>
@@ -59,44 +75,54 @@
       </span>
     {/if}
   {/if}
-  <div class="tools">
-    {#if toolbar && store.settings.railHidden}<ServerButton /><span class="sep"></span>{/if}
-    <button class="icon-btn info" title="Server information" aria-label="Server information"
-      disabled={session.status !== 'connected'} onclick={() => (ui.serverInfo = true)}>
-      <Icon name="info" size={18} />
-    </button>
-    <button class="icon-btn" class:on={muted} title={muted ? 'Unmute (right-click for microphone options)' : 'Mute (right-click for microphone options)'}
-      aria-label={muted ? 'Unmute' : 'Mute'}
-      onclick={() => session.setSelfMute(!muted)} oncontextmenu={e => openQuick(e, 'input')}>
-      <Icon name={muted ? 'mic-off' : 'mic'} size={18} />
-    </button>
-    <button class="icon-btn" class:on={deafened} title={deafened ? 'Undeafen (right-click for output options)' : 'Deafen (right-click for output options)'}
-      aria-label={deafened ? 'Undeafen' : 'Deafen'}
-      onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
-      <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
-    </button>
-    <button class="icon-btn" class:live={share.cameraOn} aria-pressed={share.cameraOn} title={cameraHint}
-      aria-label={share.cameraOn ? 'Turn off your camera' : 'Turn on your camera'}
-      disabled={!share.cameraOn && (!canShare || share.screenOn || share.opening)} onclick={() => share.toggleCamera(sessions.active)}>
-      <Icon name="camera" size={18} />
-    </button>
-    <button class="icon-btn" class:live={share.screenOn} title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
-      aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'} disabled={!share.screenOn && (!canShare || share.cameraOn)} onclick={toggleShare}>
-      <Icon name="screen" size={18} />
-    </button>
-    <span class="sep"></span>
-    <button class="icon-btn" title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>
-      <Icon name="message" size={18} />
-    </button>
-    <span class="sep"></span>
-    <button class="icon-btn" title="Configure" aria-label="Configure" onclick={() => (ui.settingsOpen = true)}>
-      <Icon name="settings" size={18} />
-    </button>
-    <span class="sep"></span>
-    <button class="icon-btn" title={allOpen ? 'Collapse all channels' : 'Expand all channels'} aria-label={allOpen ? 'Collapse all channels' : 'Expand all channels'}
-      disabled={session.status !== 'connected'} onclick={toggleAll}>
-      <Icon name="filter" size={18} />
-    </button>
+  <div class="tools" role="presentation" oncontextmenu={customize}>
+    {#if serverButton}<ServerButton />{/if}
+    {#each items as { item, index }, drawn (index)}
+      {#if item === 'sep'}
+        <span class="sep" class:lead={serverButton && drawn === 0} data-tool={index}></span>
+      {:else if item === 'info'}
+        <button class="icon-btn info" data-tool={index} title="Server information" aria-label="Server information"
+          disabled={session.status !== 'connected'} onclick={() => (ui.serverInfo = true)}>
+          <Icon name="info" size={18} />
+        </button>
+      {:else if item === 'mic'}
+        <button class="icon-btn" data-tool={index} class:on={muted} title={muted ? 'Unmute (right-click for microphone options)' : 'Mute (right-click for microphone options)'}
+          aria-label={muted ? 'Unmute' : 'Mute'}
+          onclick={() => session.setSelfMute(!muted)} oncontextmenu={e => openQuick(e, 'input')}>
+          <Icon name={muted ? 'mic-off' : 'mic'} size={18} />
+        </button>
+      {:else if item === 'deafen'}
+        <button class="icon-btn" data-tool={index} class:on={deafened} title={deafened ? 'Undeafen (right-click for output options)' : 'Deafen (right-click for output options)'}
+          aria-label={deafened ? 'Undeafen' : 'Deafen'}
+          onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
+          <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
+        </button>
+      {:else if item === 'camera'}
+        <button class="icon-btn" data-tool={index} class:live={share.cameraOn} aria-pressed={share.cameraOn} title={cameraHint}
+          aria-label={share.cameraOn ? 'Turn off your camera' : 'Turn on your camera'}
+          disabled={!share.cameraOn && (!canShare || share.screenOn || share.opening)} onclick={() => share.toggleCamera(sessions.active)}>
+          <Icon name="camera" size={18} />
+        </button>
+      {:else if item === 'screen'}
+        <button class="icon-btn" data-tool={index} class:live={share.screenOn} title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
+          aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'} disabled={!share.screenOn && (!canShare || share.cameraOn)} onclick={toggleShare}>
+          <Icon name="screen" size={18} />
+        </button>
+      {:else if item === 'profile'}
+        <button class="icon-btn" data-tool={index} title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>
+          <Icon name="message" size={18} />
+        </button>
+      {:else if item === 'settings'}
+        <button class="icon-btn" data-tool={index} title="Configure" aria-label="Configure" onclick={() => (ui.settingsOpen = true)}>
+          <Icon name="settings" size={18} />
+        </button>
+      {:else if item === 'tree'}
+        <button class="icon-btn" data-tool={index} title={allOpen ? 'Collapse all channels' : 'Expand all channels'} aria-label={allOpen ? 'Collapse all channels' : 'Expand all channels'}
+          disabled={session.status !== 'connected'} onclick={toggleAll}>
+          <Icon name="filter" size={18} />
+        </button>
+      {/if}
+    {/each}
     {#if toolbar && self}
       <!-- Who you are, at the far end of the toolbar; the name gives way to the buttons when narrow -->
       <span class="you">
@@ -104,9 +130,10 @@
           oncontextmenu={e => menu.show(e, userMenu(self))}>
           <span class="who">
             <strong>{store.displayName(self)}</strong>
-            <span>{session.channel(self.channelId)?.name || 'Root'}</span>
+            <!-- Not shown, but screen readers still hear where you are -->
+            <span class="sr-only">{session.channel(self.channelId)?.name || 'Root'}</span>
           </span>
-          <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} />
+          <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         </button>
       </span>
     {/if}
@@ -116,15 +143,20 @@
 <style>
   /* You on top, the buttons in one row below, spread over the width */
   .me { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 6px; background: var(--bg-0); border-top: 1px solid var(--line); }
-  .tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  /* Keeps a place to right-click when every button is hidden */
+  .tools { min-height: 30px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .sep { width: 1px; height: 18px; background: var(--line); }
-  /* Eight buttons and three dividers fit the default width (260px) in one row */
+  /* Under the channel list the buttons are evenly spread, without dividers */
+  .me:not(.toolbar, .inline) .sep { display: none; }
+  /* Eight buttons fit the default width (260px) in one row */
   .tools .icon-btn { width: 30px; }
   /* Stacked layout: the bar leads the stack, like the desktop client's toolbar */
   /* 8px above the row and, with the border, 8px below: the first server tile lines up with it */
   .me.toolbar { order: -1; min-height: var(--footer-h); justify-content: center; padding-block: 8px 7px; border-top: 0; border-bottom: 1px solid var(--line); }
   .me.toolbar .tools { justify-content: flex-start; gap: 2px; }
   .me.toolbar .sep { margin: 0 6px; }
+  /* The server tile is filled to its edge, an icon sits 6px inside its button */
+  .me.toolbar .sep.lead { margin-left: 12px; }
   /* Basis 0 so it never pushes the buttons onto a second row; the avatar alone stays */
   .me.toolbar .you { flex: 1 1 0; min-width: 32px; display: flex; justify-content: flex-end; margin-left: 8px; }
   .me.toolbar .you .profile { max-width: 100%; gap: 8px; padding: 2px 4px; }
