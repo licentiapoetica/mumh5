@@ -571,6 +571,15 @@ export class Session {
     this.tick++;
   }
 
+  // The page came back or the network returned: check a live connection, retry a waiting one now
+  nudge(): void {
+    if (this.client?.synced) this.client.probe();
+    else if (this.reconnectTimer !== null && this.server) {
+      this.clearRetry();
+      void this.connect($state.snapshot(this.server) as SavedServer, true);
+    }
+  }
+
   // The user stops waiting for the next automatic reconnect
   cancelReconnect(): void {
     this.clearRetry();
@@ -586,7 +595,7 @@ export class Session {
 
   // Returns whether a retry is now waiting
   private scheduleReconnect(): boolean {
-    if (!this.server?.autoReconnect) return false;
+    if (!this.server || this.server.autoReconnect === false) return false;
     if (this.reconnectTimer !== null) return true;
     // A login that held for a minute was a working connection: start the backoff over. One that is
     // dropped right after login (a kick on join) keeps backing off, so Murmur's autoban never trips.
@@ -790,7 +799,8 @@ export class Session {
         const kicker = actor != null ? client.users.get(actor) : undefined;
         const by = kicker ? store.displayName(kicker) : '';
         this.removedBy = { kind: ban ? 'banned' : 'kicked', by, reason };
-        if (ban) this.noRetry = true;
+        // Like the desktop client: being removed by the server ends the automatic retry
+        this.noRetry = true;
       }
       const self = client.self;
       share.userMoved(this, user, true);
@@ -1793,6 +1803,10 @@ class Sessions {
     if (!self.selfDeaf) s.client.setSelfDeaf(true);
   }
 
+  nudgeAll(): void {
+    for (const s of this.list) s.nudge();
+  }
+
   private fromBackground(s: Session): void {
     const prev = this.saved.get(s);
     this.saved.delete(s);
@@ -1802,6 +1816,12 @@ class Sessions {
 }
 
 export const sessions = new Sessions();
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sessions.nudgeAll(); });
+  window.addEventListener('online', () => sessions.nudgeAll());
+  window.addEventListener('pageshow', e => { if (e.persisted) sessions.nudgeAll(); });
+}
 
 // The session of the server on screen. Forwards to the active Session so components keep
 // using `session.x`; methods are bound to the real instance so async work stays with its server.

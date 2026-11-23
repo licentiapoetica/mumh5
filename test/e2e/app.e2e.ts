@@ -2245,6 +2245,9 @@ try {
     assert.equal(await page.locator('.chat-tab', { hasText: 'notes' }).count(), 0);
     await page.setViewportSize({ width: 1280, height: 800 });
     console.log('ok: text channel as a closable tab next to the voice channel tab');
+    // Closing the tab left the text channel; open it again for the file
+    await notesRow.locator('.name').click();
+    await page.locator('.chat h1', { hasText: 'notes' }).waitFor();
 
     // Files go into text channels too, announced with a preview that fits a text channel message
     const notePng = path.join(userData, 'note.png');
@@ -2721,13 +2724,17 @@ try {
     const card = page.locator('.ended');
     await card.getByText('You were kicked by SuperUser').waitFor();
     await card.getByText('testing kicks').waitFor();
+    // Auto reconnect is on, but a kick ends it: nothing waits to retry and the notice stays
+    assert.equal(await page.getByRole('status').filter({ hasText: /Retrying in/ }).count(), 0);
+    await page.waitForTimeout(6000);
+    await card.getByText('testing kicks').waitFor();
     // Back on the start screen, which shows who is on the saved servers
     await page.locator('.home .server', { hasText: 'Test Server' }).getByText(/\d+( of \d+)? online/).waitFor({ timeout: 70000 });
     if (shots) await page.screenshot({ path: path.join(shots, 'kicked.png') });
     await card.getByRole('button', { name: 'Reconnect' }).click();
     await page.locator('.sidebar .status', { hasText: 'Connected' }).waitFor();
     assert.equal(await card.count(), 0);
-    console.log('ok: kick shows the reason and reconnects');
+    console.log('ok: kick shows the reason, does not retry by itself and reconnects on request');
   }
 
   if (shots) {

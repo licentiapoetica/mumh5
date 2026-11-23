@@ -18,7 +18,7 @@
   let host = $state(initial?.host ?? pre.host ?? '');
   let port = $state(initial?.port ?? pre.port ?? 64738);
   let password = $state(initial?.password ?? '');
-  let autoReconnect = $state(initial?.autoReconnect ?? false);
+  let autoReconnect = $state(initial?.autoReconnect ?? true);
   let autoConnect = $state(initial?.autoConnect ?? false);
   let identityId = $state(initial?.identityId ?? '');
   // The name chosen for an identity when it was created, if any

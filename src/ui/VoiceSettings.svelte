@@ -122,6 +122,8 @@
   <h3>Processing</h3>
   <label class="check"><input type="checkbox" checked={s.releaseMicMuted} onchange={e => voice.update({ releaseMicMuted: e.currentTarget.checked })} /> Give the microphone back while muted</label>
   <p class="help">For Bluetooth headsets: with the microphone open, a headset switches to its telephone mode and everything sounds like a phone call. Muted, you then hear in full quality. To talk in full quality too, choose the phone's own microphone above instead of the headset's. No reminder when you speak while muted.{#if s.releaseMicMuted && voice.running} <strong>{voice.micOpen ? 'The microphone is open now.' : 'The microphone is given back now.'}</strong>{/if}</p>
+  <label class="check"><input type="checkbox" checked={s.keepAwake} onchange={e => voice.update({ keepAwake: e.currentTarget.checked })} /> Keep the screen on in voice</label>
+  <p class="help">A phone that locks its screen stops the microphone in the browser. Where the browser does not offer this, nothing changes. Costs battery.</p>
   <label for="v-noise">Noise suppression</label>
   <select id="v-noise" value={s.noiseSuppression ? s.noiseEngine : 'off'}
     onchange={e => {

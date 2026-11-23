@@ -294,7 +294,7 @@ try {
       const p = decodeVoice(raw);
       if (!p || p.session !== carolSession() || !p.opus.length) return;
       packets.push(p);
-      if (packets.length >= 20) { off(); res(packets); }
+      if (packets.length >= 100) { off(); res(packets); }
     });
   });
   await page2.getByTitle('Settings').click();
@@ -346,6 +346,11 @@ try {
   // The viewer is limited to what a browser without direct UDP has (Vanadium's default): only
   // the proxy's relay, reached over TCP
   await page2.evaluate(() => localStorage.setItem('mumh5.iceDebug', 'relay-tcp'));
+  // Tiles for other people's streams are part of the Modern layout (stacked shows only a picture)
+  await page2.getByTitle('Settings').click();
+  await page2.getByRole('tab', { name: 'Appearance' }).click();
+  await page2.getByRole('radio', { name: 'Modern' }).click();
+  await page2.getByRole('button', { name: 'Done', exact: true }).click();
   await page2.locator('.stage .tile', { hasText: name }).click();
   await page2.getByRole('button', { name: 'Continue' }).click();
   await page2.waitForFunction(() => (document.querySelector('.spot .pic > video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 30000 });
