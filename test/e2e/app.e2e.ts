@@ -379,8 +379,11 @@ try {
   await anyMsg.hover();
   assert.equal(await stamp.evaluate(el => getComputedStyle(el).visibility), 'visible');
   assert.match(await stamp.innerText(), /\d{4}.*\d{1,2}:\d{2}:\d{2}/);
-  const gap = await anyMsg.evaluate(el => el.getBoundingClientRect().right - el.querySelector('.stamp')!.getBoundingClientRect().right);
-  assert.ok(gap >= 0 && gap < 20, `stamp at the right edge: ${gap}`);
+  // The reaction button comes after it, so the row of tools is what touches the edge
+  const gap = await anyMsg.evaluate(el => el.getBoundingClientRect().right - el.querySelector('.tools')!.getBoundingClientRect().right);
+  assert.ok(gap >= 0 && gap < 20, `message tools at the right edge: ${gap}`);
+  const [stampEnd, reactStart] = await anyMsg.evaluate(el => [el.querySelector('.stamp')!.getBoundingClientRect().right, el.querySelector('.tools .react')!.getBoundingClientRect().left]);
+  assert.ok(stampEnd <= reactStart, `stamp ${stampEnd} before the reaction button ${reactStart}`);
   await page.mouse.move(5, 5);
   console.log('ok: incoming text rendered and sanitized');
 
@@ -620,17 +623,17 @@ try {
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;
   bob.sendText({ users: [alice.session] }, 'psst');
-  // Stacked layout: private chats are tabs above the chat
-  const chatTabs = page.getByRole('tablist', { name: 'Open chats' });
-  await chatTabs.getByRole('tab', { name: /bob/ }).click();
+  // Modern layout: private chats are in the channel list (tabs are covered by private-chats.e2e.ts)
+  const dmRow = page.locator('.sidebar .dm-row', { hasText: 'bob' });
+  await dmRow.locator('.dm').click();
   await page.locator('.msg', { hasText: 'psst' }).waitFor();
   console.log('ok: direct message shown in its own view');
   const soundLog = () => page.evaluate(() => [...((window as any).__mumh5Sounds ?? [])] as string[]);
   const played = await soundLog();
   for (const ev of ['connected', 'message', 'privateMessage']) assert.ok(played.includes(ev), `sound for ${ev}: ${played}`);
   console.log('ok: sounds for connect, channel and direct messages');
-  await chatTabs.getByRole('button', { name: 'Close conversation with bob' }).click();
-  await chatTabs.waitFor({ state: 'detached' });
+  await dmRow.getByRole('button', { name: 'Close conversation with bob' }).click();
+  await dmRow.waitFor({ state: 'detached' });
   await page.locator('.msg', { hasText: 'psst' }).waitFor({ state: 'detached' });
   console.log('ok: direct message closed');
   await page.locator('.channel .name').first().dblclick();
@@ -647,10 +650,11 @@ try {
   const micPop = page.getByRole('dialog', { name: 'Microphone' });
   await micPop.getByLabel('Microphone').waitFor();
   await micPop.getByRole('radio', { name: 'Always on' }).waitFor();
-  const under = { button: (await micButton.boundingBox())!, pop: (await micPop.boundingBox())! };
-  assert.ok(under.pop.y >= under.button.y + under.button.height, 'quick audio opens under the button');
+  // This bar is at the bottom of the window: no room below, so it opens above the button
+  const over = { button: (await micButton.boundingBox())!, pop: (await micPop.boundingBox())! };
+  assert.ok(over.pop.y + over.pop.height <= over.button.y, 'quick audio opens above a button at the bottom');
   // Lit while its popup is open, with the pointer elsewhere
-  await page.mouse.move(under.pop.x + 5, under.pop.y + 5);
+  await page.mouse.move(over.pop.x + 5, over.pop.y + 5);
   const micHandle = await micButton.elementHandle();
   await page.waitForFunction(b => getComputedStyle(b as Element).backgroundColor !== 'rgba(0, 0, 0, 0)', micHandle);
   await micPop.getByLabel(/Input volume/).fill('1.5');
@@ -658,15 +662,6 @@ try {
   await page.keyboard.press('Escape');
   await micPop.waitFor({ state: 'detached' });
   await page.waitForFunction(b => getComputedStyle(b as Element).backgroundColor === 'rgba(0, 0, 0, 0)', micHandle);
-  // No room below: it opens above instead of covering the button
-  await micButton.evaluate((b: HTMLElement) => { b.style.position = 'fixed'; b.style.bottom = '0'; b.style.zIndex = '150'; });
-  await micButton.click({ button: 'right' });
-  await micPop.getByLabel('Microphone').waitFor();
-  const over = { button: (await micButton.boundingBox())!, pop: (await micPop.boundingBox())! };
-  assert.ok(over.pop.y + over.pop.height <= over.button.y, 'quick audio opens above a button at the bottom');
-  await page.keyboard.press('Escape');
-  await micPop.waitFor({ state: 'detached' });
-  await micButton.evaluate((b: HTMLElement) => { b.style.position = b.style.bottom = b.style.zIndex = ''; });
   await page.locator('.me').getByRole('button', { name: 'Deafen', exact: true }).click({ button: 'right' });
   const outPop = page.getByRole('dialog', { name: 'Output' });
   await outPop.getByLabel('Output device').waitFor();
@@ -799,7 +794,7 @@ try {
   await page.getByTitle('Settings').click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   // Classic can have the channel list on either side
-  const listSide = page.getByRole('group', { name: 'Channel list' });
+  const listSide = page.getByRole('group', { name: 'Channel list', exact: true });
   await listSide.getByRole('button', { name: 'Left' }).click();
   await page.waitForFunction(() => document.querySelector('.sidebar')!.getBoundingClientRect().x < document.querySelector('.chat')!.getBoundingClientRect().x);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).classicSide), 'left');
@@ -820,6 +815,15 @@ try {
   // The stacked toolbar names you at its far end
   await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
   console.log('ok: you shown in the stacked toolbar');
+  // In the toolbar along the top, the mic's popup opens under the button
+  const topMic = page.locator('.me').getByRole('button', { name: /^(Mute|Unmute)$/ });
+  await topMic.click({ button: 'right' });
+  const topPop = page.getByRole('dialog', { name: 'Microphone' });
+  await topPop.getByLabel('Microphone').waitFor();
+  const topButton = (await topMic.boundingBox())!, topBox = (await topPop.boundingBox())!;
+  assert.ok(topBox.y >= topButton.y + topButton.height, 'quick audio opens under a button at the top');
+  await page.keyboard.press('Escape');
+  await topPop.waitFor({ state: 'detached' });
   const chatBox = await box('.chat'), treeBox = await box('.sidebar');
   assert.ok(chatBox.y >= treeBox.y + treeBox.height - 1, 'stacked: chat below channel list');
   // The split between chat and channel list drags
@@ -1925,7 +1929,7 @@ try {
       await mover('f').waitFor();
       // Shift and Ctrl/Cmd both add or remove one person; Shift does not select a range
       await mover('a').click({ modifiers: ['Shift'] });
-      await page.locator('.sidebar').getByRole('button', { name: 'Cancel selection', exact: true }).waitFor();
+      await page.locator('.sidebar').getByRole('button', { name: 'Clear', exact: true }).waitFor();
       assert.ok(await page.locator('.sidebar .user .user-check').count() > 0, 'modifier-click shows the same selection controls');
       await mover('f').click();
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 2, 'a plain click continues the selection started with Shift');
@@ -2014,6 +2018,8 @@ try {
     } finally {
       for (const client of movers) client.disconnect();
     }
+    // Their rows leaving moves the channels up, so the drag below has to start after that
+    await page.locator('.sidebar .user', { hasText: 'move-' }).first().waitFor({ state: 'detached' });
 
     // Dropped on the lower or upper third of a row, a channel goes behind or in front of it.
     // A line shows where it will land.
@@ -2209,7 +2215,7 @@ try {
   writeFileSync(small, testPng(60, 40));
   const gotSmall = new Promise<string>(res => bob.on('text', m => { if (m.html.startsWith('<img')) res(m.html); }));
   await page.locator('.chat .composer input[type=file]').first().setInputFiles(small);
-  assert.match(await within(gotSmall, 'small picture'), /^<img src="data:image\/png;base64,[^"]+"\/>$/);
+  assert.match(await within(gotSmall, 'small picture'), /^<img src="data:image\/png;base64,[^"]+" alt="small\.png"\/>$/);
   console.log(`ok: large picture sent as a file with a preview (${announcedBig.length} chars), small one inline`);
 
   // A click on an image in the chat shows it large; Escape or a click closes it
@@ -2276,7 +2282,16 @@ try {
   assert.equal(await page.locator('.rail .tile.voice').getAttribute('title').then(t => t?.startsWith('Test Server')), true);
   await page.getByText('Voice is on Test Server').waitFor();
   console.log('ok: second server connected, deafened in the background');
-  assert.ok((await soundLog()).includes('userConnected'), 'sound when someone connects into your channel');
+  // A newer sound cuts off the one playing, and the second server's connect sound lands right
+  // on alice-b arriving, so this is checked with someone arriving on their own
+  await page.evaluate(() => { (window as any).__mumh5Sounds = []; });
+  const visitor = await headless('sound-visitor');
+  try {
+    await page.waitForFunction(() => ((window as any).__mumh5Sounds ?? []).includes('userConnected'), null, { timeout: 5000 });
+  } finally {
+    visitor.disconnect();
+  }
+  await page.locator('.sidebar .user', { hasText: 'sound-visitor' }).waitFor({ state: 'detached' });
 
   // Joining a channel on the second server moves voice there
   await page.locator('.channel .name', { hasText: 'Root' }).dblclick();
