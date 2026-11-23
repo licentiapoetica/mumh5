@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onDestroy, untrack } from 'svelte';
   import { historyHours } from '../core/chat-retention.ts';
+  import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
   import VideoSettings from './VideoSettings.svelte';
@@ -21,7 +23,10 @@
   import { sessions } from '../lib/session.svelte.ts';
 
   type Tab = 'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
-  let { onclose, tab: initialTab = 'voice' }: { onclose: () => void; tab?: Tab } = $props();
+  // onpopout: moves Settings to a window of its own; false if it could not be opened
+  // windowed: this is that window. jump: a section asked for while it is open
+  let { onclose, tab: initialTab = 'voice', onpopout, windowed = false, jump = null }:
+    { onclose: () => void; tab?: Tab; onpopout?: (tab: Tab) => boolean; windowed?: boolean; jump?: { tab: Tab } | null } = $props();
 
   // svelte-ignore state_referenced_locally
   let tab = $state<Tab>(initialTab);
@@ -53,6 +58,31 @@
     tab = id;
     body?.scrollTo(0, 0);
   }
+  $effect(() => { const j = jump; if (j) untrack(() => open(j.tab)); });
+
+  // Most settings apply as they change; a field being typed in applies when it loses focus
+  function commit() {
+    (body?.ownerDocument.activeElement as HTMLElement | null)?.blur?.();
+    saveFiles();
+  }
+  let note = $state('');
+  let noteTimer: ReturnType<typeof setTimeout> | undefined;
+  function saveNow() {
+    commit();
+    note = 'Saved';
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => (note = ''), 2000);
+  }
+  function popOut() {
+    commit();
+    if (onpopout?.(tab)) onclose();
+    else note = 'The new window was blocked. Allow pop-ups for this page.';
+  }
+  onDestroy(() => {
+    clearTimeout(noteTimer);
+    // Closed by the system's button, with no Done to save what was typed
+    if (windowed) saveFiles();
+  });
   // How much the kept files take, once the tab is open
   $effect(() => { if (tab === 'files') files.measure(); });
 
@@ -108,6 +138,7 @@
   // Narrow layout: the tab row has no scrollbar; the wheel and dragging move it sideways
   function dragScroll(node: HTMLElement) {
     let startX = 0, startLeft = 0, down = false, moved = false;
+    const view = node.ownerDocument.defaultView ?? window;
     const wheel = (e: WheelEvent) => {
       if (node.scrollWidth <= node.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
       e.preventDefault();
@@ -129,20 +160,25 @@
     const click = (e: MouseEvent) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } };
     node.addEventListener('wheel', wheel, { passive: false });
     node.addEventListener('pointerdown', press);
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', release);
+    view.addEventListener('pointermove', move as EventListener);
+    view.addEventListener('pointerup', release);
     node.addEventListener('click', click, true);
     return { destroy() {
       node.removeEventListener('wheel', wheel);
       node.removeEventListener('pointerdown', press);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', release);
+      view.removeEventListener('pointermove', move as EventListener);
+      view.removeEventListener('pointerup', release);
       node.removeEventListener('click', click, true);
     } };
   }
 </script>
 
-<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880} height={760} bind:body>
+<Modal title="Settings" onclose={() => { saveFiles(); onclose(); }} width={880} height={760} {windowed} bind:body>
+  {#snippet actions()}
+    {#if onpopout}
+      <button class="icon-btn pop-settings" title="Open in a new window" aria-label="Open in a new window" onclick={popOut}><Icon name="popout" /></button>
+    {/if}
+  {/snippet}
   <div class="layout">
   <div class="tabs" role="tablist" use:dragScroll>
     {#each tabs as t (t.id)}
@@ -267,11 +303,16 @@
   </div>
 
   {#snippet footer()}
-    <button class="btn primary" onclick={() => { saveFiles(); onclose(); }}>Done</button>
+    <span class="foot-note" role="status">{note}</span>
+    <button class="btn" onclick={saveNow}>Save</button>
+    <button class="btn primary" onclick={() => { commit(); onclose(); }}>Done</button>
   {/snippet}
 </Modal>
 
 <style>
+  .foot-note { align-self: center; margin-right: 4px; font-size: 13px; color: var(--text-dim); }
+  /* Touch devices open a new window as a tab, which hides the app instead of showing it */
+  @media (hover: none) { .pop-settings { display: none; } }
   /* Sections listed on the left, the open one beside them; a row of tabs on narrow windows */
   /* The dialog has a fixed height (Modal height), so it does not jump between sections */
   .layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 28px; align-items: start; }

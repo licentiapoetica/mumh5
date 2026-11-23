@@ -5,6 +5,7 @@
   import { session, sessions } from '../lib/session.svelte.ts';
   import { store, type SavedServer } from '../lib/settings.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
+  import { settingsWindow } from '../lib/settings-window.svelte.ts';
   import { changeNamePrompt, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { desktop } from '../lib/native.ts';
@@ -25,7 +26,7 @@
     { tab: 'files', name: 'Chat and files', note: 'Files, previews, embeds' },
     { tab: 'identities', name: 'Identities', note: 'Your certificates' }
   ];
-  const openSettings = (tab: Tab) => { ui.settingsTab = tab; ui.settingsOpen = true; };
+  const openSettings = (tab: Tab) => { settingsWindow.show(tab); ui.settingsTab = tab; ui.settingsOpen = true; };
 </script>
 
 <section data-background class="you" aria-label="You">

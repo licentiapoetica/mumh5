@@ -1,6 +1,7 @@
 <script lang="ts">
   import { voice, type TransmitMode } from '../lib/audio/voice.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
+  import { settingsWindow } from '../lib/settings-window.svelte.ts';
 
   const q = $derived(ui.quickAudio!);
   const s = voice.settings;
@@ -63,7 +64,7 @@
     <input id="qa-vol" type="range" min="0" max="2" step="0.05" value={s.outputVolume}
       oninput={e => voice.update({ outputVolume: Number(e.currentTarget.value) })} />
   {/if}
-  <button class="more" onclick={() => { close(); ui.settingsTab = 'voice'; ui.settingsOpen = true; }}>Voice settings...</button>
+  <button class="more" onclick={() => { close(); settingsWindow.show('voice'); ui.settingsTab = 'voice'; ui.settingsOpen = true; }}>Voice settings...</button>
   {#if q.tools}<button class="more" onclick={() => { const tools = q.tools!; close(); ui.toolbarEdit = tools; }}>Customize toolbar...</button>{/if}
 </div>
 

@@ -2,7 +2,7 @@
 
 ## Style rules
 
-- No rounded corners anywhere. No `border-radius` (a global `border-radius: 0 !important` backs this up in `src/app.css`).
+- Square by default. No `border-radius` in components (a global `border-radius: 0 !important` backs this up in `src/app.css`). The only exception is the opt-in Rounded corners setting: groups in `src/lib/corners.ts`, rules in `src/corners.css`.
 - No emojis in code, UI text, comments, commit messages or docs. Emoji inside chat content from users is fine.
 - UI copy is short, plain and honest. Don't claim something works if it is not tested. Explanations go in tooltips or help text, not in big callouts.
 - Colors come from the CSS variables in `src/app.css`; icons from `src/lib/icons.ts` via `<Icon>`.
@@ -70,6 +70,8 @@ A reused test server keeps registrations and channels from earlier runs; tests m
 - Channel access: `src/core/access.ts` follows Murmur's `effectivePermissions` and `appliesToUser` (a server test compares it with real answers on random rules) and holds the grid and presets. `ChannelAccess.svelte` is the Access tab, with the old rule list behind Advanced rules; `AccessCheck.svelte` is the Check tab. Write does not bring back Speak or Whisper, and restores Kick, Ban and the other server permissions only on root; those are always checked against root, and Ban also allows kicking. Other people's tokens and certificate status are unknown, so an answer can be "may be able to".
 - Roles: `src/core/roles.ts`. Every group on root is a role, so servers need no conversion; permissions are its rules on root, and later rules win, so the highest role's rules are written last. Names, colors, icons, order and members are published in the root description as `<img src="data:,mumh5roles:..." width="0" height="0"/>`: desktop Mumble shows nothing for it and keeps it through an edit, and a comment that long would be refused. `stripMark` hides it. `RolesDialog.svelte` manages roles, members and access keys; `RoleBadges.svelte` shows the icons in both interfaces. The Roles submenu of the user menu is `src/lib/quick-roles.svelte.ts`: changes are batched and applied to a freshly read ACL. Access keys are `#mk.<code>.<group>` rules on root, copied from the role's root permissions: they exist only in the ACL, never in the published data, do not cover channel overrides and cannot carry Write.
 - Admin badge: `src/core/admins.ts`. Clients cannot read group membership without Write, so mumh5 clients that have Write on root publish the registered ids as a `<!--mumh5:admins:...-->` comment in the root description, and refresh it when Murmur announces saved root rules. Only Write holders can change that text, so the badge cannot be forged. SuperUser always has it. `stripMark` hides the comment.
+- Rounded corners: `settings.corners` holds a value per group of `src/lib/corners.ts`, applied as `--r-*` variables on the root; `src/corners.css` is the only place with radius rules. An element added to a group goes there.
+- Settings window: `src/lib/settings-window.svelte.ts` mounts `SettingsWindow.svelte` into an empty popup (`mumh5-settings` in `electron/main.ts`), on the same state as the app. Code inside Settings must use the window of its own node (`node.ownerDocument.defaultView`), not the global `window`. A `ui.prompt` is shown in whichever window was used last.
 
 Voice runs on one server at a time (where you last joined a channel); background servers are auto self-deafened and restored when voice returns.
 

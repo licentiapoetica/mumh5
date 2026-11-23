@@ -31,6 +31,14 @@
     capturing = false;
   }
 
+  // The window these settings are in, which is not always the app's
+  function keysHere(node: HTMLElement) {
+    const view = node.ownerDocument.defaultView ?? window;
+    const key = captureKey as EventListener;
+    view.addEventListener('keydown', key, true);
+    return { destroy: () => view.removeEventListener('keydown', key, true) };
+  }
+
   const modes: { id: TransmitMode; label: string; help: string }[] = [
     { id: 'vad', label: 'Voice activity', help: 'Sends when you speak louder than the threshold' },
     { id: 'ptt', label: 'Push to talk', help: 'Sends while you hold the key' },
@@ -38,9 +46,7 @@
   ];
 </script>
 
-<svelte:window onkeydowncapture={captureKey} />
-
-<div class="voice">
+<div class="voice" use:keysHere>
   {#if voice.error}<p class="error">{voice.error}</p>{/if}
 
   <h3>Devices</h3>

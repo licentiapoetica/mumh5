@@ -1,6 +1,7 @@
 import { atDefaults, changedFrom, freshList, load, loadList, save } from './storage.ts';
 import { GENERATED_THEMES } from './themes-generated.ts';
 import { DEFAULT_TOOLBAR, type ToolbarLayout } from '../core/toolbar.ts';
+import type { Corners } from './corners.ts';
 
 export interface SavedServer {
   id: string;
@@ -61,6 +62,7 @@ export interface Settings {
   avatars: 'pictures' | 'spheres'; // spheres replace pictures and letters, except in chat, members, profiles and voice tiles
   toolbar: ToolbarLayout; // order of the toolbar's buttons and spacers, and the hidden buttons
   treeLines: boolean;     // lines and a root node in the channel tree
+  corners: Corners;       // rounded corners per group of elements; a group not listed stays square
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -135,14 +137,15 @@ const defaults: Settings = {
   roleColors: true,
   avatars: 'spheres',
   toolbar: DEFAULT_TOOLBAR,
-  treeLines: true
+  treeLines: true,
+  corners: {}
 };
 
 // Where in Settings each setting is reset; parts of Appearance are its headings.
 // kept: not picked in Settings (window state, notices already seen).
 export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
   | 'appearance.roles' | 'appearance.people' | 'appearance.interface' | 'appearance.layout'
-  | 'appearance.background' | 'appearance.tree' | 'appearance.scheme';
+  | 'appearance.background' | 'appearance.tree' | 'appearance.corners' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
   embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files',
   saveChatHistory: 'files', chatHistoryHours: 'files', youtube: 'files', linkPreviews: 'files',
@@ -163,7 +166,8 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   updateCheck: 'about',
   pokeNotify: 'sounds',
   roleIcons: 'appearance.roles', roleColors: 'appearance.roles',
-  avatars: 'appearance.people'
+  avatars: 'appearance.people',
+  corners: 'appearance.corners'
 };
 
 /** The settings a part covers; 'appearance' covers all of its headings. */

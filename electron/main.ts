@@ -285,8 +285,24 @@ function createWindow() {
     if (frameName === 'mumh5-stream' && (url === 'about:blank' || url === '')) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 960, height: 600, minWidth: 320, minHeight: 200, backgroundColor: '#000000', autoHideMenuBar: true, title: 'mumh5' } };
     }
+    // Settings beside the app; also an empty page the app fills itself
+    if (frameName === 'mumh5-settings' && (url === 'about:blank' || url === '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 920, height: 820, minWidth: 360, minHeight: 420, backgroundColor: '#141518', autoHideMenuBar: true, title: 'Settings' } };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  // Links in that window (the update download) go to the browser, like those in the app
+  win.webContents.on('did-create-window', (child, { frameName }) => {
+    if (frameName !== 'mumh5-settings') return;
+    child.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    child.webContents.on('will-navigate', (e, url) => {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    });
   });
   win.webContents.on('will-navigate', (e, url) => {
     if (devUrl && url.startsWith(devUrl)) return;
