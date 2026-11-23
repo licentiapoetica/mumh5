@@ -293,6 +293,9 @@
         <Icon name={focusKind} size={16} />
         <span class="spot-who">{focus === self.session ? `Your ${focusKind}` : focusUser ? store.displayName(focusUser) : 'Screen share'}</span>
         {#if popped}<span class="away-note">In a separate window</span>{/if}
+        {#if focusWatch?.route === 'mumpeer' && focusWatch.state === 'live'}
+          <span class="away-note" title="This share is connected through the server’s mumpeer relay">Via mumpeer</span>
+        {/if}
         {#if focus !== self.session && hasSound}
           <Icon name={store.settings.shareVolume === 0 ? 'headphones-off' : 'headphones'} size={16} />
           <input class="vol" type="range" min="0" max="1" step="0.01" bind:value={store.settings.shareVolume} onchange={() => store.saveSettings()}
@@ -318,7 +321,7 @@
           <ZoomView stream={focused} mirror={focusMirror} bind:zoom bind:video={spotVideo} ondblclick={fullscreen} />
           {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
             <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
-              ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
+              ? (focusWatch.error || 'Could not connect to the stream. Check STUN and relay in Settings, Screen sharing.')
               : 'Connecting to the stream...'}</p>
           {/if}
           {#if showStats}<ShareStats own={focus === self.session} session={focus} onclose={() => (showStats = false)} />{/if}
@@ -342,7 +345,7 @@
           <button class="tile" data-menu-row class:talking={talking(u.session)} class:self={isSelf} class:focused={focus === u.session}
             onclick={e => tileClick(u.session, e.currentTarget)}
             oncontextmenu={e => menu.show(e, userMenu(u))}
-            title={stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u)}
+            title={w?.error || (w?.route === 'mumpeer' && w.state === 'live' ? 'Via mumpeer' : stream ? (focus === u.session ? 'Hide the stream' : 'Show the stream') : sharing && !isSelf ? `Sharing their ${sharing}. Click to watch` : store.displayName(u))}
             aria-label={stream ? `${focus === u.session ? 'Hide' : 'Show'} the ${sharing || 'stream'} of ${store.displayName(u)}` : sharing && !isSelf ? `Watch the ${sharing} of ${store.displayName(u)}` : store.displayName(u)}>
             {#if cam}
               <!-- svelte-ignore a11y_media_has_caption -->
@@ -352,7 +355,7 @@
             {/if}
             <span class="who">{store.displayName(u)}</span>
             {#if w && w.state !== 'live'}
-              <span class="note">{w.state === 'connecting' ? 'Connecting...' : 'Could not connect'}</span>
+              <span class="note">{w.state === 'connecting' ? 'Connecting...' : (w.error || 'Could not connect')}</span>
             {/if}
             {#if sharing}<span class="badge live"><Icon name={sharing} size={13} /></span>
             {:else if u.deaf || u.selfDeaf}
@@ -375,7 +378,7 @@
       {#if strip.length}{@render tiles()}{/if}
     {:else if waiting}
       <p class="wait" class:bad={waiting.state === 'failed'}>
-        <span>{waiting.state === 'failed' ? 'Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice.' : 'Connecting to the stream...'}</span>
+        <span>{waiting.state === 'failed' ? (waiting.error || 'Could not connect to the stream. Check STUN and relay in Settings, Screen sharing.') : 'Connecting to the stream...'}</span>
         <button class="btn small" onclick={() => share.unwatch(waiting.session)}>{waiting.state === 'failed' ? 'Close' : 'Cancel'}</button>
       </p>
     {/if}

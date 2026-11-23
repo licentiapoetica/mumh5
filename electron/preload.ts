@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 type Listener = (connId: string, ...args: any[]) => void;
 const listeners = {
   secure: new Set<Listener>(), data: new Set<Listener>(), close: new Set<Listener>(),
-  udpVoice: new Set<Listener>(), udpState: new Set<Listener>(), udpResync: new Set<Listener>()
+  udpVoice: new Set<Listener>(), udpState: new Set<Listener>(), udpResync: new Set<Listener>(), relayClose: new Set<Listener>()
 };
 for (const key of Object.keys(listeners) as (keyof typeof listeners)[]) {
   ipcRenderer.on(`mumble:${key}`, (_e, connId: string, ...args: any[]) => {
@@ -68,6 +68,11 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   open: (connId: string, host: string, port: number, identityId?: string) => ipcRenderer.invoke('mumble:open', connId, host, port, identityId),
   send: (connId: string, bytes: Uint8Array) => ipcRenderer.send('mumble:send', connId, bytes),
   close: (connId: string) => ipcRenderer.send('mumble:close', connId),
+  relayOpen: (connId: string, rid: string, endpoint: unknown, token: string, lowSide: boolean) =>
+    ipcRenderer.invoke('mumpeer:open', connId, rid, endpoint, token, lowSide),
+  relayTurn: (connId: string, rid: string, lane: number) => ipcRenderer.invoke('mumpeer:turn', connId, rid, lane),
+  relayCloseLane: (connId: string, rid: string, lane: number) => ipcRenderer.send('mumpeer:closeLane', connId, rid, lane),
+  relayClose: (connId: string, rid: string) => ipcRenderer.send('mumpeer:close', connId, rid),
   udpSetup: (connId: string, key: Uint8Array, cn: Uint8Array, sn: Uint8Array, protobuf: boolean) => ipcRenderer.send('mumble:udpSetup', connId, key, cn, sn, protobuf),
   udpNonce: (connId: string, sn: Uint8Array) => ipcRenderer.send('mumble:udpNonce', connId, sn),
   udpSend: (connId: string, bytes: Uint8Array) => ipcRenderer.send('mumble:udpSend', connId, bytes),

@@ -10,6 +10,8 @@ import * as tray from './tray.ts';
 import { fetchLinkPreview } from './link-preview.ts';
 import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
+import { MumpeerLink } from './mumpeer.ts';
+import { isRelayToken, isRequestId, relayEndpoint } from '../src/core/mumpeer-signal.ts';
 import { udpChannel } from './udp-voice.ts';
 import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
 import { pickColor } from './portal-color.ts';
@@ -64,7 +66,12 @@ ipcMain.handle('sounds:remove', (_e, key: string) => soundFiles().remove(key));
 
 // ─── Mumble TLS connections, one per renderer request ─────────────────────────
 
-type Conn = ReturnType<typeof openTls> & { owner: WebContents; udp?: ReturnType<typeof udpChannel> };
+type Conn = ReturnType<typeof openTls> & {
+  owner: WebContents;
+  udp?: ReturnType<typeof udpChannel>;
+  relays: Map<string, { link: MumpeerLink; lowSide: boolean }>;
+  openRelay(endpoint: NonNullable<ReturnType<typeof relayEndpoint>>, token: string, ended: (reason: string) => void): MumpeerLink;
+};
 const conns = new Map<string, Conn>();
 
 // ─── Identities (client certificates) ─────────────────────────────────────────
@@ -114,9 +121,19 @@ ipcMain.handle('mumble:open', async (e, connId: string, host: string, port: numb
       emit('mumble:secure', info);
     },
     onData: chunk => emit('mumble:data', chunk),
-    onClose: reason => { conns.get(connId)?.udp?.close(); conns.delete(connId); emit('mumble:close', reason); }
+    onClose: reason => {
+      const current = conns.get(connId);
+      conns.delete(connId);
+      current?.udp?.close();
+      for (const relay of current?.relays.values() ?? []) relay.link.close();
+      emit('mumble:close', reason);
+    }
   });
-  conns.set(connId, Object.assign(conn, { owner }));
+  conns.set(connId, Object.assign(conn, {
+    owner, relays: new Map(),
+    openRelay: (endpoint: NonNullable<ReturnType<typeof relayEndpoint>>, token: string, ended: (reason: string) => void) =>
+      new MumpeerLink(endpoint, token, id.certPem, id.keyPem, ended)
+  }));
   owner.once('destroyed', () => conn.close());
 });
 
@@ -139,6 +156,41 @@ ipcMain.handle('mumble:udpClientNonce', (e, connId: string) => ownUdp(e, connId)
 ipcMain.on('mumble:close', (e, connId: string) => {
   const conn = conns.get(connId);
   if (conn && conn.owner === e.sender) conn.close();
+});
+
+// Mumpeer uses the exact client identity selected for this live Mumble connection.
+function ownedConnection(owner: WebContents, connId: string): Conn | undefined {
+  const conn = conns.get(connId);
+  return conn?.owner === owner ? conn : undefined;
+}
+
+ipcMain.handle('mumpeer:open', async (e, connId: string, rid: unknown, address: unknown, token: unknown, lowSide: unknown) => {
+  const conn = ownedConnection(e.sender, connId);
+  const endpoint = relayEndpoint(address);
+  if (!conn?.udp || !isRequestId(rid) || !endpoint || !isRelayToken(token) || typeof lowSide !== 'boolean') {
+    throw new Error('Invalid mumpeer connection');
+  }
+  if (conn.relays.has(rid) || conn.relays.size >= 9) throw new Error('Too many mumpeer connections');
+  const link = conn.openRelay(endpoint, token, reason => {
+    conn.relays.delete(rid);
+    if (!conn.owner.isDestroyed()) conn.owner.send('mumble:relayClose', connId, rid, reason);
+  });
+  conn.relays.set(rid, { link, lowSide });
+  await link.ready;
+});
+
+ipcMain.handle('mumpeer:turn', (e, connId: string, rid: string, lane: number) => {
+  const relay = ownedConnection(e.sender, connId)?.relays.get(rid);
+  if (!relay || (lane !== 0 && lane !== 1)) throw new Error('The mumpeer allocation is unavailable');
+  return relay.link.turn(lane, relay.lowSide);
+});
+
+ipcMain.on('mumpeer:closeLane', (e, connId: string, rid: string, lane: number) => {
+  ownedConnection(e.sender, connId)?.relays.get(rid)?.link.closeLane(lane);
+});
+
+ipcMain.on('mumpeer:close', (e, connId: string, rid: string) => {
+  ownedConnection(e.sender, connId)?.relays.get(rid)?.link.close();
 });
 
 // Parses DER certificates (e.g. a user's chain from UserStats) for the viewer

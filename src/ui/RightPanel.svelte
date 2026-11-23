@@ -114,7 +114,7 @@
           <span>{isSelf ? `You are sharing your ${session.sharing[user.session]}` : `Sharing their ${session.sharing[user.session]}`}</span>
           {#if isSelf}<button class="btn" onclick={() => share.stop()}>Stop sharing</button>
           {:else if share.watchOf(user.session)}<button class="btn" onclick={() => share.unwatch(user.session)}>Stop watching</button>
-          {:else}<button class="btn primary" onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
+          {:else}<button class="btn primary" disabled={session.sharing[user.session] === 'screen' && !share.screenSupported(sessions.active)} onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
         </div>
       {/if}
 

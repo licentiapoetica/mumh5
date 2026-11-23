@@ -175,7 +175,7 @@
           <button class="btn primary" onclick={message}>Send message</button>
           {#if sharing}
             {#if share.watchOf(user.session)}<button class="btn" onclick={() => share.unwatch(user.session)}>Stop watching</button>
-            {:else}<button class="btn" onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
+            {:else}<button class="btn" disabled={sharing === 'screen' && !share.screenSupported(sessions.active)} onclick={() => share.watch(sessions.active, user.session)}>Watch</button>{/if}
           {/if}
           <button class="btn icon" title="More" aria-label="More" onclick={e => menu.show(e, userMenu(user))}><Icon name="more" size={16} /></button>
         </div>

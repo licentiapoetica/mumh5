@@ -2,12 +2,17 @@
 // picture goes directly from the sharer to each viewer over WebRTC; only the setup messages
 // travel through the Mumble server (as plugin data, see core/share-signal.ts). The server has
 // checked the sender's certificate, so a stream is known to come from that user.
-import { SHARE, SHARE_DATA_ID, encodeShare, ShareAssembler, type ShareType } from '../core/share-signal.ts';
+import {
+  SHARE, SHARE_DATA_ID, encodeShare, ShareAssembler, decodeShareFlow, decodeWatchRequest,
+  type ShareFlow, type ShareRoute, type ShareType, type ShareWatchRequest
+} from '../core/share-signal.ts';
+import { requestId } from '../core/mumpeer-signal.ts';
+import type { RelayLease } from './mumpeer.svelte.ts';
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
 import { desktop, isWeb } from './native.ts';
 import { proxyIce, relayIce } from './web.svelte.ts';
-import { store } from './settings.svelte.ts';
+import { store, type ScreenShareRoute } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 import { cameraBitrate, cameraError, cameraWishes, openCamera } from './camera.ts';
@@ -35,7 +40,32 @@ export interface Watching {
   kind: ShareKind;
   stream: MediaStream | null;
   state: 'connecting' | 'live' | 'failed';
+  route?: ShareRoute;
+  error?: string;
 }
+
+interface OfferAttempt {
+  session: Session;
+  viewer: number;
+  request: ShareWatchRequest | null;
+  route: ShareRoute;
+  fallback: boolean;
+  lease?: RelayLease;
+}
+
+interface WatchAttempt {
+  session: Session;
+  sharer: number;
+  request: ShareWatchRequest;
+  route?: ShareRoute;
+  fallback: boolean;
+  requestedFallback?: boolean;
+  lease?: RelayLease;
+}
+
+const screenRoute = (): ScreenShareRoute => desktop ? store.settings.screenShareRoute : 'standard';
+const DIRECT_TIMEOUT = 20000;
+const RELAY_TIMEOUT = 25000;
 
 class ScreenShare {
   // The server we are sharing on, and what we send
@@ -63,6 +93,8 @@ class ScreenShare {
 
   private peers = new Map<number, RTCPeerConnection>();
   private watchPcs = new Map<number, RTCPeerConnection>();
+  private offers = new Map<number, OfferAttempt>();
+  private watchAttempts = new Map<number, WatchAttempt>();
   private watchTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private assemblers = new WeakMap<Session, ShareAssembler>();
   // Viewers whose connection came up, so leaving is only announced for those
@@ -76,13 +108,16 @@ class ScreenShare {
   get mirror(): boolean { return this.cameraOn && store.settings.cameraMirror && !this.facingAway; }
 
   // Plugin data needs a 1.4 server; older ones would not pass the signals on
+  screenSupported(s: Session): boolean { return this.supported(s) && screenRoute() !== 'off'; }
+
   supported(s: Session): boolean {
     return !!s.client && s.client.serverVersionNum >= 0x010400 && typeof RTCPeerConnection !== 'undefined';
   }
 
-  private async iceServers(): Promise<RTCIceServer[]> {
+  private async iceServers(direct = false): Promise<RTCIceServer[]> {
     const stun = store.settings.stunServer.trim();
     const chosen: RTCIceServer[] = stun ? [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }] : [];
+    if (direct) return chosen;
     // A mumh5 proxy adds its STUN and its relay, which takes over by itself when no direct
     // connection comes up (mobile and company networks, browsers that forbid direct UDP). The
     // browser build has the proxy it is served from; the desktop app the one set in Settings.
@@ -92,11 +127,11 @@ class ScreenShare {
 
   // For testing the relay: localStorage mumh5.iceDebug = "relay" uses only relayed routes,
   // "relay-tcp" only the relay reached over TCP (what a browser without direct UDP is left with)
-  private async rtcConfig(): Promise<RTCConfiguration> {
-    const iceServers = await this.iceServers();
+  private async rtcConfig(route: ShareRoute): Promise<RTCConfiguration> {
+    const iceServers = await this.iceServers(route === 'direct');
     let debug = '';
     try { debug = localStorage.getItem('mumh5.iceDebug') ?? ''; } catch { /* storage unavailable */ }
-    if (!debug.startsWith('relay')) return { iceServers };
+    if (route === 'direct' || !debug.startsWith('relay')) return { iceServers };
     const tcpOnly = (urls: string | string[]) => [urls].flat().filter(u => !u.startsWith('turn') || u.includes('transport=tcp'));
     return { iceTransportPolicy: 'relay', iceServers: debug === 'relay-tcp' ? iceServers.map(s => ({ ...s, urls: tcpOnly(s.urls) })) : iceServers };
   }
@@ -113,12 +148,19 @@ class ScreenShare {
   }
 
   private async send(s: Session, to: number[], type: ShareType, text?: string): Promise<void> {
-    if (!to.length) return;
-    for (const packet of await encodeShare(type, text)) s.client?.sendPluginData(to, SHARE_DATA_ID, packet);
+    const client = s.client;
+    if (!client || !to.length) return;
+    const packets = await encodeShare(type, text);
+    if (s.client !== client) return;
+    for (const packet of packets) client.sendPluginData(to, SHARE_DATA_ID, packet);
+  }
+
+  private flow(s: Session, peer: number, msg: ShareFlow): Promise<void> {
+    return this.send(s, [peer], SHARE.flow, JSON.stringify({ v: 1, ...msg }));
   }
 
   // Sharer and viewer connect directly, so each learns the other's address; say so once
-  private notice(): Promise<boolean> {
+  confirmDirectShare(): Promise<boolean> {
     if (store.settings.shareNoticeSeen) return Promise.resolve(true);
     return new Promise(resolve => {
       let answered = false;
@@ -133,15 +175,23 @@ class ScreenShare {
 
   // Opens the dialog where the source, the sound and the quality are chosen
   async start(s: Session): Promise<void> {
-    if (this.stream || this.dialog || this.opening || !this.supported(s) || !(await this.notice())) return;
+    const policy = screenRoute();
+    if (this.stream || this.dialog || this.opening || !this.screenSupported(s) || (policy !== 'relay-only' && !(await this.confirmDirectShare()))) return;
+    if (screenRoute() !== policy) return;
     this.error = '';
     this.dialog = s;
+  }
+
+  screenPolicyChanged(): void {
+    this.dialog = null;
+    if (this.screenOn) this.stop();
+    for (const watch of this.watches) if (watch.kind === 'screen') this.unwatch(watch.session);
   }
 
   // The camera button: on with the choices from Settings, Video, without a dialog
   async toggleCamera(s: Session): Promise<void> {
     if (this.cameraOn) return this.stop();
-    if (this.stream || this.dialog || this.opening || !this.supported(s) || !(await this.notice())) return;
+    if (this.stream || this.dialog || this.opening || !this.supported(s) || !(await this.confirmDirectShare())) return;
     // Something else may have started while the note was open
     if (this.stream || this.dialog || this.opening) return;
     this.opening = true;
@@ -157,9 +207,9 @@ class ScreenShare {
 
   // The dialog hands over what it captured
   go(s: Session, stream: MediaStream, usesVirtualMic: boolean, kind: ShareKind = 'screen'): void {
+    const dialog = this.dialog;
     this.dialog = null;
-    // Disconnected while the dialog was open
-    if (!s.client || this.stream) {
+    if (!s.client || this.stream || (kind === 'screen' && (dialog !== s || screenRoute() === 'off'))) {
       stream.getTracks().forEach(t => t.stop());
       if (usesVirtualMic) desktop?.shareAudioStop();
       return;
@@ -273,6 +323,8 @@ class ScreenShare {
   }
 
   private dropPeers(): void {
+    for (const offer of this.offers.values()) offer.lease?.close();
+    this.offers.clear();
     for (const pc of this.peers.values()) pc.close();
     this.peers.clear();
     this.live.clear();
@@ -280,8 +332,16 @@ class ScreenShare {
   }
 
   private dropPeer(session: number): void {
-    this.peers.get(session)?.close();
+    const attempt = this.offers.get(session);
+    this.offers.delete(session);
+    attempt?.lease?.close();
+    this.closePeerConnection(session);
+  }
+
+  private closePeerConnection(session: number): void {
+    const pc = this.peers.get(session);
     this.peers.delete(session);
+    pc?.close();
     if (this.live.delete(session)) sounds.play('viewerLeft');
     this.viewers = this.peers.size;
   }
@@ -318,16 +378,32 @@ class ScreenShare {
 
   async watch(s: Session, session: number): Promise<void> {
     const kind = s.sharing[session];
-    if (!this.supported(s) || !kind || this.watchOf(session) || !(await this.notice())) return;
+    const policy = kind === 'screen' ? screenRoute() : 'standard';
+    if (policy === 'off' || !this.supported(s) || !kind || this.watchOf(session) || (policy !== 'relay-only' && !(await this.confirmDirectShare()))) return;
+    if (kind === 'screen' && screenRoute() !== policy) return;
     // Streams from another server, and another screen, make way
     for (const w of this.watches) if (w.host !== s || (kind === 'screen' && w.kind === 'screen')) this.unwatch(w.session);
     if (kind === 'camera' && this.watches.filter(w => w.kind === 'camera').length >= MAX_CAMERAS) return;
     if (!s.sharing[session] || this.watchOf(session)) return;
-    // Asking for it shows it again
     delete this.hidden[this.who(s, session)];
     this.watches = [...this.watches, { host: s, session, kind, stream: null, state: 'connecting' }];
-    this.send(s, [session], SHARE.watch);
-    this.watchTimers.set(session, setTimeout(() => this.setWatchState(session, 'failed'), 20000));
+    if (kind === 'screen') {
+      const request = { id: requestId(), relay: s.mumpeer.capability(session), only: policy === 'relay-only', direct: policy === 'direct-only' };
+      if (request.only && !request.relay) {
+        this.setWatchState(session, 'failed', undefined, { error: 'Mumpeer is unavailable for this user.' });
+        return;
+      }
+      this.watchAttempts.set(session, { session: s, sharer: session, request, fallback: false });
+      this.send(s, [session], SHARE.watch, JSON.stringify({ v: 1, ...request }));
+    } else {
+      this.send(s, [session], SHARE.watch);
+    }
+    this.timeWatch(session);
+  }
+
+  private timeWatch(session: number, timeout = DIRECT_TIMEOUT): void {
+    clearTimeout(this.watchTimers.get(session));
+    this.watchTimers.set(session, setTimeout(() => this.watchFailed(session), timeout));
   }
 
   // One stream, or all of them
@@ -342,21 +418,53 @@ class ScreenShare {
   private endWatch(session: number): void {
     clearTimeout(this.watchTimers.get(session));
     this.watchTimers.delete(session);
-    this.watchPcs.get(session)?.close();
-    this.watchPcs.delete(session);
+    const attempt = this.watchAttempts.get(session);
+    this.watchAttempts.delete(session);
+    attempt?.lease?.close();
+    this.closeWatchConnection(session);
     this.watches = this.watches.filter(w => w.session !== session);
   }
 
-  private setWatchState(session: number, state: Watching['state'], stream?: MediaStream): void {
+  private closeWatchConnection(session: number): void {
+    const pc = this.watchPcs.get(session);
+    this.watchPcs.delete(session);
+    pc?.close();
+  }
+
+  private setWatchState(session: number, state: Watching['state'], stream?: MediaStream, detail?: Pick<Watching, 'route' | 'error'>): void {
     if (!this.watchOf(session)) return;
     if (state !== 'connecting') { clearTimeout(this.watchTimers.get(session)); this.watchTimers.delete(session); }
-    this.watches = this.watches.map(w => w.session === session ? { ...w, state, stream: stream ?? w.stream } : w);
+    this.watches = this.watches.map(w => w.session === session ? { ...w, state, stream: stream ?? w.stream, ...detail } : w);
+  }
+
+  private watchFailed(session: number, reason?: string): void {
+    const attempt = this.watchAttempts.get(session);
+    if (!reason && attempt?.fallback && attempt.route === 'standard' && !attempt.requestedFallback) {
+      attempt.requestedFallback = true;
+      this.closeWatchConnection(session);
+      this.setWatchState(session, 'connecting');
+      this.timeWatch(session, RELAY_TIMEOUT);
+      void this.flow(attempt.session, session, { t: 'fallback', id: attempt.request.id });
+      return;
+    }
+    if (!reason && (!attempt || (!attempt.lease && !attempt.request.only && !attempt.requestedFallback))) {
+      this.setWatchState(session, 'failed');
+      return;
+    }
+    const watching = this.watchOf(session);
+    if (attempt) {
+      this.watchAttempts.delete(session);
+      attempt.lease?.close();
+    }
+    this.closeWatchConnection(session);
+    if (watching?.host.client) void this.send(watching.host, [session], SHARE.leave);
+    this.setWatchState(session, 'failed', undefined, { error: reason });
   }
 
   // All cameras on or off, remembered
   async setCams(s: Session, on: boolean): Promise<void> {
     // Also a setting while not connected, where there is nobody to connect to yet
-    if (on && !store.settings.autoCameras && this.supported(s) && !(await this.notice())) return;
+    if (on && !store.settings.autoCameras && this.supported(s) && !(await this.confirmDirectShare())) return;
     store.settings.autoCameras = on;
     store.saveSettings();
     if (!on) {
@@ -377,65 +485,186 @@ class ScreenShare {
     });
   }
 
-  private async offerTo(s: Session, viewer: number): Promise<void> {
-    const stream = this.stream;
-    if (!stream || this.host !== s) return;
-    const config = await this.rtcConfig();
-    if (this.stream !== stream || this.host !== s) return;
-    this.dropPeer(viewer);
-    if (this.peers.size >= MAX_VIEWERS) return;
-    const pc = new RTCPeerConnection(config);
-    this.peers.set(viewer, pc);
-    this.viewers = this.peers.size;
-    pc.addEventListener('connectionstatechange', () => {
-      if (this.peers.get(viewer) !== pc) return;
-      if (pc.connectionState === 'connected' && !this.live.has(viewer)) {
-        this.live.add(viewer);
-        sounds.play('viewerJoined');
-      } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.dropPeer(viewer);
-    });
-    for (const track of stream.getTracks()) {
-      const sender = pc.addTrack(track, stream);
-      if (track.kind !== 'video') continue;
-      const params = sender.getParameters();
-      // Keep the picture sharp and let the frame rate drop when the connection is tight
-      params.degradationPreference = this.kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
-      const wanted = this.kind === 'camera' ? cameraBitrate() : QUALITY[store.settings.shareQuality].bitrate;
-      for (const enc of params.encodings ?? []) enc.maxBitrate = wanted;
-      await sender.setParameters(params).catch(() => {});
-    }
-    await pc.setLocalDescription({ type: 'offer', sdp: stereo((await pc.createOffer()).sdp ?? '') });
-    await this.gathered(pc);
-    if (this.peers.get(viewer) === pc && pc.localDescription) await this.send(s, [viewer], SHARE.offer, pc.localDescription.sdp);
+  private offerCurrent(a: OfferAttempt): boolean {
+    return this.offers.get(a.viewer) === a && this.host === a.session && !!this.stream && this.inMyChannel(a.session, a.viewer);
   }
 
-  private async answerTo(s: Session, sharer: number, sdp: string): Promise<void> {
-    const mine = () => { const w = this.watchOf(sharer); return !!w && w.host === s; };
-    if (!mine()) return;
-    const config = await this.rtcConfig();
-    if (!mine()) return;
-    this.watchPcs.get(sharer)?.close();
-    const pc = new RTCPeerConnection(config);
-    this.watchPcs.set(sharer, pc);
-    const current = () => this.watchPcs.get(sharer) === pc;
-    // The track is announced with the description, before any route exists: the stream only
-    // counts as live once the connection is up, otherwise the viewer stares at a black picture
-    pc.addEventListener('track', e => {
-      if (current()) this.setWatchState(sharer, pc.connectionState === 'connected' ? 'live' : 'connecting', e.streams[0]);
-    });
-    pc.addEventListener('connectionstatechange', () => {
-      if (!current()) return;
-      if (pc.connectionState === 'connected') this.setWatchState(sharer, 'live');
-      else if (pc.connectionState === 'failed') this.setWatchState(sharer, 'failed');
-    });
+  private failOffer(a: OfferAttempt, reason: string): void {
+    if (!this.offerCurrent(a)) return;
+    this.dropPeer(a.viewer);
+    if (a.request) void this.flow(a.session, a.viewer, { t: 'error', id: a.request.id, reason: reason.slice(0, 180) });
+  }
+
+  private async watchRequested(s: Session, viewer: number, text?: string): Promise<void> {
+    if (!this.stream || this.host !== s) return;
+    const request = this.kind === 'screen' ? decodeWatchRequest(text) : null;
+    const policy = this.kind === 'screen' ? screenRoute() : 'standard';
+    if (request && this.offers.get(viewer)?.request?.id === request.id) return;
+    this.dropPeer(viewer);
+    if (this.offers.size >= MAX_VIEWERS) return;
+    const matchingRelay = !!request?.relay && request.relay === s.mumpeer.capability(viewer);
+    const only = policy === 'relay-only' || request?.only;
+    const direct = policy === 'direct-only' || request?.direct;
+    const attempt: OfferAttempt = {
+      session: s, viewer, request, route: direct ? 'direct' : 'standard',
+      fallback: matchingRelay && !direct && !only
+    };
+    this.offers.set(viewer, attempt);
+    if (policy === 'off') return this.failOffer(attempt, 'The sharer disabled screen sharing.');
+    if (only) {
+      if (!matchingRelay || direct) return this.failOffer(attempt, 'Both users need to allow the same mumpeer relay.');
+      await this.relayOffer(attempt);
+    } else {
+      await this.offerTo(attempt);
+    }
+  }
+
+  private async relayOffer(a: OfferAttempt): Promise<void> {
+    if (!this.offerCurrent(a) || !a.request || a.route === 'mumpeer') return;
+    a.route = 'mumpeer';
+    this.closePeerConnection(a.viewer);
     try {
+      if (!a.request.relay || a.request.relay !== a.session.mumpeer.capability(a.viewer)) throw new Error('Mumpeer is unavailable for this user.');
+      // Tell the viewer which attempt may acquire a pair before sending any SDP.
+      await this.flow(a.session, a.viewer, { t: 'relay', id: a.request.id });
+      if (!this.offerCurrent(a)) return;
+      a.lease = a.session.mumpeer.acquire(a.viewer, a.request.id, a.session.client!.session!, reason => this.failOffer(a, reason));
+      await this.offerTo(a);
+    } catch (error) { this.failOffer(a, (error as Error).message); }
+  }
+
+  private async offerTo(a: OfferAttempt): Promise<void> {
+    const { session: s, viewer, request, route } = a;
+    const stream = this.stream;
+    if (!stream || !this.offerCurrent(a)) return;
+    try {
+      const config = await (a.lease?.config ?? this.rtcConfig(route));
+      if (!this.offerCurrent(a) || a.route !== route) return;
+      const pc = new RTCPeerConnection(config);
+      this.peers.set(viewer, pc);
+      this.viewers = this.peers.size;
+      const current = () => this.offerCurrent(a) && this.peers.get(viewer) === pc;
+      pc.addEventListener('connectionstatechange', () => {
+        if (!current()) return;
+        if (pc.connectionState === 'connected' && !this.live.has(viewer)) {
+          this.live.add(viewer);
+          sounds.play('viewerJoined');
+        } else if (pc.connectionState === 'failed') {
+          if (a.fallback && a.route === 'standard') void this.relayOffer(a);
+          else this.failOffer(a, 'Could not connect to the viewer.');
+        } else if (pc.connectionState === 'closed') this.dropPeer(viewer);
+      });
+      for (const track of stream.getTracks()) {
+        const sender = pc.addTrack(track, stream);
+        if (track.kind !== 'video') continue;
+        const params = sender.getParameters();
+        params.degradationPreference = this.kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
+        const wanted = this.kind === 'camera' ? cameraBitrate() : QUALITY[store.settings.shareQuality].bitrate;
+        for (const enc of params.encodings ?? []) enc.maxBitrate = wanted;
+        await sender.setParameters(params).catch(() => {});
+        if (!current()) return;
+      }
+      await pc.setLocalDescription({ type: 'offer', sdp: stereo((await pc.createOffer()).sdp ?? '') });
+      await this.gathered(pc);
+      if (!current() || !pc.localDescription) return;
+      const sdp = pc.localDescription.sdp;
+      if (request) await this.flow(s, viewer, { t: 'offer', id: request.id, route, sdp, fallback: route === 'standard' && a.fallback });
+      else await this.send(s, [viewer], SHARE.offer, sdp);
+    } catch (error) {
+      if (a.route === route) this.failOffer(a, (error as Error).message);
+    }
+  }
+
+  private async answerTo(s: Session, sharer: number, sdp: string, route: ShareRoute, attempt?: WatchAttempt): Promise<void> {
+    const mine = () => {
+      const w = this.watchOf(sharer);
+      return w?.host === s && (!attempt || (this.watchAttempts.get(sharer) === attempt && attempt.route === route));
+    };
+    if (!mine()) return;
+    try {
+      const config = await (attempt?.lease?.config ?? this.rtcConfig(route));
+      if (!mine()) return;
+      if (route === 'direct' && / typ relay(?: |\r|$)/m.test(sdp)) throw new Error('The other client offered a relay in direct-only mode.');
+      this.closeWatchConnection(sharer);
+      const pc = new RTCPeerConnection(config);
+      this.watchPcs.set(sharer, pc);
+      const current = () => mine() && this.watchPcs.get(sharer) === pc;
+      pc.addEventListener('track', e => {
+        if (current()) this.setWatchState(sharer, pc.connectionState === 'connected' ? 'live' : 'connecting', e.streams[0], { route });
+      });
+      pc.addEventListener('connectionstatechange', () => {
+        if (!current()) return;
+        if (pc.connectionState === 'connected') this.setWatchState(sharer, 'live', undefined, { route });
+        else if (pc.connectionState === 'failed') this.watchFailed(sharer);
+      });
       await pc.setRemoteDescription({ type: 'offer', sdp });
       await pc.setLocalDescription({ type: 'answer', sdp: stereo((await pc.createAnswer()).sdp ?? '') });
       await this.gathered(pc);
-      if (current() && pc.localDescription) await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
-    } catch {
-      if (current()) this.setWatchState(sharer, 'failed');
+      if (!current() || !pc.localDescription) return;
+      if (attempt) await this.flow(s, sharer, { t: 'answer', id: attempt.request.id, route, sdp: pc.localDescription.sdp });
+      else await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
+    } catch (error) {
+      if (mine()) this.watchFailed(sharer, (error as Error).message);
     }
+  }
+
+  private receiveFlow(s: Session, sender: number, flow: ShareFlow): void {
+    const offer = this.offers.get(sender);
+    if (offer?.session === s && offer.request?.id === flow.id && this.offerCurrent(offer)) {
+      if (flow.t === 'fallback' && offer.fallback && offer.route === 'standard') void this.relayOffer(offer);
+      if (flow.t === 'answer' && offer.route === flow.route) {
+        if (offer.route === 'direct' && / typ relay(?: |\r|$)/m.test(flow.sdp)) return this.failOffer(offer, 'The viewer offered a relay in direct-only mode.');
+        const pc = this.peers.get(sender);
+        if (pc?.signalingState === 'have-local-offer') void pc.setRemoteDescription({ type: 'answer', sdp: flow.sdp }).catch(() => {
+          if (this.peers.get(sender) === pc) this.failOffer(offer, 'Could not accept the viewer’s answer.');
+        });
+      }
+    }
+
+    const attempt = this.watchAttempts.get(sender);
+    if (!attempt || attempt.session !== s || attempt.request.id !== flow.id) return;
+    if (flow.t === 'error') this.watchFailed(sender, flow.reason);
+    if (flow.t === 'relay' && !attempt.lease) {
+      if (attempt.request.direct || !attempt.request.relay || attempt.request.relay !== s.mumpeer.capability(sender)) {
+        this.watchFailed(sender, 'Mumpeer is unavailable for this user.');
+        return;
+      }
+      attempt.route = 'mumpeer';
+      this.closeWatchConnection(sender);
+      this.setWatchState(sender, 'connecting', undefined, { route: 'mumpeer' });
+      this.timeWatch(sender, RELAY_TIMEOUT);
+      try {
+        attempt.lease = s.mumpeer.acquire(sender, flow.id, sender, reason => {
+          if (this.watchAttempts.get(sender) === attempt) this.watchFailed(sender, reason);
+        });
+        void attempt.lease.config.catch((error: Error) => {
+          if (this.watchAttempts.get(sender) === attempt) this.watchFailed(sender, error.message);
+        });
+      } catch (error) { this.watchFailed(sender, (error as Error).message); }
+    }
+    if (flow.t === 'offer') {
+      if (flow.route === 'mumpeer' ? !attempt.lease : attempt.lease || attempt.request.only) return;
+      if (attempt.request.direct && flow.route !== 'direct') return;
+      if (attempt.route === flow.route) {
+        if (this.watchPcs.has(sender)) return;
+        if (attempt.requestedFallback && flow.route !== 'mumpeer') return;
+      }
+      attempt.route = flow.route;
+      attempt.fallback = flow.fallback && flow.route === 'standard' && !!attempt.request.relay;
+      void this.answerTo(s, sender, flow.sdp, flow.route, attempt);
+    }
+  }
+
+  private legacyOffer(s: Session, sender: number, sdp: string): void {
+    const attempt = this.watchAttempts.get(sender);
+    if (this.watchOf(sender)?.host !== s) return;
+    if (attempt?.request.only) {
+      this.watchFailed(sender, 'The sharer does not support mumpeer for this share.');
+      return;
+    }
+    if (attempt?.route) return;
+    if (attempt) this.watchAttempts.delete(sender);
+    void this.answerTo(s, sender, sdp, attempt?.request.direct ? 'direct' : 'standard');
   }
 
   // Raw WebRTC statistics for the overlay: of a stream we watch, or one per viewer of ours
@@ -468,12 +697,25 @@ class ScreenShare {
         if (this.watchOf(sender)?.host === s) this.endWatch(sender);
         break;
       case SHARE.who: if (this.host === s) this.send(s, [sender], SHARE.on, this.kind); break;
-      case SHARE.watch: if (this.host === s) this.offerTo(s, sender).catch(() => this.dropPeer(sender)); break;
+      case SHARE.watch: void this.watchRequested(s, sender, msg.text); break;
       case SHARE.leave: if (this.host === s) this.dropPeer(sender); break;
-      case SHARE.offer: if (msg.text) this.answerTo(s, sender, msg.text); break;
-      case SHARE.answer:
-        if (this.host === s && msg.text) this.peers.get(sender)?.setRemoteDescription({ type: 'answer', sdp: msg.text }).catch(() => this.dropPeer(sender));
+      case SHARE.offer: if (msg.text) this.legacyOffer(s, sender, msg.text); break;
+      case SHARE.answer: {
+        const offer = this.offers.get(sender);
+        const pc = this.peers.get(sender);
+        if (offer?.session === s && !offer.request && msg.text && pc?.signalingState === 'have-local-offer') {
+          if (offer.route === 'direct' && / typ relay(?: |\r|$)/m.test(msg.text)) return this.failOffer(offer, 'The viewer offered a relay in direct-only mode.');
+          void pc.setRemoteDescription({ type: 'answer', sdp: msg.text }).catch(() => {
+            if (this.peers.get(sender) === pc) this.dropPeer(sender);
+          });
+        }
         break;
+      }
+      case SHARE.flow: {
+        const flow = decodeShareFlow(msg.text);
+        if (flow) this.receiveFlow(s, sender, flow);
+        break;
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
   import { session } from '../lib/session.svelte.ts';
+  import { desktop } from '../lib/native.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -24,6 +25,18 @@
     <dl>
       <dt>Ping (TCP)</dt><dd>{session.rtt ? `${session.rtt} ms` : 'n/a'}</dd>
       <dt>Voice</dt><dd>{voice.udp ? `Encrypted UDP${voice.rtt ? `, ${Math.round(voice.rtt)} ms` : ''}` : 'Through the TCP connection'}</dd>
+      {#if desktop}
+        <dt>Mumpeer relay</dt>
+        <dd>
+          {session.mumpeer.status}
+          {#if session.mumpeer.enabled && session.mumpeer.canTrust}
+            <button class="btn small" onclick={() => session.mumpeer.trust()}>Trust relay</button>
+          {/if}
+          {#if session.mumpeer.hasPin}
+            <button class="btn small" onclick={() => session.mumpeer.forget()}>Forget relay</button>
+          {/if}
+        </dd>
+      {/if}
       <dt>Certificate</dt><dd>{cert ? (cert.authorized ? 'Signed by a trusted authority' : 'Self-signed or untrusted, pinned on first connect') : 'unknown'}</dd>
       {#if cert}<dt>SHA-256</dt><dd class="mono">{cert.fingerprint}</dd>{/if}
     </dl>

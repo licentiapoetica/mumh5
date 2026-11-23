@@ -137,6 +137,8 @@
 
   async function start() {
     if (!preview) return;
+    if (kind === 'camera' && !(await share.confirmDirectShare())) return;
+    if (!preview || share.dialog !== target) return;
     busy = true;
     error = '';
     let usesVirtualMic = false;
