@@ -28,9 +28,32 @@ const openText = $state<Record<string, number[]>>({});
   });
   // Stacked only: the bar can show the channel list's or the chat's background instead of a plain one
   const mode = $derived(always ? store.settings.tabBarBackground ?? 'none' : 'none');
-  // A gradient flows from the list into the bar, so the line between them goes (the handle still shows on hover)
+  // A gradient flows from the list into the bar, so the line between them goes
   const seam = $derived(mode === 'tree' && areaBackground('tree')?.style.design === 'gradient');
   let bar = $state<HTMLElement>();
+  // The list's resize handle moves under this bar while the bar touches the list. Measured,
+  // since an empty stream area can stand between them in the page without taking room.
+  $effect(() => {
+    const own = bar, stack = own?.closest<HTMLElement>('.stack');
+    const tree = stack?.querySelector<HTMLElement>(':scope > .tree');
+    const chat = own?.parentElement, log = chat?.querySelector<HTMLElement>(':scope > .logbox');
+    if (!own || !stack || !tree || !chat) return;
+    const place = () => {
+      stack.classList.toggle('tabs-under-list', Math.abs(own.getBoundingClientRect().top - tree.getBoundingClientRect().bottom) < 1);
+      stack.style.setProperty('--tab-bar', `${own.offsetHeight}px`);
+    };
+    const sized = new ResizeObserver(place);
+    for (const el of [own, tree, log]) if (el) sized.observe(el);
+    // A stream area coming or going moves the bar
+    const children = new MutationObserver(place);
+    children.observe(chat, { childList: true });
+    return () => {
+      sized.disconnect();
+      children.disconnect();
+      stack.classList.remove('tabs-under-list');
+      stack.style.removeProperty('--tab-bar');
+    };
+  });
   // Two gradients never round to the same colors, so a gradient is one box over the list and the
   // bar, and each shows its part. Both read these sizes, so the boxes are identical.
   $effect(() => {
@@ -129,7 +152,9 @@ const openText = $state<Record<string, number[]>>({});
 
 <style>
   /* Only when the bar sits right under the list, with no stream between */
-  :global(.stack:has(> .chat > .tabs-wrap.seam:is(:first-child, .background-art + .tabs-wrap)) > .tree) { border-bottom-width: 0; }
+  :global(.stack.tabs-under-list:has(> .chat > .tabs-wrap.seam) > .tree) { border-bottom-width: 0; --tree-line: 0px; }
+  /* The handle's line replaces the bar's lower border; its grab area lies below, clear of the tabs and their scrollbar */
+  :global(.stack.tabs-under-list > .tree > .resize.bottom) { bottom: calc(-7px - var(--tree-line, 1px) - var(--tab-bar, 0px)); --line-at: 0px; }
   :global(.stack:has(.tabs-wrap.seam) .tree-bg) { overflow: hidden; }
   /* will-change: each piece gets its own layer, so both are blended the same way and round alike */
   :global(.stack:has(.tabs-wrap.seam) .tree-bg > .background-art) { bottom: auto; height: calc(var(--seam-list, 100%) + var(--seam-bar, 0px)); will-change: transform; }
