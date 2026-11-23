@@ -261,7 +261,7 @@ class VoiceEngine {
       this.configureEncoder();
       // Safari can leave this pending outside a gesture; the wake handlers above finish it later
       ctx.resume().catch(() => {});
-      this.levelTimer = setInterval(() => { this.level = this.levelRaw; }, 50);
+      this.levelTimer = setInterval(() => { this.level = this.levelRaw; this.watchdog(); }, 50);
       this.running = true;
       this.syncAwake();
       // Not awaited: voice works with the browser's filter until the model is ready
@@ -349,6 +349,18 @@ class VoiceEngine {
     // Muted again, or opened a second time, while the browser was getting the microphone
     if (!this.ctx || !this.inputGainNode || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
     this.stream = stream;
+    this.lastFrameAt = performance.now();
+    // The browser or the sound server can end the microphone (a device change, the audio service
+    // restarting, suspend). Nothing else would notice: playback is a separate path.
+    for (const track of stream.getAudioTracks()) {
+      track.addEventListener('ended', () => {
+        if (this.stream !== stream) return;
+        connLog.add('microphone ended by the browser, opening it again');
+        this.reopenInput();
+      });
+      track.addEventListener('mute', () => { if (this.stream === stream) connLog.add('microphone muted by the system'); });
+      track.addEventListener('unmute', () => { if (this.stream === stream) connLog.add('microphone unmuted by the system'); });
+    }
     this.micNoise = browserNoise;
     this.micOpen = true;
     this.error = '';
@@ -551,6 +563,35 @@ class VoiceEngine {
     this.encoder = encoder;
   }
 
+  private lastFrameAt = 0;       // when the capture worklet last delivered audio
+  private lastSentAt = 0;        // when a voice packet last left
+  private talkingSince = 0;
+  private lastHeal = 0;
+
+  // Opens the microphone anew, at most every 5 seconds so a device that cannot work does not loop
+  private reopenInput(): void {
+    const now = performance.now();
+    if (now - this.lastHeal < 5000) return;
+    this.lastHeal = now;
+    this.syncInput(true);
+  }
+
+  // Two things that fail without any event: the microphone going quiet for good (no audio frames
+  // although it is open), and speech that reaches the encoder but never leaves
+  private watchdog(): void {
+    const now = performance.now();
+    if (this.micOpen && this.ctx?.state === 'running' && now - this.lastFrameAt > 2000) {
+      connLog.add('microphone gave no audio for 2 s, opening it again');
+      this.lastFrameAt = now;
+      this.reopenInput();
+    }
+    if (this.transmitting && now - this.talkingSince > 2000 && now - this.lastSentAt > 2000) {
+      connLog.add('speech was not sent for 2 s, rebuilding the encoder');
+      this.lastSentAt = now;
+      this.configureEncoder();
+    }
+  }
+
   private lastRevive = 0;
 
   // The encoder, made again if it was closed (reclaimed by the browser, or failed). At most once
@@ -571,6 +612,7 @@ class VoiceEngine {
   }
 
   private onFrame(frame: Float32Array<ArrayBuffer>, rms: number): void {
+    this.lastFrameAt = performance.now();
     const db = rms > 0 ? 20 * Math.log10(rms) : -100;
     this.levelRaw = Math.max(-100, db);
     const now = performance.now();
@@ -593,7 +635,7 @@ class VoiceEngine {
     }
     wanted &&= this.canTalk() && this.encoderReady();
 
-    if (wanted && !this.open) { this.open = true; this.transmitting = true; }
+    if (wanted && !this.open) { this.open = true; this.transmitting = true; this.talkingSince = this.lastSentAt = performance.now(); }
     if (!wanted && this.open) { this.endTransmission(); return; }
     if (!this.open) return;
 
@@ -622,6 +664,7 @@ class VoiceEngine {
   private sendPacket(opus: Uint8Array, last: boolean): void {
     const client = this.client;
     if (!client) return;
+    this.lastSentAt = performance.now();
     client.sendVoice(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice));
     this.frameCounter += this.settings.frameMs / 10;
     this.stats.sent++;
