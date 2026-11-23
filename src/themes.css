@@ -251,6 +251,10 @@
 
 :root[data-theme="win95"] body { -webkit-font-smoothing: none; }
 :root[data-theme="win95"] ::selection { background: #000080; color: #fff; }
+/* Nothing fades in this theme: list hovers switch at once */
+:root[data-theme="win95"] .row,
+:root[data-theme="win95"] .entry,
+:root[data-theme="win95"] .person { transition: none; }
 
 /* Buttons: raised, pressed in when active */
 :root[data-theme="win95"] .btn,
