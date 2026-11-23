@@ -268,10 +268,13 @@
   @media (max-width: 760px) {
     .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
     /* Stays at the top while the section scrolls under it; the body's 8px top padding is covered */
-    .tabs { position: sticky; top: -8px; z-index: 1; flex-direction: row; overflow-x: auto; scrollbar-width: none; cursor: grab; user-select: none;
+    .tabs { position: sticky; top: -8px; z-index: 1; flex-direction: row; overflow-x: auto; scrollbar-width: none; user-select: none;
       margin: -8px -24px 12px; padding: 8px 24px 0; background: var(--bg-1); border-bottom: 1px solid var(--line); }
     .tabs::-webkit-scrollbar { display: none; }
     .tabs button { padding: 8px 12px; }
+    /* Slightly dimmer than --text-dim so the active tab stands out; 90% keeps every scheme above 4.5:1 on --bg-1 */
+    .tabs button:not(.active) { color: color-mix(in srgb, var(--text-dim) 90%, var(--bg-1)); }
+    .tabs button:not(.active):hover { color: var(--text); }
     .tabs button:hover { background: none; }
     /* Same weight as the others: a bolder active tab is wider and shifts the row on click */
     .tabs button.active { background: none; font-weight: 500; box-shadow: inset 0 -2px 0 var(--accent); }
