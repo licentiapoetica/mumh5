@@ -33,6 +33,8 @@
   import { session, sessions } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
+  import { applyCorners } from './lib/corners.ts';
+  import { settingsWindow } from './lib/settings-window.svelte.ts';
   import { chatHistory } from './lib/chat-history.ts';
 
   $effect(() => {
@@ -99,6 +101,17 @@
     // Title bar of the installed web app and phone status bars
     const color = getComputedStyle(document.documentElement).getPropertyValue('--bg-1').trim();
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color || '#141518');
+  });
+
+  $effect(() => applyCorners(document.documentElement.style, store.settings.corners));
+
+  // Settings already has its own window: bring that forward. Voice is the tab every plain
+  // Settings button asks for, so it does not move the window off the section in use.
+  $effect(() => {
+    if (!ui.settingsOpen || !settingsWindow.isOpen) return;
+    settingsWindow.show(ui.settingsTab === 'voice' ? undefined : ui.settingsTab);
+    ui.settingsOpen = false;
+    ui.settingsTab = 'voice';
   });
 
   // The panel starts open only where it sits inline
@@ -231,7 +244,7 @@
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
 {#if ui.publicServers}<PublicServers onclose={() => (ui.publicServers = false)} />{/if}
 {#if ui.serverInfo && session.status === 'connected'}<ServerInfoDialog onclose={() => (ui.serverInfo = false)} />{/if}
-{#if ui.settingsOpen}<SettingsDialog tab={ui.settingsTab} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
+{#if ui.settingsOpen && !settingsWindow.isOpen}<SettingsDialog tab={ui.settingsTab} onpopout={t => settingsWindow.open(t)} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
 {#if ui.profileEdit && session.status === 'connected'}
   <!-- A draft belongs to one server; before the prompt dialog, which opens on top of it -->
   {#key sessions.active}<ProfileDialog />{/key}
@@ -253,7 +266,7 @@
 {/if}
 {#if share.dialog}<ShareDialog onclose={() => (share.dialog = null)} />{/if}
 {#if ui.pokes.length}<PokeDialog />{/if}
-{#if ui.prompt}<PromptDialog {...ui.prompt} onclose={() => { const p = ui.prompt; ui.prompt = null; p?.oncancel?.(); }} />{/if}
+{#if ui.prompt && !settingsWindow.promptHere}<PromptDialog {...ui.prompt} onclose={() => { const p = ui.prompt; ui.prompt = null; p?.oncancel?.(); }} />{/if}
 <ProfileCard />
 <ImageViewer />
 <ContextMenu />
