@@ -285,8 +285,24 @@ function createWindow() {
     if (frameName === 'mumh5-stream' && (url === 'about:blank' || url === '')) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 960, height: 600, minWidth: 320, minHeight: 200, backgroundColor: '#000000', autoHideMenuBar: true, title: 'mumh5' } };
     }
+    // The theme creator: an empty page the app fills itself
+    if (frameName === 'mumh5-themes' && (url === 'about:blank' || url === '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 460, height: 820, minWidth: 360, minHeight: 420, backgroundColor: '#141518', autoHideMenuBar: true, title: 'Theme creator' } };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+  // Nothing in that window navigates; a link goes to the browser, like those in the app
+  win.webContents.on('did-create-window', (child, { frameName }) => {
+    if (frameName !== 'mumh5-themes') return;
+    child.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    child.webContents.on('will-navigate', (e, url) => {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    });
   });
   win.webContents.on('will-navigate', (e, url) => {
     if (devUrl && url.startsWith(devUrl)) return;

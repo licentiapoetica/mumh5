@@ -33,6 +33,9 @@
   import { session, sessions } from './lib/session.svelte.ts';
   import { ui } from './lib/ui.svelte.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
+  import { applyThemeStyle, isCustomTheme } from './lib/custom-themes.ts';
+  import { studio } from './lib/theme-studio.svelte.ts';
+  import ThemeCreator from './ui/ThemeCreator.svelte';
   import { chatHistory } from './lib/chat-history.ts';
 
   $effect(() => {
@@ -93,9 +96,12 @@
 
   // Color scheme on the root element; dark is the stylesheet default
   $effect(() => {
-    const t = store.settings.theme;
+    const own = studio.shown;
+    // A theme that no longer exists falls back to dark
+    const t = own ? 'custom' : isCustomTheme(store.settings.theme) ? 'dark' : store.settings.theme;
     if (t && t !== 'dark') document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
+    applyThemeStyle(document.documentElement.style, own);
     // Title bar of the installed web app and phone status bars
     const color = getComputedStyle(document.documentElement).getPropertyValue('--bg-1').trim();
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color || '#141518');
@@ -226,6 +232,7 @@
 {/if}
 </div>
 
+{#if studio.place === 'inline'}<ThemeCreator docked />{/if}
 {#if editing}<ConnectDialog server={editing.server} onclose={() => (editing = null)} />{/if}
 {#if ui.editServer}<ConnectDialog server={ui.editServer} onclose={() => (ui.editServer = null)} />{/if}
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
