@@ -3,6 +3,9 @@
   import SectionHead from './SectionHead.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
+  const TAB_BARS = [
+    { id: 'none', name: 'Plain' }, { id: 'tree', name: 'Same as channel list' }, { id: 'chat', name: 'Same as chat' }
+  ] as const;
   const ARRANGEMENTS: { id: Arrangement; name: string; note: string }[] = [
     { id: 'side', name: 'Modern', note: 'Channels left, members right' },
     { id: 'classic', name: 'Classic', note: 'Chat left, channels right, like Mumble' },
@@ -123,6 +126,16 @@
 {/if}
 <label class="role-check"><input type="checkbox" checked={store.settings.treeLines}
   onchange={e => { store.settings.treeLines = e.currentTarget.checked; store.saveSettings(); }} /> Show tree lines</label>
+{#if store.settings.arrangement === 'stacked'}
+  <span class="pick-label" id="tab-bar-bg">Tab bar background</span>
+  <p class="help">The strip with the chat names above the messages. Backgrounds are set below.</p>
+  <div class="shades pick" role="group" aria-labelledby="tab-bar-bg">
+    {#each TAB_BARS as t (t.id)}
+      <button class:on={store.settings.tabBarBackground === t.id} aria-pressed={store.settings.tabBarBackground === t.id}
+        onclick={() => { store.settings.tabBarBackground = t.id; store.saveSettings(); }}>{t.name}</button>
+    {/each}
+  </div>
+{/if}
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
 {/if}
 

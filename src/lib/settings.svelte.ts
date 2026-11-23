@@ -38,6 +38,7 @@ export interface Settings {
   treeBackgroundStyle: BackgroundStyle;
   publicListUrl: string;  // where the public server list comes from
   arrangement: Arrangement;
+  tabBarBackground: 'none' | 'tree' | 'chat'; // the tab bar above the chat in the Stacked layout: plain, the channel list's or the chat's background
   classicSide: 'left' | 'right'; // the side of the chat the channel list is on in the Classic layout
   railHidden: boolean;   // the server list is closed; the current server's button brings it back
   // standard: the channel tree in one of the layouts above. rooms: one screen at a time, made for phones.
@@ -113,6 +114,7 @@ const defaults: Settings = {
   treeBackgroundStyle: { design: 'none', fit: 'cover', strength: 20, color: '#5865f2', mark: null, spacing: null },
   publicListUrl: 'https://publist.mumble.info/v1/list?version=1.5.0',
   arrangement: 'stacked',
+  tabBarBackground: 'none',
   classicSide: 'right',
   railHidden: true,
   interface: 'standard',
@@ -150,7 +152,8 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   backgroundColor: 'appearance.background', backgroundMark: 'appearance.background', backgroundSpacing: 'appearance.background',
   treeBackground: 'appearance.tree', treeBackgroundStyle: 'appearance.tree',
   publicListUrl: 'kept',
-  arrangement: 'appearance.layout', classicSide: 'appearance.layout', toolbar: 'appearance.layout', treeLines: 'appearance.layout',
+  arrangement: 'appearance.layout', classicSide: 'appearance.layout', tabBarBackground: 'appearance.layout',
+  toolbar: 'appearance.layout', treeLines: 'appearance.layout',
   railHidden: 'kept',
   interface: 'appearance.interface',
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
