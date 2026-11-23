@@ -33,6 +33,8 @@ export interface VoiceSettings {
   // Give the microphone back while muted. An open microphone puts a Bluetooth headset into its
   // telephone mode, which also makes what you hear sound like a phone call.
   releaseMicMuted: boolean;
+  // Keep the screen on while in voice, since a locked phone loses the microphone
+  keepAwake: boolean;
   // Per-user local volume and mute, keyed by certificate hash (or name without one)
   userVolumes: Record<string, number>;
   localMutes: Record<string, boolean>;
@@ -60,6 +62,7 @@ const defaults: VoiceSettings = {
   jitterMs: 60,
   forceTcp: false,
   releaseMicMuted: handheld,
+  keepAwake: handheld,
   userVolumes: {},
   localMutes: {}
 };
@@ -97,6 +100,7 @@ class VoiceEngine {
   private capture: AudioWorkletNode | null = null;
   private playback: AudioWorkletNode | null = null;
   private denoiser: AudioWorkletNode | null = null;
+  private wakeLock: WakeLockSentinel | null = null;
   private denoiseRun = 0;        // a load or node from an earlier run is stale
   private micNoise = false;      // whether the open microphone uses the browser's filter
   // The browser's Opus codec (WebCodecs), or our own in WebAssembly where the browser has none
@@ -129,7 +133,7 @@ class VoiceEngine {
     window.addEventListener('blur', () => { this.pttDown = false; });
     // iOS and Android suspend the audio context on a call, a lock or a route change
     const wake = () => { if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {}); };
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { wake(); this.syncAwake(); } });
     window.addEventListener('pointerdown', wake, { passive: true });
     window.addEventListener('keydown', wake, { passive: true });
     navigator.mediaDevices?.addEventListener('devicechange', () => this.refreshDevices());
@@ -154,6 +158,7 @@ class VoiceEngine {
     if ('inputGain' in patch && this.inputGainNode) this.inputGainNode.gain.value = this.settings.inputGain;
     if ('outputVolume' in patch && this.outputGainNode) this.outputGainNode.gain.value = this.settings.outputVolume;
     if ('jitterMs' in patch) this.playback?.port.postMessage({ jitterMs: this.settings.jitterMs });
+    if ('keepAwake' in patch) this.syncAwake();
     if ('outputDevice' in patch) this.applyOutputDevice();
     if ('bitrate' in patch || 'frameMs' in patch) this.configureEncoder();
     if ('noiseSuppression' in patch || 'noiseEngine' in patch) {
@@ -175,6 +180,26 @@ class VoiceEngine {
       .map(d => ({ id: d.deviceId, label: d.label || (d.deviceId === 'default' ? 'System default' : 'Unnamed device') }));
     this.inputDevices = map('audioinput');
     this.outputDevices = map('audiooutput');
+  }
+
+  // ─── Screen wake lock ───────────────────────────────────────────────────────
+
+  // The browser drops the lock whenever the page is hidden, so it is asked for again on return
+  private async syncAwake(): Promise<void> {
+    const want = this.settings.keepAwake && this.running && !!this.client && !document.hidden;
+    if (!want) {
+      const lock = this.wakeLock;
+      this.wakeLock = null;
+      await lock?.release().catch(() => {});
+      return;
+    }
+    if (this.wakeLock || !navigator.wakeLock) return;
+    try {
+      const lock = await navigator.wakeLock.request('screen');
+      if (this.wakeLock || !this.running) return void lock.release().catch(() => {});
+      this.wakeLock = lock;
+      lock.addEventListener('release', () => { if (this.wakeLock === lock) this.wakeLock = null; });
+    } catch { /* refused: low battery or no permission */ }
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────────
@@ -224,6 +249,7 @@ class VoiceEngine {
       ctx.resume().catch(() => {});
       this.levelTimer = setInterval(() => { this.level = this.levelRaw; }, 50);
       this.running = true;
+      this.syncAwake();
       // Not awaited: voice works with the browser's filter until the model is ready
       this.syncDenoise();
       await this.refreshDevices();
@@ -252,6 +278,7 @@ class VoiceEngine {
     this.ctx = null;
     this.capture = this.playback = null;
     this.running = false;
+    this.syncAwake();
     this.transmitting = false;
     this.talking = {};
     this.level = -100;
@@ -529,7 +556,7 @@ class VoiceEngine {
   private sendPacket(opus: Uint8Array, last: boolean): void {
     const client = this.client;
     if (!client) return;
-    client.sendVoice(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice));
+    client.sendVoice(encodeVoice({ target: 0, frame: this.frameCounter, opus, last }, client.protobufVoice), last);
     this.frameCounter += this.settings.frameMs / 10;
     this.stats.sent++;
   }

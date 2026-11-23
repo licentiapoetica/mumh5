@@ -10,6 +10,8 @@ const VERSION = { major: 1, minor: 5, patch: 0 };
 const PING_INTERVAL_MS = 5000;
 // Nothing heard for this long: the connection is dead (a half-open socket after a network switch)
 const SILENCE_LIMIT_MS = 15000;
+// Unsent bytes on the connection above which voice is dropped (about three seconds of speech)
+const VOICE_BACKLOG_BYTES = 16 * 1024;
 
 // Murmur drops these messages without telling the client when they come too fast
 // (leaky bucket, defaults messageburst=5 and messagelimit=1/s). Its bucket restarts its timer
@@ -199,6 +201,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
   // Force the TCP tunnel even when UDP would work (for networks that mangle UDP)
   forceTcp = false;
   rtt = 0;
+  voiceDropped = 0;          // voice packets not sent because the uplink was backed up
   readonly link = new LinkMeter();
   config: ServerConfig = { allowHtml: true, messageLength: 5000, imageMessageLength: 131072, maxUsers: 0, recordingAllowed: true };
 
@@ -499,14 +502,17 @@ export class MumbleClient extends Emitter<ClientEvents> {
   }
 
   // Voice over UDP when it works, else through the TCP tunnel
-  sendVoice(packet: Uint8Array): void {
+  // last: the closing packet of a transmission, which is never dropped
+  sendVoice(packet: Uint8Array, last = false): void {
     if (this.udpOk && !this.forceTcp && this.transport?.udp) this.transport.udp.send(packet);
-    else this.sendVoiceTunnel(packet);
+    else this.sendVoiceTunnel(packet, last);
   }
 
   // Voice over TCP: the UDPTunnel body is the raw voice packet, not a protobuf message
-  sendVoiceTunnel(packet: Uint8Array): void {
+  sendVoiceTunnel(packet: Uint8Array, last = false): void {
     if (!this.transport || this.closed) return;
+    // A stalled uplink: late speech is worse than a gap, so it is dropped instead of queued
+    if (!last && (this.transport.buffered ?? 0) > VOICE_BACKLOG_BYTES) { this.voiceDropped++; return; }
     this.transport.send(frame(1, packet));
   }
 
