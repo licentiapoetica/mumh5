@@ -1,4 +1,4 @@
-import type { Transport, ServerCertInfo, CertDetails, UdpChannel } from '../core/transport.ts';
+import { HeldData, type Transport, type ServerCertInfo, type CertDetails, type UdpChannel } from '../core/transport.ts';
 import type { LoadedSoundSettings, SoundSettings } from '../core/sound-events.ts';
 import { webApi, openWebTransport } from './web.svelte.ts';
 
@@ -131,13 +131,16 @@ export async function openTransport(host: string, port: number, identityId?: str
 // `secure` resolves once the TLS handshake is done, before any Mumble data is sent,
 // so the caller can check the server certificate before sending a password.
 export class ElectronTransport implements Transport {
-  onData: ((chunk: Uint8Array) => void) | null = null;
   onClose: ((reason: string) => void) | null = null;
   readonly secure: Promise<ServerCertInfo>;
   udp: UdpChannel;
   private id = crypto.randomUUID();
   private offs: (() => void)[] = [];
   private api: NativeApi;
+  private incoming = new HeldData();
+
+  get onData(): ((chunk: Uint8Array) => void) | null { return this.incoming.handler; }
+  set onData(fn: ((chunk: Uint8Array) => void) | null) { this.incoming.handler = fn; }
 
   constructor(api: NativeApi, host: string, port: number, identityId?: string) {
     this.api = api;
@@ -159,7 +162,7 @@ export class ElectronTransport implements Transport {
       api.on('udpState', (cid, ok, rtt) => { if (cid === id) udp.onState?.(ok, rtt); }),
       api.on('udpResync', cid => { if (cid === id) udp.onResync?.(); }),
       api.on('secure', (cid, info) => { if (cid === id) resolveSecure(info); }),
-      api.on('data', (cid, chunk) => { if (cid === id) this.onData?.(chunk); }),
+      api.on('data', (cid, chunk) => { if (cid === id) this.incoming.push(chunk); }),
       api.on('close', (cid, reason) => {
         if (cid !== id) return;
         this.offs.forEach(off => off());
