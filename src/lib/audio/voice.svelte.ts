@@ -8,6 +8,7 @@ import { encodeVoice, decodeVoice } from '../../core/voice-packet.ts';
 import type { MumbleClient } from '../../core/client.ts';
 import { atDefaults, changedFrom, load, save } from '../storage.ts';
 import { desktop } from '../native.ts';
+import { connLog } from '../conn-log.svelte.ts';
 
 export type TransmitMode = 'vad' | 'ptt' | 'continuous';
 export type NoiseEngine = 'browser' | 'deepfilter';
@@ -251,7 +252,9 @@ class VoiceEngine {
       this.inputGainNode.connect(this.capture);
 
       ctx.addEventListener('statechange', () => {
-        if (this.ctx === ctx && (ctx.state as string) === 'interrupted') ctx.resume().catch(() => {});
+        if (this.ctx !== ctx) return;
+        connLog.add(`audio ${ctx.state}`);
+        if ((ctx.state as string) === 'interrupted') ctx.resume().catch(() => {});
       });
       await this.applyOutputDevice();
       await this.syncInput();

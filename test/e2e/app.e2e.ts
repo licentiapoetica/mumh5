@@ -837,6 +837,16 @@ try {
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.updateCheck')!).dismissed), 3);
   console.log('ok: update check shows a newer build and can be dismissed');
 
+  // The connection log in Settings > About lists the connection and survives a reload of the page
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'About' }).click();
+  const connLines = page.getByRole('list', { name: 'Connection log' });
+  await connLines.getByText('Test Server: connected').first().waitFor();
+  assert.ok(await page.getByRole('button', { name: 'Copy', exact: true }).last().isEnabled());
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  assert.ok(JSON.parse(await page.evaluate(() => localStorage.getItem('mumh5.connLog') ?? '[]')).some((e: { text: string }) => e.text.startsWith('Test Server: connected')));
+  console.log('ok: connection log lists the connection');
+
   // Layouts like the desktop client: classic (channels right of chat), stacked (channels above)
   const box = (sel: string) => page.locator(sel).first().boundingBox().then(b => b!);
   await page.getByTitle('Settings').click();

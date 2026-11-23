@@ -18,6 +18,8 @@
   import { formatBytes } from '../lib/html.ts';
   import { updates, build } from '../lib/updates.svelte.ts';
   import { credits } from '../lib/credits.ts';
+  import { connLog } from '../lib/conn-log.svelte.ts';
+  import { formatTime } from '../core/conn-log.ts';
   const repoUrl = `https://github.com/${build.repo}`;
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
@@ -133,6 +135,15 @@
       default: return null;
     }
   });
+  let logCopied = $state(false);
+  function copyLog(button: HTMLElement): void {
+    const view = button.ownerDocument.defaultView ?? window;
+    const header = [`mumh5 ${build.version}${build.commit ? ` ${build.commit.slice(0, 7)}` : ''}`, view.navigator.userAgent, ''];
+    view.navigator.clipboard.writeText(connLog.text(header)).then(() => {
+      logCopied = true;
+      view.setTimeout(() => { logCopied = false; }, 1500);
+    }, () => {});
+  }
   const checkedAt = $derived(updates.lastCheck ? new Date(updates.lastCheck).toLocaleString() : '');
 
   // Narrow layout: the tab row has no scrollbar; the wheel and dragging move it sideways
@@ -285,6 +296,19 @@
     {:else}
       <p class="help">{isWeb ? 'This site is updated by whoever runs it.' : 'This build does not know its commit, so it cannot check for updates.'}</p>
     {/if}
+    <h3>Connection log</h3>
+    <p class="help">Why connections ended and what the page and network did around it, kept in this browser only. Copy it when reporting a dropped connection.</p>
+    <div class="row kept">
+      <button class="btn" disabled={!connLog.entries.length} onclick={e => copyLog(e.currentTarget)}>{logCopied ? 'Copied' : 'Copy'}</button>
+      <button class="btn" disabled={!connLog.entries.length} onclick={() => connLog.clear()}>Clear</button>
+    </div>
+    <ol class="log" aria-label="Connection log">
+      {#each [...connLog.entries].reverse() as e (e.at + e.text)}
+        <li><time>{formatTime(e.at)}</time> {e.text}</li>
+      {:else}
+        <li class="none">Nothing yet.</li>
+      {/each}
+    </ol>
     <h3>Credits</h3>
     <p class="help">mumh5 is not affiliated with the Mumble project. Mumble is a trademark of its respective owners. Licenses are listed in full in the license notices.</p>
     <ul class="credits">
@@ -348,6 +372,9 @@
   textarea { resize: vertical; }
   .about { margin: 6px 0 0; font-size: 14px; }
   .links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; font-size: 14px; }
+  .log { list-style: none; margin: 10px 0 0; padding: 8px 10px; max-height: 240px; overflow: auto; border: 1px solid var(--line-strong); background: var(--bg-1); font: 12px/1.5 ui-monospace, monospace; display: flex; flex-direction: column; gap: 2px; }
+  .log time { color: var(--text-faint); margin-right: 6px; }
+  .log .none { color: var(--text-dim); }
   .credits { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
   .credits .lic { margin-left: 6px; font-size: 12px; color: var(--text-faint); }
   .credits .what { color: var(--text-dim); }

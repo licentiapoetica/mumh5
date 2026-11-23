@@ -16,6 +16,7 @@ import { proxyInfo } from './lib/web.svelte.ts';
 import { serverStatus } from './lib/server-status.svelte.ts';
 import { updates } from './lib/updates.svelte.ts';
 import { useWorkerTimers } from './lib/worker-timer.ts';
+import { connLog } from './lib/conn-log.svelte.ts';
 import { startMediaControls } from './lib/media-controls.svelte.ts';
 
 if (isWeb) { proxyInfo.load(); useWorkerTimers(); }
@@ -31,3 +32,4 @@ startHints();
 serverStatus.start();
 updates.start();
 startMediaControls();
+connLog.start();
