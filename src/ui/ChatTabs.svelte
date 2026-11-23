@@ -75,7 +75,7 @@ const openText = $state<Record<string, number[]>>({});
   <div class="chat-tabs" role="tablist" aria-label="Open chats" bind:this={strip}>
     <div class="chat-tab" class:active={session.view === channelKey}>
       <button role="tab" aria-selected={session.view === channelKey} onclick={() => session.selectView(channelKey)}>
-        <Icon name="hash" size={16} />
+        <Icon name="volume" size={16} />
         <span class="name">{session.viewTitle(channelKey)}</span>
         {#if session.unread[channelKey]}<span class="badge">{session.unread[channelKey]}</span>{/if}
       </button>

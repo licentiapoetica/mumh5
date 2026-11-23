@@ -63,7 +63,7 @@
   <header class:with-server={serverButton}>
     {#if serverButton}<ServerButton />{/if}
     {#if showMenu}<button class="icon-btn" onclick={onmenu} aria-label="Open channels"><Icon name="menu" /></button>{/if}
-    <Icon name={isDm ? 'message' : 'hash'} size={20} />
+    <Icon name={isDm ? 'message' : isText ? 'hash' : 'volume'} size={20} />
     <h1>{title}</h1>
     {#if topic}<span class="topic" title={topic}>{topic}</span>{/if}
     <span class="grow"></span>
