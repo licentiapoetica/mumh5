@@ -799,7 +799,8 @@ export class Session {
         const kicker = actor != null ? client.users.get(actor) : undefined;
         const by = kicker ? store.displayName(kicker) : '';
         this.removedBy = { kind: ban ? 'banned' : 'kicked', by, reason };
-        if (ban) this.noRetry = true;
+        // Like the desktop client: being removed by the server ends the automatic retry
+        this.noRetry = true;
       }
       const self = client.self;
       share.userMoved(this, user, true);

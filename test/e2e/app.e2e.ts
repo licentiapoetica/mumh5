@@ -2713,24 +2713,6 @@ try {
     console.log('ok: back to the standard interface from the You screen');
   }
 
-  // Auto reconnect is on for servers saved without changing it: a dropped connection comes back by
-  // itself and returns to the channel it was in
-  if (admin) {
-    const me = [...admin.users.values()].find(u => u.name === newName)!;
-    const channel = me.channelId;
-    admin.kick(me.session, 'testing auto reconnect');
-    await page.getByRole('status').filter({ hasText: /Retrying in \d+ seconds?/ }).waitFor();
-    await page.locator('.sidebar .status', { hasText: 'Connected' }).waitFor({ timeout: 20000 });
-    await within(new Promise<void>(res => {
-      const check = () => {
-        const back = [...admin.users.values()].find(u => u.name === newName && u.session !== me.session);
-        if (back && back.channelId === channel) res(); else setTimeout(check, 100);
-      };
-      check();
-    }), 'back in the same channel after the automatic reconnect');
-    console.log('ok: a dropped connection reconnects by itself and rejoins the channel');
-  }
-
   // Kicked: the reason is shown with a Reconnect button
   if (admin) {
     const me = [...admin.users.values()].find(u => u.name === newName)!;
@@ -2738,16 +2720,17 @@ try {
     const card = page.locator('.ended');
     await card.getByText('You were kicked by SuperUser').waitFor();
     await card.getByText('testing kicks').waitFor();
-    // Stop the automatic retry, so the notice stays
-    await page.getByRole('button', { name: 'Cancel auto-reconnect' }).click();
-    await page.getByRole('status').filter({ hasText: /Retrying in/ }).waitFor({ state: 'detached' });
+    // Auto reconnect is on, but a kick ends it: nothing waits to retry and the notice stays
+    assert.equal(await page.getByRole('status').filter({ hasText: /Retrying in/ }).count(), 0);
+    await page.waitForTimeout(6000);
+    await card.getByText('testing kicks').waitFor();
     // Back on the start screen, which shows who is on the saved servers
     await page.locator('.home .server', { hasText: 'Test Server' }).getByText(/\d+( of \d+)? online/).waitFor({ timeout: 70000 });
     if (shots) await page.screenshot({ path: path.join(shots, 'kicked.png') });
     await card.getByRole('button', { name: 'Reconnect' }).click();
     await page.locator('.sidebar .status', { hasText: 'Connected' }).waitFor();
     assert.equal(await card.count(), 0);
-    console.log('ok: kick shows the reason and reconnects');
+    console.log('ok: kick shows the reason, does not retry by itself and reconnects on request');
   }
 
   if (shots) {

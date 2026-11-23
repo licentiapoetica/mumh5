@@ -164,7 +164,7 @@ test('a full server or a name still in use is retried, other rejections are not'
   assert.equal(s.reconnectDelay, 10);
 });
 
-test('the kick notice stays through failed retries and clears once back in', async t => {
+test('after a kick the notice stays and nothing retries until reconnecting by hand', async t => {
   const s = setup(t);
   await s.connect(server(true));
   sync(s);
@@ -172,14 +172,14 @@ test('the kick notice stays through failed retries and clears once back in', asy
   client.session = 7;
   client.emit('userRemove', { session: 7 } as never, null, 'spam', false);
   client.emit('close', 'Disconnected');
-  control.failure = true;
-  t.mock.timers.tick(5000);
+  assert.equal(s.reconnectDelay, null);
+  const opens = control.opens;
+  t.mock.timers.tick(60_000);
   await flush();
-  assert.equal(s.error, 'Server unavailable');
+  assert.equal(control.opens, opens);
   assert.equal(s.disconnectInfo?.kind, 'kicked');
-  assert.equal(s.disconnectInfo?.reason, 'spam');
-  control.failure = false;
-  t.mock.timers.tick(10_000);
+  // Reconnecting by hand starts over and clears the notice
+  s.reconnect();
   await flush();
   sync(s);
   assert.equal(s.disconnectInfo, null);
@@ -256,7 +256,7 @@ test('initial connection failure and login timeout retry', async t => {
   assert.equal(s.reconnectDelay, 10);
 });
 
-test('remote disconnect and kicks retry; bans and login rejections stop', async t => {
+test('remote disconnect retries; kicks, bans and login rejections stop', async t => {
   const s = setup(t);
   await s.connect(server(true));
   s.client!.emit('close', 'Disconnected');
@@ -268,7 +268,7 @@ test('remote disconnect and kicks retry; bans and login rejections stop', async 
     client.emit('userRemove', { session: 7 } as never, null, 'Moderation reason', ban);
     client.emit('close', 'Disconnected');
     assert.equal(s.disconnectInfo?.kind, ban ? 'banned' : 'kicked');
-    assert.equal(s.reconnectDelay, ban ? null : 5);
+    assert.equal(s.reconnectDelay, null);
   }
   await s.connect(server(true));
   s.client!.emit('reject', 3, 'Wrong password');
