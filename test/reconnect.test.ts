@@ -73,15 +73,14 @@ function sync(s: SessionType) {
   s.client!.emit('synced');
 }
 
-test('auto reconnect is opt-in, including for previously saved servers', async t => {
+test('auto reconnect is on unless turned off, also for servers saved without the choice', async t => {
   const s = setup(t);
-  for (const enabled of [undefined, false]) {
-    await s.connect(server(enabled));
-    s.client!.emit('close', 'Connection lost');
-    assert.equal(s.reconnectDelay, null);
-  }
-  t.mock.timers.tick(60_000);
-  assert.equal(control.opens, 2);
+  await s.connect(server(false));
+  s.client!.emit('close', 'Connection lost');
+  assert.equal(s.reconnectDelay, null);
+  await s.connect(server(undefined));
+  s.client!.emit('close', 'Connection lost');
+  assert.equal(s.reconnectDelay, 5);
 });
 
 test('connection loss retries with bounded backoff, reset only by a lasting connection', async t => {
@@ -123,7 +122,9 @@ test('a connection that stops answering is closed and retried', async t => {
   await s.connect(server(true));
   sync(s);
   assert.equal(s.reconnectDelay, null);
-  t.mock.timers.tick(20_000);
+  for (let i = 0; i < 3; i++) t.mock.timers.tick(5000);
+  assert.equal(s.status, 'connected');
+  t.mock.timers.tick(5000);
   assert.equal(s.status, 'idle');
   assert.ok(s.reconnectDelay !== null);
   // Back on screen while the countdown runs: retry at once

@@ -13,7 +13,7 @@ export interface SavedServer {
   password: string;
   identityId?: string; // certificate to connect with; the default identity when unset
   icon?: string;       // custom rail icon, a small square data: image
-  autoReconnect?: boolean; // retry unexpected disconnects; off for existing and new servers
+  autoReconnect?: boolean; // retry unexpected disconnects; on unless turned off
   autoConnect?: boolean;   // connect when the app starts; off unless chosen
 }
 

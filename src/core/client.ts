@@ -204,7 +204,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
 
   private transport: Transport | null = null;
   private reader = new FrameReader();
-  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private stopPings: (() => void) | null = null;
   private closed = false;
   private lastTick = 0;
   private lastRx = 0;          // when anything last arrived from the server
@@ -240,7 +240,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
       // Ask the server for a fresh nonce (an empty CryptSetup)
       udp.onResync = () => this.send('CryptSetup', {});
     }
-    this.lastRx = Date.now();
+    this.lastRx = this.lastTick = Date.now();
     transport.onData = chunk => {
       this.lastRx = Date.now();
       try {
@@ -266,7 +266,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
       opus: true,
       client_type: 0
     });
-    this.pingTimer = setInterval(() => this.ping(), PING_INTERVAL_MS);
+    this.stopPings = MumbleClient.every(PING_INTERVAL_MS, () => this.keepAlive());
   }
 
   disconnect(reason = 'Disconnected'): void {
@@ -533,15 +533,28 @@ export class MumbleClient extends Emitter<ClientEvents> {
     }, 4000);
   }
 
-  private ping(): void {
+  // The keepalive timer. Replaced in the browser build by one in a worker, since browsers slow
+  // page timers in hidden tabs below what Murmur needs (it drops a client after 30 s of silence).
+  static every = (ms: number, fn: () => void): (() => void) => {
+    const id = setInterval(fn, ms);
+    return () => clearInterval(id);
+  };
+
+  private keepAlive(): void {
     const at = Date.now();
-    // The timer may have been paused with the page: only silence while it ran counts
-    if (this.synced && at - this.lastRx > SILENCE_LIMIT_MS && at - this.lastTick < 2 * PING_INTERVAL_MS) {
-      this.lastTick = at;
+    const gap = at - this.lastTick;
+    this.lastTick = at;
+    // Only silence while the timer ran on time counts: after the page was paused, or for ticks
+    // that queued up meanwhile, the answer may simply not have been read yet
+    if (this.synced && at - this.lastRx > SILENCE_LIMIT_MS && gap > PING_INTERVAL_MS / 2 && gap < 2 * PING_INTERVAL_MS) {
       this.disconnect('Connection timed out');
       return;
     }
-    this.lastTick = at;
+    this.ping();
+  }
+
+  private ping(): void {
+    const at = Date.now();
     this.link.sent(at);
     this.send('Ping', { timestamp: at });
   }
@@ -549,9 +562,9 @@ export class MumbleClient extends Emitter<ClientEvents> {
   private handleClose(reason: string): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.stopPings?.();
     if (this.queueTimer) clearTimeout(this.queueTimer);
-    this.pingTimer = null;
+    this.stopPings = null;
     this.queueTimer = null;
     this.queue = [];
     for (const w of this.pingWaiters.splice(0)) w.resolve();

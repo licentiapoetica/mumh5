@@ -15,8 +15,10 @@ import { isWeb } from './lib/native.ts';
 import { proxyInfo } from './lib/web.svelte.ts';
 import { serverStatus } from './lib/server-status.svelte.ts';
 import { updates } from './lib/updates.svelte.ts';
+import { useWorkerTimers } from './lib/worker-timer.ts';
+import { startMediaControls } from './lib/media-controls.svelte.ts';
 
-if (isWeb) proxyInfo.load();
+if (isWeb) { proxyInfo.load(); useWorkerTimers(); }
 // Web build: the service worker makes the page installable and lets it open offline
 if (isWeb && import.meta.env.PROD && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(e => console.warn('Service worker not registered:', e));
@@ -28,3 +30,4 @@ startTextMenu();
 startHints();
 serverStatus.start();
 updates.start();
+startMediaControls();

@@ -595,7 +595,7 @@ export class Session {
 
   // Returns whether a retry is now waiting
   private scheduleReconnect(): boolean {
-    if (!this.server?.autoReconnect) return false;
+    if (!this.server || this.server.autoReconnect === false) return false;
     if (this.reconnectTimer !== null) return true;
     // A login that held for a minute was a working connection: start the backoff over. One that is
     // dropped right after login (a kick on join) keeps backing off, so Murmur's autoban never trips.
