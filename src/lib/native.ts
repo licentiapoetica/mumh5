@@ -25,6 +25,7 @@ export interface PlatformApi {
 
 // The desktop app's preload API
 interface NativeApi extends PlatformApi {
+  testServer?: string | null;
   // Saved servers and the like, in a file in the profile (used by storage.ts)
   savedState: {
     sync(key: string, local: string | null, merge: boolean): string | null;
