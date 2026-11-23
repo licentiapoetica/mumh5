@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeBot, decodePair, encodePair, requestPair } from '../src/core/mumpeer-signal.ts';
+import { decodeBot, decodePair, encodePair, requestPair, sameRelayHost } from '../src/core/mumpeer-signal.ts';
 import { SHARE, decodeShareFlow, decodeWatchRequest, encodeShare, ShareAssembler } from '../src/core/share-signal.ts';
 
 const encoder = new TextEncoder();
@@ -20,6 +20,16 @@ test('relay requirements and endpoint are read from a bounded bot announcement',
   assert.equal(decodeBot(json({ ...relay, tcp: 65536 })), null);
   assert.equal(decodeBot(json({ ...relay, fp: 'bad' })), null);
   assert.equal(decodeBot(json({ ...relay, extension: 'x'.repeat(1000) })), null);
+});
+
+test('automatic discovery matches host names and IP addresses without following aliases', () => {
+  assert.equal(sameRelayHost('Mumble.Example.org.', 'mumble.example.org'), true);
+  assert.equal(sameRelayHost('127.0.0.1', '127.0.0.1'), true);
+  assert.equal(sameRelayHost('[2001:0db8:0:0::1]', '2001:db8::1'), true);
+  assert.equal(sameRelayHost('localhost', '127.0.0.1'), false);
+  assert.equal(sameRelayHost('mumble.example.org', 'relay.mumble.example.org'), false);
+  assert.equal(sameRelayHost('mumble.example.org', 'mumble.example.org.attacker.test'), false);
+  assert.equal(sameRelayHost('bad:address', 'bad:address'), false);
 });
 
 test('only well-formed pair credentials enter share negotiation', () => {
@@ -46,4 +56,14 @@ test('share capability is optional and the negotiated flow preserves its attempt
   const flow = { id: rid, t: 'offer', route: 'mumpeer', sdp: 'v=0\r\n', fallback: false };
   assert.deepEqual(decodeShareFlow(JSON.stringify({ v: 1, ...flow })), flow);
   assert.equal(decodeShareFlow(JSON.stringify({ v: 1, ...flow, route: 'unknown' })), null);
+});
+
+test('relay preference and regular retry are optional on the wire', () => {
+  const request = { id: rid, only: false, direct: false, relay: `${hash}:${fp}` };
+  assert.deepEqual(decodeWatchRequest(JSON.stringify({ v: 1, ...request })), request);
+  assert.deepEqual(decodeWatchRequest(JSON.stringify({ v: 1, ...request, preferRelay: true })), { ...request, preferRelay: true });
+  assert.equal(decodeWatchRequest(JSON.stringify({ v: 1, ...request, preferRelay: 'yes' })), null);
+  const relay = { t: 'relay', id: rid };
+  assert.deepEqual(decodeShareFlow(JSON.stringify({ v: 1, ...relay })), relay);
+  assert.deepEqual(decodeShareFlow(JSON.stringify({ v: 1, ...relay, retryStandard: true })), { ...relay, retryStandard: true });
 });

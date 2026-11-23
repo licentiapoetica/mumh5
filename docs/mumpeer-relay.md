@@ -4,7 +4,9 @@ Protocol references from the original research note include `Mumcord/mumcord` at
 
 ## Enable the relay
 
-In the desktop app, open **Settings → Screen sharing → Screen sharing connection**. Both participants must select **Automatic, with mumpeer fallback** or **Mumpeer only**. The automatic mode tries the existing ICE routes first. Mumpeer only uses the community relay from the first offer and fails if either participant cannot use it. The relay operator can see connection addresses and timing. WebRTC encrypts the streams between participants.
+The desktop app discovers mumpeer on login. By default, when both participants use **Automatic**, a usable relay announced on the Mumble server’s own host is tried first. If it fails, the app retries with the regular ICE routes. Match the announced relay hostname to the address people use to connect to Mumble. The relay and Mumble can listen on different ports.
+
+**Settings → Screen sharing → Screen sharing connection** also lets you choose direct-first mumpeer fallback or Mumpeer only. Those modes can use a relay announced on a separate host. Mumpeer only fails if either participant cannot use the relay. The relay operator can see connection addresses and timing. WebRTC encrypts the streams between participants.
 
 The Mumble server needs a registered [mumbot peer](https://github.com/Mumcord/mumbot/blob/v0.6.0/docs/peer.md) connected to [mumpeer](https://github.com/Mumcord/mumpeer/tree/v0.3.0). By default both participants must register on that Mumble server, and mumbot limits each certificate to four open pairs. An operator can adjust these policies. The app shows discovery and trust under **Server information → Mumpeer relay**. A new bot certificate or relay certificate requires approval after first use.
 
@@ -46,8 +48,8 @@ QUIC is only needed for the UDP path. Node has no usable QUIC, but TCP alone is 
 
 ## How the desktop app connects
 
-1. A client opted into mumpeer sends the mumbot-compatible `mumcord.hello` with the `p2p` feature on login and when other users join. Discovery pins the registered bot's certificate hash and the relay's fingerprint for this server and local identity.
-2. The watch request advertises the pinned relay and the viewer's routing requirement before SDP is exchanged. The sharer chooses relay-only ICE up front when either side requires it. With fallback enabled on both sides, either side's ICE failure can trigger a new offer through mumpeer.
+1. An eligible desktop client sends the mumbot-compatible `mumcord.hello` with the `p2p` feature to registered users on login and as they join. Discovery pins the registered bot's certificate hash and the relay's fingerprint for this server and local identity.
+2. The watch request advertises the pinned relay and the viewer's routing requirement before SDP is exchanged. The sharer uses relay-only ICE up front when either side requires it or both prefer the same-host relay. When both can use mumpeer and choose direct-first fallback, an ICE failure can trigger a new offer through the relay.
 3. The lower Mumble session number requests the pair after both clients confirm the same share attempt. A new token replaces any existing link for the certificate pair, so reciprocal shares reuse the same link and tag their packets with a one-byte direction.
 4. Electron main connects over TLS 1.3, verifies ALPN and the pinned relay fingerprint, and binds with the exact client identity from the Mumble connection. After both endpoints bind, Electron starts a credentialed TURN listener on loopback for each active share direction. Its relay address and peer address are virtual. Each TURN allocation forwards media and ICE packets to its one permitted peer over the paired TLS link.
 5. The app closes the allocation when the share ends and closes the link when its last allocation is no longer needed. A TCP-only relay path can add latency on lossy links.
@@ -56,7 +58,7 @@ The browser app uses the proxy's existing TURN service. Cameras use the existing
 
 ## Test with stock Mumble and upstream services
 
-Start [mumbot's peer-with-relay example](https://github.com/Mumcord/mumbot/tree/v0.6.0/examples/peer-with-relay) or run the release binaries on loopback. Run the test on an idle relay. It registers two generated identities with the test Mumble server, opens the built Electron app twice, and sends synthetic video through the normal share UI.
+Start [mumbot's peer-with-relay example](https://github.com/Mumcord/mumbot/tree/v0.6.0/examples/peer-with-relay) or run the release binaries on loopback. Run the test on an idle relay. Use the relay’s configured `public_host` as the host in `MUMBLE_TEST_HOST` so the test can exercise same-host discovery. It registers two generated identities with the test Mumble server, opens the built Electron app twice, and sends synthetic video through the normal share UI.
 
 ```bash
 npm run build
