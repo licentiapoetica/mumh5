@@ -104,7 +104,8 @@
       </li>
     {/each}
   </ol>
-  {#if !q.spacers}<p>Spacers show only in the top toolbar.</p>{/if}
+  {#if !q.spacers}<p>Spacers and your name show only in the top toolbar.</p>
+  {:else if !q.you}<p>Your name shows only in the top toolbar while connected.</p>{/if}
   <footer>
     <button onclick={addSpacer}>Add spacer</button>
     <button disabled={atDefault} onclick={reset}>Reset</button>

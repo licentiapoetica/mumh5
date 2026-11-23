@@ -155,6 +155,60 @@ try {
   assert.equal(await page.evaluate(() => 'theme' in JSON.parse(localStorage.getItem('mumh5.settings')!)), false, 'defaults are not saved');
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).railHidden), false, 'window state is not reset');
   console.log('ok: appearance resets per heading and as a whole');
+  // Rounded corners are opt-in per group, and square again after a reset
+  const closeSettingsIcon = page.locator('.modal header .icon-btn').first();
+  const radius = (el: typeof closeSettingsIcon) => el.evaluate(b => getComputedStyle(b).borderTopLeftRadius);
+  assert.equal(await radius(closeSettingsIcon), '0px', 'square by default');
+  await page.getByRole('slider', { name: 'Icon buttons' }).fill('10');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.modal header .icon-btn')!).borderTopLeftRadius === '10px');
+  assert.equal(await radius(page.locator('.modal').first()), '0px', 'other groups stay square');
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).corners), { icons: 10 });
+  const allCorners = page.getByRole('group', { name: 'All elements' });
+  await allCorners.getByRole('button', { name: 'Round', exact: true }).click();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.modal')!).borderTopLeftRadius === '24px');
+  await page.getByRole('button', { name: 'Reset rounded corners', exact: true }).click();
+  await confirmReset();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.modal header .icon-btn')!).borderTopLeftRadius === '0px');
+  assert.equal(await page.evaluate(() => 'corners' in JSON.parse(localStorage.getItem('mumh5.settings')!)), false, 'square is not saved');
+  console.log('ok: rounded corners apply per group and reset');
+  // Save applies a field still being typed in and leaves Settings open
+  await page.getByRole('tab', { name: 'Chat and files' }).click();
+  const embedField = page.getByLabel('Load media at once from these hosts');
+  await embedField.fill('corners.example');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.locator('.foot-note', { hasText: 'Saved' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).embedHosts), ['corners.example']);
+  await page.getByRole('dialog', { name: 'Settings' }).waitFor();
+  await embedField.fill('');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  console.log('ok: save applies changes and keeps settings open');
+  // Settings in a window of its own changes the app beside it
+  const [settingsPopup] = await Promise.all([app.waitForEvent('window'), page.getByRole('button', { name: 'Open in a new window' }).click()]);
+  await settingsPopup.getByRole('dialog', { name: 'Settings' }).waitFor();
+  await settingsPopup.getByRole('tab', { name: 'Appearance', selected: true }).waitFor();
+  assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'moved out of the main window');
+  assert.ok(await settingsPopup.evaluate(() => {
+    const r = document.querySelector('.modal')!.getBoundingClientRect();
+    return r.x === 0 && r.y === 0 && r.width === innerWidth && r.height === innerHeight;
+  }), 'settings fills its window');
+  const rootCorner = (px: string) => page.waitForFunction(v => getComputedStyle(document.documentElement).getPropertyValue('--r-icons').trim() === v, px);
+  await settingsPopup.getByRole('slider', { name: 'Icon buttons' }).fill('6');
+  await rootCorner('6px');
+  await settingsPopup.waitForFunction(() => getComputedStyle(document.querySelector('.modal header .icon-btn')!).borderTopLeftRadius === '6px');
+  // The question of a reset is asked in that window
+  await settingsPopup.getByRole('button', { name: 'Reset rounded corners', exact: true }).click();
+  await settingsPopup.getByRole('button', { name: 'Reset', exact: true }).click();
+  await rootCorner('0px');
+  // The Settings button does not open a second copy
+  await page.getByTitle('Settings').click();
+  await page.waitForTimeout(100);
+  assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'no second settings');
+  await Promise.all([settingsPopup.waitForEvent('close'), settingsPopup.getByRole('button', { name: 'Done', exact: true }).click()]);
+  await page.getByTitle('Settings').click();
+  await page.getByRole('dialog', { name: 'Settings' }).waitFor();
+  await page.getByRole('tab', { name: 'Appearance' }).click();
+  console.log('ok: settings in a new window apply to the app');
   await page.getByRole('radio', { name: 'Modern' }).click();
   await page.getByRole('tab', { name: 'Sounds' }).click();
   // Audio packs: a fresh profile is quiet, and an imported pack joins the library
@@ -820,6 +874,29 @@ try {
   // The stacked toolbar names you at its far end
   await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
   console.log('ok: you shown in the stacked toolbar');
+  // Your name starts in the far corner, moves between the buttons and can be hidden
+  const topTools = page.locator('.me .tools');
+  const you = topTools.locator('.you');
+  const youBox = async () => (await you.locator('.profile').boundingBox())!;
+  const topToolsBox = (await topTools.boundingBox())!;
+  const youStart = await youBox();
+  assert.ok(Math.abs(youStart.x + youStart.width - (topToolsBox.x + topToolsBox.width)) <= 1, 'name in the right corner');
+  await topTools.getByRole('button', { name: 'Configure' }).click({ button: 'right' });
+  const nameEditor = page.getByRole('dialog', { name: 'Customize toolbar' });
+  await nameEditor.getByRole('button', { name: /^Move Name and picture \d+ up$/ }).click();
+  await page.waitForFunction(() => !document.querySelector('.me .tools .you')!.classList.contains('corner'));
+  const lastButton = topTools.getByRole('button', { name: /^(Expand|Collapse) all channels$/ });
+  assert.ok((await youBox()).x < (await lastButton.boundingBox())!.x, 'name moved before the last button');
+  await nameEditor.getByRole('checkbox', { name: 'Show Name and picture' }).uncheck();
+  await you.waitFor({ state: 'detached' });
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar.hidden), ['you']);
+  await nameEditor.getByRole('checkbox', { name: 'Show Name and picture' }).check();
+  await you.waitFor();
+  await nameEditor.getByRole('button', { name: 'Reset' }).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar === undefined);
+  await page.keyboard.press('Escape');
+  await nameEditor.waitFor({ state: 'detached' });
+  console.log('ok: your name in the toolbar can be moved and hidden');
   const chatBox = await box('.chat'), treeBox = await box('.sidebar');
   assert.ok(chatBox.y >= treeBox.y + treeBox.height - 1, 'stacked: chat below channel list');
   // The split between chat and channel list drags
@@ -1330,6 +1407,7 @@ try {
   assert.equal((await order())[0], 'Configure');
   await toolbarEditor.getByRole('button', { name: 'Reset' }).click();
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar === undefined);
+  await toolbarEditor.getByText('Spacers and your name show only in the top toolbar.').waitFor();
   await page.keyboard.press('Escape');
   await toolbarEditor.waitFor({ state: 'detached' });
   // Mute keeps its audio popup, which leads to the editor

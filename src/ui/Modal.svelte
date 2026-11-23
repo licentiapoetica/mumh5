@@ -4,18 +4,31 @@
 
   // height: a fixed size for dialogs whose content changes (sections, tabs), so it does not jump
   // body: the scrolling element, for dialogs that move between sections
-  let { title, onclose, children, footer, width = 460, height, body = $bindable() }:
-    { title: string; onclose: () => void; children: Snippet; footer?: Snippet; width?: number; height?: number; body?: HTMLDivElement } = $props();
+  // actions: more buttons beside Close
+  // windowed: fills a window of its own, which Escape or a click beside it must not close
+  let { title, onclose, children, footer, actions, width = 460, height, body = $bindable(), windowed = false }:
+    { title: string; onclose: () => void; children: Snippet; footer?: Snippet; actions?: Snippet; width?: number; height?: number; body?: HTMLDivElement; windowed?: boolean } = $props();
+
+  // The window this dialog is in, which is not always the app's
+  function escapeCloses(node: HTMLElement) {
+    if (windowed) return;
+    const view = node.ownerDocument.defaultView ?? window;
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); };
+    view.addEventListener('keydown', key);
+    return { destroy: () => view.removeEventListener('keydown', key) };
+  }
 </script>
 
-<svelte:window onkeydown={e => { if (e.key === 'Escape') onclose(); }} />
-
-<div class="backdrop" role="presentation" onmousedown={e => { if (e.target === e.currentTarget) onclose(); }}>
-  <div class="modal" role="dialog" aria-modal="true" aria-label={title} style:max-width="{width}px"
+<div class="backdrop" class:windowed role="presentation" use:escapeCloses
+  onmousedown={e => { if (!windowed && e.target === e.currentTarget) onclose(); }}>
+  <div class="modal" role="dialog" aria-modal={windowed ? undefined : 'true'} aria-label={title} style:max-width="{width}px"
     style:height={height ? `${height}px` : undefined} class:fixed={!!height}>
     <header>
       <h2>{title}</h2>
-      <button class="icon-btn" onclick={onclose} aria-label="Close"><Icon name="x" /></button>
+      <span class="head-tools">
+        {@render actions?.()}
+        <button class="icon-btn" onclick={onclose} aria-label="Close"><Icon name="x" /></button>
+      </span>
     </header>
     <div class="body" bind:this={body}>{@render children()}</div>
     {#if footer}<footer>{@render footer()}</footer>{/if}
@@ -35,6 +48,10 @@
   }
   header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 14px 0 24px; }
   h2 { margin: 0; font-size: 17px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; }
+  .head-tools { flex: none; display: flex; align-items: center; gap: 2px; }
+  .backdrop.windowed { padding: 0; background: var(--bg-1); animation: none; }
+  .windowed .modal { max-width: none !important; height: 100vh !important; max-height: 100vh; border: 0; border-radius: 0 !important; animation: none; }
+  .windowed .modal > header, .windowed .modal > footer { border-radius: 0 !important; }
   .body { padding: 8px 24px 24px; overflow-y: auto; }
   /* Fill the fixed height (max-height still caps it) and keep the scrollbar's room, so short content is not wider */
   .modal.fixed .body { flex: 1; scrollbar-gutter: stable; }

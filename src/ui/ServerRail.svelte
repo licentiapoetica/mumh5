@@ -100,13 +100,10 @@
   }
   .tile.dragged { opacity: 0.4; }
   .icon { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
-  /* Connection state: grey dot connecting, green connected, green with ring where voice runs */
-  .tile.live::after, .tile.connecting::after {
+  .tile.connecting::after {
     content: ''; position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px;
-    background: var(--speaking); border: 2px solid var(--bg-0);
+    background: var(--text-faint); border: 2px solid var(--bg-0);
   }
-  .tile.connecting::after { background: var(--text-faint); }
-  .tile.voice::after { box-shadow: 0 0 0 1px var(--speaking); }
   .unread {
     position: absolute; right: -5px; top: -5px; min-width: 18px; padding: 0 3px; line-height: 14px; text-align: center;
     font-size: 10px; font-weight: 700; letter-spacing: 0; background: var(--danger); color: #fff; border: 2px solid var(--bg-0);

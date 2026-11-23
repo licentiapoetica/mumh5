@@ -1,5 +1,6 @@
 <script lang="ts">
   import BackgroundSettings from './BackgroundSettings.svelte';
+  import CornerSettings from './CornerSettings.svelte';
   import SectionHead from './SectionHead.svelte';
   import ThemeLibrary from './ThemeLibrary.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
@@ -141,6 +142,8 @@
 {/if}
 
 <BackgroundSettings />
+
+<CornerSettings />
 
 <SectionHead title="Color scheme" part="appearance.scheme" />
 <ThemeLibrary />

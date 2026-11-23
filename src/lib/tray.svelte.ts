@@ -3,6 +3,7 @@ import { ICON_PATHS } from './icons.ts';
 import { session, sessions } from './session.svelte.ts';
 import { voice, type TransmitMode } from './audio/voice.svelte.ts';
 import { ui } from './ui.svelte.ts';
+import { settingsWindow } from './settings-window.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { studio } from './theme-studio.svelte.ts';
 import { INK, LAMP, lampStops } from './lamp.ts';
@@ -141,7 +142,7 @@ export function startTray(): void {
     if (action === 'toggle-mute' && self) target.setSelfMute(!self.selfMute);
     else if (action === 'toggle-deafen' && self) target.setSelfDeaf(!self.selfDeaf);
     else if (action.startsWith('mode:')) voice.update({ mode: action.slice(5) as TransmitMode });
-    else if (action === 'settings') { ui.settingsTab = 'voice'; ui.settingsOpen = true; }
+    else if (action === 'settings') { settingsWindow.show('voice'); ui.settingsTab = 'voice'; ui.settingsOpen = true; }
     else if (action === 'disconnect' && target.server) sessions.close(target.server.id);
   });
 }

@@ -1,0 +1,48 @@
+/* Rounded corners, opt-in per group (Appearance, src/lib/corners.ts). Everything is square until a
+   group has a value. !important because it has to win over the square rule in app.css. */
+:root {
+  --r-icons: 0px; --r-buttons: 0px; --r-fields: 0px; --r-rows: 0px; --r-messages: 0px; --r-media: 0px; --r-badges: 0px;
+  --r-avatars: 0px; --r-servers: 0px; --r-tiles: 0px; --r-tabs: 0px; --r-popups: 0px; --r-dialogs: 0px; --r-scrollbars: 0px;
+}
+
+.icon-btn, .tool, .emoji-tone, .emoji-group, .emoji-cell, .code .copy { border-radius: var(--r-icons) !important; }
+
+.btn, .join, .shades { border-radius: var(--r-buttons) !important; }
+.shades { overflow: clip; }
+
+input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]), textarea, select,
+.composer .frame, .rooms .find, .people .find { border-radius: var(--r-fields) !important; }
+
+.row.channel, .row.user, .dm-row, .entry, .menu button, button[data-select-user], .home .server { border-radius: var(--r-rows) !important; }
+/* Below this width the settings tabs are underlined, and an underline does not bend well */
+@media (min-width: 761px) {
+  .layout > .tabs button { border-radius: var(--r-rows) !important; }
+}
+
+.msg, .msg .stamp, .msg .react { border-radius: var(--r-messages) !important; }
+
+.msg .html img, .msg .card, .media-card, .yt, .code { border-radius: var(--r-media) !important; }
+.yt, .code { overflow: clip; }
+.yt > * { border-radius: inherit !important; }
+
+.reaction, .badge, .row .count, .srv .count, .bar .count, .online { border-radius: var(--r-badges) !important; }
+
+.avatar:not(.orb) { border-radius: var(--r-avatars) !important; }
+
+.rail .tile, .server-btn, .srv .pic, .home .server .pic { border-radius: var(--r-servers) !important; }
+.rail .tile img, .server-btn img, .srv .pic img { border-radius: inherit !important; }
+
+.tiles .tile { border-radius: var(--r-tiles) !important; }
+
+.chat-tab { border-radius: var(--r-tabs) var(--r-tabs) 0 0 !important; }
+
+.menu, .pop, .emoji-pop, .reactors, .desc-pop, .card[role=dialog] { border-radius: var(--r-popups) !important; }
+/* Along the bottom of a phone screen only the top corners are free */
+.card.sheet[role=dialog] { border-radius: var(--r-popups) var(--r-popups) 0 0 !important; }
+
+.modal { border-radius: var(--r-dialogs) !important; }
+.modal > header { border-radius: max(0px, var(--r-dialogs) - 1px) max(0px, var(--r-dialogs) - 1px) 0 0 !important; }
+.modal > footer { border-radius: 0 0 max(0px, var(--r-dialogs) - 1px) max(0px, var(--r-dialogs) - 1px) !important; }
+.shell > .sheet { border-radius: var(--r-dialogs) var(--r-dialogs) 0 0 !important; overflow: clip; }
+
+::-webkit-scrollbar-thumb { border-radius: var(--r-scrollbars); }
