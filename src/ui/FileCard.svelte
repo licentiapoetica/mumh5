@@ -36,7 +36,7 @@
   const get = () => files.download(sessions.active, meta, author);
 </script>
 
-<MediaCard file name={meta.n} detail={status} icon={kind === 'image' ? 'image' : kind === 'video' ? 'screen' : kind === 'audio' ? 'headphones' : 'file'}
+<MediaCard file fit={kind === 'image'} name={meta.n} detail={status} icon={kind === 'image' ? 'image' : kind === 'video' ? 'screen' : kind === 'audio' ? 'headphones' : 'file'}
   href={ready ? t!.url : undefined} failed={t?.state === 'failed'} progress={busy ? (t!.got / Math.max(1, meta.s)) * 100 : undefined}>
   {#snippet actions()}
     {#if busy}

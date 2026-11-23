@@ -46,7 +46,7 @@
     {#if self}
       <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
         oncontextmenu={e => menu.show(e, userMenu(self))}>
-        <Avatar name={store.displayName(self)} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} />
+        <Avatar name={store.displayName(self)} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         <span class="who">
           <strong>{store.displayName(self)}</strong>
           <span>{voice.error ? 'Voice unavailable' : voice.settings.mode === 'ptt' && !self.selfMute ? (voice.pttDown ? 'Talking' : 'Push to talk') : session.channel(self.channelId)?.name || 'Root'}</span>
@@ -104,9 +104,10 @@
           oncontextmenu={e => menu.show(e, userMenu(self))}>
           <span class="who">
             <strong>{store.displayName(self)}</strong>
-            <span>{session.channel(self.channelId)?.name || 'Root'}</span>
+            <!-- Not shown, but screen readers still hear where you are -->
+            <span class="sr-only">{session.channel(self.channelId)?.name || 'Root'}</span>
           </span>
-          <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} />
+          <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         </button>
       </span>
     {/if}
@@ -118,7 +119,9 @@
   .me { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 6px; background: var(--bg-0); border-top: 1px solid var(--line); }
   .tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .sep { width: 1px; height: 18px; background: var(--line); }
-  /* Eight buttons and three dividers fit the default width (260px) in one row */
+  /* Under the channel list the buttons are evenly spread, without dividers */
+  .me:not(.toolbar, .inline) .sep { display: none; }
+  /* Eight buttons fit the default width (260px) in one row */
   .tools .icon-btn { width: 30px; }
   /* Stacked layout: the bar leads the stack, like the desktop client's toolbar */
   /* 8px above the row and, with the border, 8px below: the first server tile lines up with it */

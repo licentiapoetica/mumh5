@@ -2,8 +2,9 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { name, detail, icon = 'file', href, file = false, failed = false, progress, actions, children }: {
-    name: string; detail: string; icon?: string; href?: string; file?: boolean; failed?: boolean;
+  // fit: as wide as the picture inside, so an upright one has no empty space beside it
+  let { name, detail, icon = 'file', href, file = false, failed = false, fit = false, progress, actions, children }: {
+    name: string; detail: string; icon?: string; href?: string; file?: boolean; failed?: boolean; fit?: boolean;
     progress?: number; actions?: Snippet; children?: Snippet;
   } = $props();
 
@@ -12,7 +13,7 @@
   const action = $derived(`${remote ? 'Open' : 'Download'} ${name}`);
 </script>
 
-<div class="media-card" class:file class:failed>
+<div class="media-card" class:file class:failed class:fit>
   <div class="media-heading">
     <span class="glyph"><Icon name={icon} size={20} /></span>
     <div class="info">
@@ -49,6 +50,11 @@
   .media-body:empty { display: none; }
   .media-body :global(img), .media-body :global(video) { display: block; max-width: 100%; max-height: 360px; object-fit: contain; background: var(--bg-0); }
   .media-body :global(audio) { display: block; width: 100%; }
+  /* Room for the name and buttons; a narrower picture is centered */
+  .media-card.fit { width: fit-content; min-width: min(240px, 100%); }
+  /* Zero width with a full minimum: a long file name does not widen the card */
+  .fit .media-heading { width: 0; min-width: 100%; }
+  .fit .media-body :global(img), .fit .media-body :global(.poster) { margin-inline: auto; }
   .progress { height: 3px; background: var(--bg-3); }
   .progress span { display: block; height: 100%; background: var(--accent); transition: width 200ms; }
   @media (max-width: 480px) { .media-heading { gap: 6px; padding: 6px; } .glyph { width: 22px; } }

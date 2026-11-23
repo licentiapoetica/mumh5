@@ -602,6 +602,10 @@ try {
   await mediaMsg.locator('.media-card', { hasText: 'pic.png' }).locator('.load').click();
   await page.waitForFunction(() => (document.querySelector('.msg .embed img[alt="pic.png"]') as HTMLImageElement)?.naturalWidth === 300);
   assert.deepEqual(mediaHits, ['/pic.png'], 'only the clicked picture is fetched');
+  // The card is as wide as the picture, plus its border
+  const picSpare = await mediaMsg.locator('.media-card', { hasText: 'pic.png' }).evaluate(el =>
+    el.getBoundingClientRect().width - el.querySelector('img')!.getBoundingClientRect().width);
+  assert.ok(Math.abs(picSpare - 2) < 1, `picture card has ${picSpare}px beside the picture`);
   // "Always from this host" lists it in the settings; its media then loads at once
   await mediaMsg.locator('.media-card', { hasText: 'clip.wav' }).getByRole('button', { name: 'Always from this host' }).click();
   await page.waitForFunction(() => ((document.querySelector('.msg .embed audio') as HTMLAudioElement)?.duration ?? 0) > 0.9);
@@ -1992,6 +1996,22 @@ try {
     });
     assert.ok(Math.abs(await textLeft('.sidebar header .server-name') - await textLeft('.sidebar header .status')) < 1);
     console.log('ok: toolbar expands and collapses all channels repeatedly, root has no caret, header text lines up');
+
+    // Tree lines: root has its node, the line stops at the last channel, and people hang from their channel's line
+    assert.equal(await page.locator('.channel').first().locator('.root-mark svg').count(), 1);
+    const rootChannels = page.locator('.sidebar .tree > li > ul:not(.users) > li');
+    const rootChannelCount = await rootChannels.count();
+    assert.ok(rootChannelCount > 1);
+    assert.equal(await rootChannels.first().locator(':scope > .trunk').count(), 1);
+    assert.equal(await rootChannels.last().locator(':scope > .trunk').count(), 0);
+    assert.equal(await rootChannels.last().locator(':scope > .row .branch.end').count(), 1);
+    const lineOffset = await page.locator('.sidebar li:has(> .row.channel.here)').evaluate(li => {
+      const stem = li.querySelector(':scope > .row .stem')!;
+      const person = li.querySelector(':scope > .users .branch')!;
+      return Math.abs(stem.getBoundingClientRect().left - person.getBoundingClientRect().left);
+    });
+    assert.ok(lineOffset < 0.5, `people's line is ${lineOffset}px off their channel's line`);
+    console.log('ok: tree lines end at the last channel and connect people to their channel');
 
     // ─── Text channels: read and written without joining, between mumh5 clients ───
     await page.getByRole('button', { name: 'Configure', exact: true }).click();
