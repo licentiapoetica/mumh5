@@ -2209,6 +2209,37 @@ try {
   await viewer.waitFor({ state: 'detached' });
   console.log('ok: images open large on click');
 
+  // The wheel zooms toward the pointer, a zoomed image can be dragged and a click on it keeps it open
+  await page.locator('.chat .msg .file img[alt="big.png"]').click();
+  await viewer.waitFor();
+  const pictureBox = () => viewer.locator('img').evaluate(i => {
+    const r = i.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  });
+  const fitted = await pictureBox();
+  const aimX = fitted.left + fitted.width * 0.4, aimY = fitted.top + fitted.height * 0.4;
+  await page.mouse.move(aimX, aimY);
+  await page.mouse.wheel(0, -500);
+  await page.waitForFunction(w => document.querySelector('[aria-label="Image"] img')!.getBoundingClientRect().width > w * 2, fitted.width);
+  const zoomedIn = await pictureBox();
+  assert.ok(Math.abs((aimX - zoomedIn.left) / zoomedIn.width - 0.4) < 0.01, `zoom keeps the point under the pointer: ${JSON.stringify(zoomedIn)}`);
+  assert.ok(Math.abs((aimY - zoomedIn.top) / zoomedIn.height - 0.4) < 0.01, `zoom keeps the point under the pointer: ${JSON.stringify(zoomedIn)}`);
+  await page.mouse.down();
+  await page.mouse.move(aimX - 60, aimY - 40, { steps: 5 });
+  await page.mouse.up();
+  const draggedTo = await pictureBox();
+  assert.ok(Math.abs(draggedTo.left - zoomedIn.left + 60) <= 1 && Math.abs(draggedTo.top - zoomedIn.top + 40) <= 1, `drag moves the image: ${JSON.stringify(draggedTo)}`);
+  assert.equal(await viewer.count(), 1, 'a drag does not close the image');
+  await page.mouse.click(aimX - 60, aimY - 40);
+  assert.equal(await viewer.count(), 1, 'a click on the zoomed image does not close it');
+  await page.mouse.wheel(0, 5000);
+  await page.waitForFunction(w => Math.abs(document.querySelector('[aria-label="Image"] img')!.getBoundingClientRect().width - w) < 1, fitted.width);
+  const backToFit = await pictureBox();
+  assert.ok(Math.abs(backToFit.left - fitted.left) < 1 && Math.abs(backToFit.top - fitted.top) < 1, `zooming out centers it again: ${JSON.stringify(backToFit)}`);
+  await page.mouse.click(aimX, aimY);
+  await viewer.waitFor({ state: 'detached' });
+  console.log('ok: image viewer zooms with the wheel and drags');
+
   // ─── Several servers at once ─────────────────────────────────────────────
   const userState = (name: string) => [...bob.users.values()].find(u => u.name === name);
   const until2 = (label: string, cond: () => boolean) => within(new Promise<void>(res => {
