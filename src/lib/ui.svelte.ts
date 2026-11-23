@@ -36,6 +36,8 @@ export interface ToolbarEdit { x: number; y: number; index: number | null; space
 
 // App-wide dialogs that can be opened from anywhere (menus, panels)
 class Ui {
+  // Whether chats open as tabs above the log, so the channel tree need not mark the open text channel
+  chatTabs = $state(false);
   prompt = $state<PromptRequest | null>(null);
   cert = $state<CertRequest | null>(null);
   settingsOpen = $state(false);
