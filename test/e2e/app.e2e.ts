@@ -1267,6 +1267,55 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   console.log('ok: toolbar opens the profile dialog and settings');
 
+  // Right-clicking the toolbar customizes it, also on a disabled button
+  const tools = page.locator('.me .tools');
+  const toolbarEditor = page.getByRole('dialog', { name: 'Customize toolbar' });
+  const savedToolbar = () => page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar as { items: string[]; hidden: string[] } | undefined);
+  const spacers = await tools.locator('.sep').count();
+  const camera = tools.getByRole('button', { name: 'Turn on your camera' });
+  await camera.evaluate(b => { (b as HTMLButtonElement).disabled = true; });
+  await camera.click({ button: 'right', force: true });
+  await toolbarEditor.waitFor();
+  if (shots) { await page.waitForTimeout(200); await page.screenshot({ path: path.join(shots, 'toolbar-editor.png') }); }
+  await camera.evaluate(b => { (b as HTMLButtonElement).disabled = false; });
+  await toolbarEditor.getByRole('checkbox', { name: 'Show Camera' }).uncheck();
+  await camera.waitFor({ state: 'detached' });
+  assert.deepEqual((await savedToolbar())!.hidden, ['camera']);
+  await toolbarEditor.getByRole('checkbox', { name: 'Show Camera' }).check();
+  await tools.getByRole('button', { name: 'Turn on your camera' }).waitFor();
+  // A new spacer lands after the clicked button and can be removed again
+  await toolbarEditor.getByRole('button', { name: 'Add spacer' }).click();
+  await page.waitForFunction(n => document.querySelectorAll('.me .tools .sep').length === n, spacers + 1);
+  const withSpacer = (await savedToolbar())!.items;
+  assert.equal(withSpacer[withSpacer.indexOf('camera') + 1], 'sep');
+  await toolbarEditor.getByRole('button', { name: `Remove spacer ${withSpacer.indexOf('camera') + 2}`, exact: true }).click();
+  await page.waitForFunction(n => document.querySelectorAll('.me .tools .sep').length === n, spacers);
+  // Buttons and dragging both reorder, and the toolbar follows
+  const order = () => tools.locator('[data-tool]:not(.sep)').evaluateAll(els => els.map(e => e.getAttribute('aria-label')));
+  await toolbarEditor.getByRole('button', { name: /^Move Configure \d+ up$/ }).click();
+  const movedUp = (await savedToolbar())!.items;
+  assert.equal(movedUp[movedUp.indexOf('profile') + 1], 'settings', 'moved above the spacer before it');
+  const configureRow = toolbarEditor.locator('li', { hasText: 'Configure' });
+  const top = toolbarEditor.locator('li').first();
+  const from = (await configureRow.locator('.grip').boundingBox())!, to = (await top.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2, to.y + 4, { steps: 8 });
+  await page.mouse.up();
+  assert.equal((await savedToolbar())!.items[0], 'settings', 'dragged to the top');
+  assert.equal((await order())[0], 'Configure');
+  await toolbarEditor.getByRole('button', { name: 'Reset' }).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar === undefined);
+  await page.keyboard.press('Escape');
+  await toolbarEditor.waitFor({ state: 'detached' });
+  // Mute keeps its audio popup, which leads to the editor
+  await tools.getByRole('button', { name: /^(Mute|Unmute)$/ }).click({ button: 'right' });
+  await page.getByRole('dialog', { name: 'Microphone' }).getByRole('button', { name: 'Customize toolbar...' }).click();
+  await toolbarEditor.waitFor();
+  await page.keyboard.press('Escape');
+  await toolbarEditor.waitFor({ state: 'detached' });
+  console.log('ok: toolbar buttons and spacers can be reordered, hidden, added and removed');
+
   // Information: own connection shows client details and the full certificate
   await page.locator('.sidebar .user.self').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Information' }).click();

@@ -13,6 +13,7 @@
   import ContextMenu from './ui/ContextMenu.svelte';
   import IdentityWizard from './ui/IdentityWizard.svelte';
   import QuickAudio from './ui/QuickAudio.svelte';
+  import ToolbarEditor from './ui/ToolbarEditor.svelte';
   import UserInfoDialog from './ui/UserInfoDialog.svelte';
   import ChannelDialog from './ui/ChannelDialog.svelte';
   import PublicServers from './ui/PublicServers.svelte';
@@ -236,6 +237,7 @@
   {#key sessions.active}<ProfileDialog />{/key}
 {/if}
 {#if ui.quickAudio}<QuickAudio />{/if}
+{#if ui.toolbarEdit}<ToolbarEditor />{/if}
 {#if ui.userInfo != null && session.status === 'connected'}
   {#key ui.userInfo}<UserInfoDialog target={ui.userInfo} onclose={() => (ui.userInfo = null)} />{/key}
 {/if}
