@@ -37,11 +37,14 @@
 
   // The server button stays first: with the rail hidden it is the way back to it
   const serverButton = $derived(toolbar && store.settings.railHidden);
-  const items = $derived(visibleToolbarItems(normalizeToolbar(store.settings.toolbar), serverButton));
+  const showsYou = $derived(toolbar && !!self);
+  const items = $derived(visibleToolbarItems(normalizeToolbar(store.settings.toolbar), serverButton, showsYou));
+  // With only spacers after it, the name keeps the far corner
+  const inCorner = (drawn: number) => items.slice(drawn + 1).every(s => s.item === 'sep');
 
   function editRequest(e: MouseEvent) {
     const at = e.target instanceof Element ? e.target.closest<HTMLElement>('[data-tool]') : null;
-    return { x: e.clientX, y: e.clientY, index: at ? Number(at.dataset.tool) : null, spacers: toolbar || inline };
+    return { x: e.clientX, y: e.clientY, index: at ? Number(at.dataset.tool) : null, spacers: toolbar || inline, you: showsYou };
   }
 
   function customize(e: MouseEvent) {
@@ -122,22 +125,21 @@
           disabled={session.status !== 'connected'} onclick={toggleAll}>
           <Icon name="filter" size={18} />
         </button>
+      {:else if item === 'you' && self}
+        <!-- Who you are; the name gives way to the buttons when narrow -->
+        <span class="you" class:corner={inCorner(drawn)} data-tool={index}>
+          <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
+            oncontextmenu={e => menu.show(e, userMenu(self))}>
+            <span class="who">
+              <strong>{store.displayName(self)}</strong>
+              <!-- Not shown, but screen readers still hear where you are -->
+              <span class="sr-only">{session.channel(self.channelId)?.name || 'Root'}</span>
+            </span>
+            <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
+          </button>
+        </span>
       {/if}
     {/each}
-    {#if toolbar && self}
-      <!-- Who you are, at the far end of the toolbar; the name gives way to the buttons when narrow -->
-      <span class="you">
-        <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
-          oncontextmenu={e => menu.show(e, userMenu(self))}>
-          <span class="who">
-            <strong>{store.displayName(self)}</strong>
-            <!-- Not shown, but screen readers still hear where you are -->
-            <span class="sr-only">{session.channel(self.channelId)?.name || 'Root'}</span>
-          </span>
-          <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
-        </button>
-      </span>
-    {/if}
   </div>
 </footer>
 
@@ -158,10 +160,14 @@
   .me.toolbar .sep { margin: 0 6px; }
   /* The server tile is filled to its edge, an icon sits 6px inside its button */
   .me.toolbar .sep.lead { margin-left: 12px; }
-  /* Basis 0 so it never pushes the buttons onto a second row; the avatar alone stays */
-  .me.toolbar .you { flex: 1 1 0; min-width: 32px; display: flex; justify-content: flex-end; margin-left: 8px; }
+  /* Between the buttons it takes its own width, up to a limit */
+  .me.toolbar .you { flex: 0 1 auto; min-width: 32px; max-width: 180px; display: flex; margin: 0 4px; }
+  /* In the corner: basis 0 so it never pushes the buttons onto a second row; the avatar alone stays */
+  .me.toolbar .you.corner { flex: 1 1 0; max-width: none; justify-content: flex-end; margin: 0 0 0 8px; }
   .me.toolbar .you .profile { max-width: 100%; gap: 8px; padding: 2px 4px; }
-  .me.toolbar .you .who { text-align: right; }
+  .me.toolbar .you.corner .who { text-align: right; }
+  /* Between the buttons on a narrow window, only the picture, so the row does not wrap */
+  @media (max-width: 640px) { .me.toolbar .you:not(.corner) .who { display: none; } }
   .me.toolbar .you .who strong { font-size: 13px; font-weight: 500; }
   .me.inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 6px 16px; }
   .me.inline .profile, .me.inline .offline-who { flex: 0 1 220px; }

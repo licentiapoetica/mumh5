@@ -820,6 +820,29 @@ try {
   // The stacked toolbar names you at its far end
   await page.locator('.me .you').getByText('alice', { exact: true }).waitFor();
   console.log('ok: you shown in the stacked toolbar');
+  // Your name starts in the far corner, moves between the buttons and can be hidden
+  const topTools = page.locator('.me .tools');
+  const you = topTools.locator('.you');
+  const youBox = async () => (await you.locator('.profile').boundingBox())!;
+  const topToolsBox = (await topTools.boundingBox())!;
+  const youStart = await youBox();
+  assert.ok(Math.abs(youStart.x + youStart.width - (topToolsBox.x + topToolsBox.width)) <= 1, 'name in the right corner');
+  await topTools.getByRole('button', { name: 'Configure' }).click({ button: 'right' });
+  const nameEditor = page.getByRole('dialog', { name: 'Customize toolbar' });
+  await nameEditor.getByRole('button', { name: /^Move Name and picture \d+ up$/ }).click();
+  await page.waitForFunction(() => !document.querySelector('.me .tools .you')!.classList.contains('corner'));
+  const lastButton = topTools.getByRole('button', { name: /^(Expand|Collapse) all channels$/ });
+  assert.ok((await youBox()).x < (await lastButton.boundingBox())!.x, 'name moved before the last button');
+  await nameEditor.getByRole('checkbox', { name: 'Show Name and picture' }).uncheck();
+  await you.waitFor({ state: 'detached' });
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar.hidden), ['you']);
+  await nameEditor.getByRole('checkbox', { name: 'Show Name and picture' }).check();
+  await you.waitFor();
+  await nameEditor.getByRole('button', { name: 'Reset' }).click();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar === undefined);
+  await page.keyboard.press('Escape');
+  await nameEditor.waitFor({ state: 'detached' });
+  console.log('ok: your name in the toolbar can be moved and hidden');
   const chatBox = await box('.chat'), treeBox = await box('.sidebar');
   assert.ok(chatBox.y >= treeBox.y + treeBox.height - 1, 'stacked: chat below channel list');
   // The split between chat and channel list drags
@@ -1330,6 +1353,7 @@ try {
   assert.equal((await order())[0], 'Configure');
   await toolbarEditor.getByRole('button', { name: 'Reset' }).click();
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('mumh5.settings')!).toolbar === undefined);
+  await toolbarEditor.getByText('Spacers and your name show only in the top toolbar.').waitFor();
   await page.keyboard.press('Escape');
   await toolbarEditor.waitFor({ state: 'detached' });
   // Mute keeps its audio popup, which leads to the editor
