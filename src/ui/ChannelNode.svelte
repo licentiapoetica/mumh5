@@ -375,8 +375,8 @@
   /* The same 14px column as the icons in the rows below; an even square stays on whole pixels */
   .desc { position: relative; flex: none; width: 14px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .desc::after { content: ''; position: absolute; inset: 0 -3px; }
-  .desc span { width: 8px; height: 8px; background: var(--warn); }
-  .desc:hover span { outline: 2px solid var(--warn); outline-offset: 1px; }
+  .desc span { width: 8px; height: 8px; background: var(--warn); outline: 2px solid transparent; outline-offset: 1px; transition: outline-color 100ms var(--ease); }
+  .desc:hover span { outline-color: var(--warn); }
   .desc-pop { position: fixed; z-index: 40; width: 340px; max-width: calc(100vw - 16px); max-height: 320px; overflow: auto; padding: 12px 14px;
     background: var(--bg-1); border: 1px solid var(--line-strong); color: var(--text); font-size: 14px; }
   .desc-pop strong { display: block; margin-bottom: 6px; }
@@ -397,7 +397,7 @@
   .state.face:not(.admin) { color: var(--text); }
   .state.slot { flex: none; width: 14px; justify-content: center; }
   /* The padding is its hover area; the margin keeps the icon itself in the column */
-  .state.sharing { color: var(--speaking); padding: 3px; margin: 0 -3px; }
+  .state.sharing { color: var(--speaking); padding: 3px; margin: 0 -3px; transition: background 100ms var(--ease); }
   .state.sharing[role=button]:hover { background: var(--bg-active); }
   .rec { font-size: 10px; font-weight: 700; color: var(--danger); border: 1px solid var(--danger); padding: 0 3px; }
 </style>
