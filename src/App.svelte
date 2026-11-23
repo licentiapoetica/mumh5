@@ -74,6 +74,7 @@
   // The phone drawer holds the server list and the channels together, hidden or not
   // Private chats: tabs above the chat where the channel list is not always beside it, a list in it otherwise
   const chatTabs = $derived(arrangement === 'stacked' || layout === 'narrow');
+  $effect(() => { ui.chatTabs = chatTabs; });
   const inDrawer = $derived(layout === 'narrow' && arrangement === 'side' && !home);
   // Home on request lies over the server view: unmounting it would lose drafts and stop stream audio
   const homeOver = $derived(sessions.homeShown && !home);
