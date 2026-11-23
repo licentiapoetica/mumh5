@@ -2241,6 +2241,9 @@ try {
     assert.equal(await page.locator('.chat-tab', { hasText: 'notes' }).count(), 0);
     await page.setViewportSize({ width: 1280, height: 800 });
     console.log('ok: text channel as a closable tab next to the voice channel tab');
+    // Closing the tab left the text channel; open it again for the file
+    await notesRow.locator('.name').click();
+    await page.locator('.chat h1', { hasText: 'notes' }).waitFor();
 
     // Files go into text channels too, announced with a preview that fits a text channel message
     const notePng = path.join(userData, 'note.png');
@@ -2710,6 +2713,24 @@ try {
     console.log('ok: back to the standard interface from the You screen');
   }
 
+  // Auto reconnect is on for servers saved without changing it: a dropped connection comes back by
+  // itself and returns to the channel it was in
+  if (admin) {
+    const me = [...admin.users.values()].find(u => u.name === newName)!;
+    const channel = me.channelId;
+    admin.kick(me.session, 'testing auto reconnect');
+    await page.getByRole('status').filter({ hasText: /Retrying in \d+ seconds?/ }).waitFor();
+    await page.locator('.sidebar .status', { hasText: 'Connected' }).waitFor({ timeout: 20000 });
+    await within(new Promise<void>(res => {
+      const check = () => {
+        const back = [...admin.users.values()].find(u => u.name === newName && u.session !== me.session);
+        if (back && back.channelId === channel) res(); else setTimeout(check, 100);
+      };
+      check();
+    }), 'back in the same channel after the automatic reconnect');
+    console.log('ok: a dropped connection reconnects by itself and rejoins the channel');
+  }
+
   // Kicked: the reason is shown with a Reconnect button
   if (admin) {
     const me = [...admin.users.values()].find(u => u.name === newName)!;
@@ -2717,6 +2738,9 @@ try {
     const card = page.locator('.ended');
     await card.getByText('You were kicked by SuperUser').waitFor();
     await card.getByText('testing kicks').waitFor();
+    // Stop the automatic retry, so the notice stays
+    await page.getByRole('button', { name: 'Cancel auto-reconnect' }).click();
+    await page.getByRole('status').filter({ hasText: /Retrying in/ }).waitFor({ state: 'detached' });
     // Back on the start screen, which shows who is on the saved servers
     await page.locator('.home .server', { hasText: 'Test Server' }).getByText(/\d+( of \d+)? online/).waitFor({ timeout: 70000 });
     if (shots) await page.screenshot({ path: path.join(shots, 'kicked.png') });

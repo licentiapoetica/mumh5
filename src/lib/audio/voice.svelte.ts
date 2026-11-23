@@ -42,6 +42,8 @@ export interface VoiceSettings {
 
 // Phones and tablets, where Bluetooth headsets are the usual case
 export const handheld = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+// Android stops background pages that play no media it knows about (see startOutputElement)
+const android = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent);
 
 const defaults: VoiceSettings = {
   inputDevice: 'default',
@@ -241,7 +243,7 @@ class VoiceEngine {
       for (const [s, g] of this.sessionGains) this.playback.port.postMessage({ session: s, gain: g });
       this.playback.connect(this.outputGainNode).connect(ctx.destination);
       this.direct = true;
-      if (handheld) this.startOutputElement(ctx);
+      if (android) this.startOutputElement(ctx);
 
       this.inputGainNode = new GainNode(ctx, { gain: this.settings.inputGain });
       this.capture = new AudioWorkletNode(ctx, 'mumh5-capture', { numberOfOutputs: 0 });

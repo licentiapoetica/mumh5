@@ -294,7 +294,7 @@ try {
       const p = decodeVoice(raw);
       if (!p || p.session !== carolSession() || !p.opus.length) return;
       packets.push(p);
-      if (packets.length >= 20) { off(); res(packets); }
+      if (packets.length >= 100) { off(); res(packets); }
     });
   });
   await page2.getByTitle('Settings').click();
