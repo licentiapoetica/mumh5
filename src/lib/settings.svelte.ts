@@ -1,5 +1,6 @@
 import { atDefaults, changedFrom, freshList, load, loadList, save } from './storage.ts';
 import { GENERATED_THEMES } from './themes-generated.ts';
+import { DEFAULT_TOOLBAR, type ToolbarLayout } from '../core/toolbar.ts';
 
 export interface SavedServer {
   id: string;
@@ -44,6 +45,10 @@ export interface Settings {
   interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
   autoCameras: boolean;   // show other people's cameras as they come on
+  cameraDevice: string;   // the webcam; empty is the system's default
+  cameraSize: '480' | '720' | '1080';
+  cameraFps: number;
+  cameraMirror: boolean;  // show our own camera mirrored to ourselves, never to others
   shareVolume: number;    // volume of streams we watch, 0 to 1
   relayServer: string;    // a mumh5 web proxy whose STUN and relay to use for screen sharing
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
@@ -54,6 +59,8 @@ export interface Settings {
   roleIcons: 'all' | 'top' | 'off'; // role icons next to names
   roleColors: boolean;   // names in the color of their top role
   avatars: 'pictures' | 'spheres'; // spheres replace pictures and letters, except in chat, members, profiles and voice tiles
+  toolbar: ToolbarLayout; // order of the toolbar's buttons and spacers, and the hidden buttons
+  treeLines: boolean;     // lines and a root node in the channel tree
 }
 
 // Window layouts; classic and stacked follow the Mumble desktop client's layouts of the same name
@@ -113,6 +120,10 @@ const defaults: Settings = {
   interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,
+  cameraDevice: '',
+  cameraSize: '720',
+  cameraFps: 30,
+  cameraMirror: true,
   shareVolume: 1,
   relayServer: '',
   stunServer: '',
@@ -122,12 +133,14 @@ const defaults: Settings = {
   pokeNotify: true,
   roleIcons: 'all',
   roleColors: true,
-  avatars: 'spheres'
+  avatars: 'spheres',
+  toolbar: DEFAULT_TOOLBAR,
+  treeLines: true
 };
 
 // Where in Settings each setting is reset; parts of Appearance are its headings.
 // kept: not picked in Settings (window state, notices already seen).
-export type SettingsPart = 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
+export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
   | 'appearance.roles' | 'appearance.people' | 'appearance.interface' | 'appearance.layout'
   | 'appearance.background' | 'appearance.tree' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
@@ -140,9 +153,11 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   treeBackground: 'appearance.tree', treeBackgroundStyle: 'appearance.tree',
   publicListUrl: 'kept',
   arrangement: 'appearance.layout', classicSide: 'appearance.layout', tabBarBackground: 'appearance.layout',
+  toolbar: 'appearance.layout', treeLines: 'appearance.layout',
   railHidden: 'kept',
   interface: 'appearance.interface',
-  shareQuality: 'sharing', autoCameras: 'sharing', shareVolume: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
+  cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
+  shareQuality: 'sharing', shareVolume: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',
   hints: 'accessibility',
   updateCheck: 'about',

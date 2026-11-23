@@ -5,8 +5,9 @@
   // fingers pinch, and while zoomed and hovered a panel (bottom right; a magnifier button before) shows
   // the whole picture with the part in view framed. Used on the stage and in the separate stream
   // window, so it measures with its own window's observers and has no app-wide menus.
-  let { stream, zoom = $bindable(1), video = $bindable(), ondblclick }: {
+  let { stream, mirror = false, zoom = $bindable(1), video = $bindable(), ondblclick }: {
     stream: MediaStream | null;
+    mirror?: boolean; // your own camera; zoom and pan work on the picture as you see it
     zoom?: number;
     video?: HTMLVideoElement;
     ondblclick?: (e: MouseEvent) => void;
@@ -147,13 +148,13 @@
 <video class="main" bind:this={video} use:media={stream} use:wheelZoom use:measure autoplay playsinline muted {ondblclick}
   class:zoomed={zoom > 1} class:dragging onloadedmetadata={readSource} onresize={readSource}
   onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
-  style:transform={zoom > 1 ? `translate(${view[0] * 100}%, ${view[1] * 100}%) scale(${zoom})` : undefined}></video>
+  style:transform={[zoom > 1 ? `translate(${view[0] * 100}%, ${view[1] * 100}%) scale(${zoom})` : '', mirror ? 'translateX(100%) scaleX(-1)' : ''].join(' ').trim() || undefined}></video>
 {#if zoom > 1}
 <div class="zoom" role="group" aria-label="Zoom">
   <!-- svelte-ignore a11y_media_has_caption -->
   <div class="map" role="presentation" style:aspect-ratio={srcW && srcH ? `${srcW} / ${srcH}` : '16 / 9'}
     onpointerdown={mapDown} onpointermove={mapMove}>
-    <video use:media={stream} autoplay playsinline muted></video>
+    <video class:mirror use:media={stream} autoplay playsinline muted></video>
     <span class="seen" style:left="{seen.left}%" style:top="{seen.top}%" style:width="{seen.width}%" style:height="{seen.height}%"></span>
   </div>
   <div class="zoom-row">
@@ -183,6 +184,7 @@
   @media (hover: none) { .zoom { opacity: 1; pointer-events: auto; } }
   .map { position: relative; width: 100%; overflow: hidden; background: #000; cursor: pointer; touch-action: none; }
   .map video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  .map video.mirror { transform: scaleX(-1); }
   .seen { position: absolute; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); pointer-events: none; }
   /* Before zooming only a button, on hover like the other picture controls; touch screens have no hover */
   .zoom-btn { position: absolute; right: 8px; bottom: 8px; z-index: 1; color: #ddd; background: rgb(0 0 0 / 0.75); border: 1px solid rgb(255 255 255 / 0.15);

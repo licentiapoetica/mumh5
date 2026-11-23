@@ -10,13 +10,12 @@ import { proxyIce, relayIce } from './web.svelte.ts';
 import { store } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
+import { cameraBitrate, cameraError, cameraWishes, openCamera } from './camera.ts';
 
 // Every viewer is a separate upload from the sharer
 const MAX_VIEWERS = 8;
 // Cameras watched at once; each is a download and a decoder
 const MAX_CAMERAS = 12;
-// A face needs far less than a screen full of text
-const CAMERA_BITRATE = 1_200_000;
 export const QUALITY = {
   low: { label: 'Low (1 Mbit/s, 30 fps)', bitrate: 1_000_000, fps: 30 },
   medium: { label: 'Medium (4 Mbit/s, 30 fps)', bitrate: 4_000_000, fps: 30 },
@@ -43,12 +42,13 @@ class ScreenShare {
   host = $state.raw<Session | null>(null);
   stream = $state.raw<MediaStream | null>(null);
   kind = $state<ShareKind>('screen');
-  // Show our own camera mirrored to ourselves, as a mirror would. Not a camera pointing away
-  // from us (a phone's back camera), and never what the others get.
-  mirror = $state(false);
+  // A phone's back camera points away from us, so it is not shown as a mirror
+  private facingAway = $state(false);
   // How many cameras this device has; with more than one there is something to switch to
   cameras = $state(0);
   switching = $state(false);
+  // The camera button was pressed and the camera is still starting
+  opening = $state(false);
   viewers = $state(0);
   // Streams we receive: one screen at a time, and any number of cameras next to it
   watches = $state.raw<Watching[]>([]);
@@ -69,6 +69,11 @@ class ScreenShare {
   private live = new Set<number>();
   // When we entered the channel: streams already running there are not announced with a sound
   private enteredAt = new WeakMap<Session, number>();
+
+  get cameraOn(): boolean { return !!this.stream && this.kind === 'camera'; }
+  get screenOn(): boolean { return !!this.stream && this.kind === 'screen'; }
+  // Our own camera as a mirror shows us; never what the others get
+  get mirror(): boolean { return this.cameraOn && store.settings.cameraMirror && !this.facingAway; }
 
   // Plugin data needs a 1.4 server; older ones would not pass the signals on
   supported(s: Session): boolean {
@@ -128,9 +133,26 @@ class ScreenShare {
 
   // Opens the dialog where the source, the sound and the quality are chosen
   async start(s: Session): Promise<void> {
-    if (this.stream || this.dialog || !this.supported(s) || !(await this.notice())) return;
+    if (this.stream || this.dialog || this.opening || !this.supported(s) || !(await this.notice())) return;
     this.error = '';
     this.dialog = s;
+  }
+
+  // The camera button: on with the choices from Settings, Video, without a dialog
+  async toggleCamera(s: Session): Promise<void> {
+    if (this.cameraOn) return this.stop();
+    if (this.stream || this.dialog || this.opening || !this.supported(s) || !(await this.notice())) return;
+    // Something else may have started while the note was open
+    if (this.stream || this.dialog || this.opening) return;
+    this.opening = true;
+    this.error = '';
+    try {
+      this.go(s, await openCamera(), false, 'camera');
+    } catch (e) {
+      this.error = cameraError(e);
+    } finally {
+      this.opening = false;
+    }
   }
 
   // The dialog hands over what it captured
@@ -150,7 +172,7 @@ class ScreenShare {
     }
     this.usesVirtualMic = usesVirtualMic;
     this.kind = kind;
-    this.mirror = kind === 'camera' && stream.getVideoTracks()[0]?.getSettings().facingMode !== 'environment';
+    this.facingAway = stream.getVideoTracks()[0]?.getSettings().facingMode === 'environment';
     this.cameras = 0;
     if (kind === 'camera') navigator.mediaDevices.enumerateDevices().then(d => { this.cameras = d.filter(x => x.kind === 'videoinput').length; }).catch(() => {});
     this.host = s;
@@ -162,33 +184,50 @@ class ScreenShare {
 
   // The next camera of this device (front and back on a phone), without interrupting the stream
   async switchCamera(): Promise<void> {
+    if (!this.cameraOn || this.switching) return;
+    const ids = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(d => d.kind === 'videoinput').map(d => d.deviceId);
+    this.cameras = ids.length;
+    const current = this.stream?.getVideoTracks()[0]?.getSettings().deviceId ?? '';
+    const next = ids[(ids.indexOf(current) + 1) % ids.length];
+    if (ids.length >= 2 && next && next !== current) await this.useCamera(next);
+  }
+
+  // The Video settings changed while the camera is on
+  async applyCamera(deviceChanged: boolean): Promise<void> {
+    if (!this.cameraOn) return;
+    if (deviceChanged) await this.useCamera(store.settings.cameraDevice);
+    else await this.stream?.getVideoTracks()[0]?.applyConstraints(cameraWishes()).catch(e => { this.error = `The camera did not take the new settings: ${(e as Error).message}`; });
+    for (const pc of this.peers.values()) {
+      for (const sender of pc.getSenders()) {
+        if (sender.track?.kind !== 'video') continue;
+        const params = sender.getParameters();
+        for (const enc of params.encodings ?? []) enc.maxBitrate = cameraBitrate();
+        await sender.setParameters(params).catch(() => {});
+      }
+    }
+  }
+
+  private async useCamera(deviceId: string): Promise<void> {
     const stream = this.stream;
     const old = stream?.getVideoTracks()[0];
     if (!stream || !old || this.kind !== 'camera' || this.switching) return;
     this.switching = true;
     this.error = '';
-    const open = (deviceId: string) => navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: QUALITY[store.settings.shareQuality].fps } }
-    }).catch(() => navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } }));
+    const current = old.getSettings().deviceId ?? '';
     try {
-      const ids = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').map(d => d.deviceId);
-      this.cameras = ids.length;
-      const current = old.getSettings().deviceId ?? '';
-      const next = ids[(ids.indexOf(current) + 1) % ids.length];
-      if (ids.length < 2 || !next || next === current) return;
       let fresh: MediaStream;
       try {
         // Computers can have both open for a moment, which keeps the picture going
-        fresh = await open(next);
+        fresh = await openCamera(deviceId);
       } catch {
         // A phone opens one camera at a time, so the old one has to go first
         old.stop();
         try {
-          fresh = await open(next);
+          fresh = await openCamera(deviceId);
         } catch (e) {
           // Could not get the other one: back to the camera we had
-          fresh = await open(current).catch(() => { throw e; });
-          this.error = `Could not switch the camera: ${(e as Error).message}`;
+          fresh = await openCamera(current).catch(() => { throw e; });
+          this.error = `Could not switch the camera: ${cameraError(e)}`;
         }
       }
       // Stopped sharing in the meantime
@@ -205,7 +244,7 @@ class ScreenShare {
       }
       old.stop();
       this.stream = new MediaStream([track, ...stream.getAudioTracks()]);
-      this.mirror = track.getSettings().facingMode !== 'environment';
+      this.facingAway = track.getSettings().facingMode === 'environment';
     } catch (e) {
       this.error = `The camera stopped: ${(e as Error).message}`;
       this.stop();
@@ -316,7 +355,8 @@ class ScreenShare {
 
   // All cameras on or off, remembered
   async setCams(s: Session, on: boolean): Promise<void> {
-    if (on && (!this.supported(s) || !(await this.notice()))) return;
+    // Also a setting while not connected, where there is nobody to connect to yet
+    if (on && !store.settings.autoCameras && this.supported(s) && !(await this.notice())) return;
     store.settings.autoCameras = on;
     store.saveSettings();
     if (!on) {
@@ -360,8 +400,8 @@ class ScreenShare {
       const params = sender.getParameters();
       // Keep the picture sharp and let the frame rate drop when the connection is tight
       params.degradationPreference = this.kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
-      const wanted = QUALITY[store.settings.shareQuality].bitrate;
-      for (const enc of params.encodings ?? []) enc.maxBitrate = this.kind === 'camera' ? Math.min(wanted, CAMERA_BITRATE) : wanted;
+      const wanted = this.kind === 'camera' ? cameraBitrate() : QUALITY[store.settings.shareQuality].bitrate;
+      for (const enc of params.encodings ?? []) enc.maxBitrate = wanted;
       await sender.setParameters(params).catch(() => {});
     }
     await pc.setLocalDescription({ type: 'offer', sdp: stereo((await pc.createOffer()).sdp ?? '') });

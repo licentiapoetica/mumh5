@@ -124,6 +124,8 @@
     {/each}
   </div>
 {/if}
+<label class="role-check"><input type="checkbox" checked={store.settings.treeLines}
+  onchange={e => { store.settings.treeLines = e.currentTarget.checked; store.saveSettings(); }} /> Show tree lines</label>
 {#if store.settings.arrangement === 'stacked'}
   <span class="pick-label" id="tab-bar-bg">Tab bar background</span>
   <p class="help">The strip with the chat names above the messages. Backgrounds are set below.</p>

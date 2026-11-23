@@ -48,12 +48,16 @@
   // People with a stream we can show come first, then others who share
   const rank = (s: number) => streamOf(s) ? 0 : session.sharing[s] ? 1 : 2;
   const people = $derived([...inChannel].sort((a, b) => rank(a.session) - rank(b.session)));
-  // Who gets a tile: everyone, or in the stacked layout only the people whose camera we see
-  const shown = $derived(videoOnly ? people.filter(u => camOf(u.session)) : people);
+  // Who gets a tile: everyone, or in the stacked layout only the people with a picture
+  const shown = $derived(videoOnly ? people.filter(u => streamOf(u.session)) : people);
 
   // Tile on the large stage
   let focus = $state<number | null>(null);
   const focused = $derived(focus != null ? streamOf(focus) : null);
+  // Stacked: the picture in the window is not repeated in the strip under it
+  const strip = $derived(videoOnly ? shown.filter(u => u.session !== focus) : shown);
+  // Your own camera follows the mirror setting wherever it is shown
+  const focusMirror = $derived(focus != null && focus === self?.session && share.mirror);
   const focusUser = $derived(focus != null ? session.user(focus) : undefined);
   // Screen or camera, for the wording and the icons
   const focusKind = $derived((focus != null && session.sharing[focus]) || 'screen');
@@ -75,13 +79,17 @@
     else if (!has && focus === self?.session) focus = null;
     hadMine = has;
   });
-  // Without tiles there is nothing to choose: the watched stream, else our own
+  // Stacked has no tile view: every stream plays in the one window. A screen goes there when it
+  // starts; otherwise someone else's camera, else our own. The rest wait in the strip below.
   let lastSolo: number | null = null;
   $effect(() => {
     if (!videoOnly) return;
     const solo = watching ? watching.session : mine && share.kind === 'screen' ? self?.session ?? null : null;
     if (solo !== lastSolo) { focus = solo; lastSolo = solo; }
+    if (focus == null || !streamOf(focus)) focus = (shown.find(u => u.session !== self?.session) ?? shown[0])?.session ?? null;
   });
+  // A stream that has no picture yet, for the line shown instead of the window
+  const waiting = $derived(watching ?? watches[0] ?? null);
 
   // The stage is as tall as the user drags it; the tiles grow and shrink to fill it. The
   // meeting view (one picture large) remembers its own height.
@@ -110,7 +118,7 @@
   });
   // In the meeting view everyone sits in one row under the picture
   const rows = $derived.by(() => {
-    if (focused) return [shown];
+    if (focused) return [strip];
     const out: (typeof shown)[] = [];
     for (let i = 0; i < shown.length; i += cols) out.push(shown.slice(i, i + cols));
     return out;
@@ -200,7 +208,7 @@
   let popView: ReturnType<typeof mount> | null = null;
   let popTheme: MutationObserver | null = null;
   // Props of the picture in the window; it follows them like any component
-  const popProps = $state<{ stream: MediaStream | null; ondblclick?: () => void }>({ stream: null });
+  const popProps = $state<{ stream: MediaStream | null; mirror: boolean; ondblclick?: () => void }>({ stream: null, mirror: false });
   let spotVideo = $state<HTMLVideoElement>();
   const popped = $derived(share.poppedOut);
   function popOut() {
@@ -262,6 +270,7 @@
     if (!popped) return;
     if (!stream) return popIn();
     if (popProps.stream !== stream) popProps.stream = stream;
+    popProps.mirror = focusMirror;
     if (popup) popup.document.title = `${title} - mumh5`;
   });
   $effect(() => () => popIn());
@@ -301,13 +310,12 @@
           <span class="status" role="status" title="People watching your {share.kind}">{share.viewers} watching</span>
           <button class="btn small" onclick={() => share.stop()}>Stop sharing</button>
         {/if}
-        {#if !videoOnly || shown.length}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
+        {#if !videoOnly}<button class="icon-btn" title="Back to tiles" aria-label="Back to tiles" onclick={() => (focus = null)}><Icon name="x" size={16} /></button>{/if}
       </div>
       {#if !popped}
         <div class="pic" role="presentation" oncontextmenu={streamMenu}
           ontouchstart={touchStart} ontouchend={touchEnd} ontouchmove={touchEnd} ontouchcancel={touchEnd}>
-          <!-- Large, your own camera is shown as the others see it; only the small tile is a mirror -->
-          <ZoomView stream={focused} bind:zoom bind:video={spotVideo} ondblclick={fullscreen} />
+          <ZoomView stream={focused} mirror={focusMirror} bind:zoom bind:video={spotVideo} ondblclick={fullscreen} />
           {#if focus !== self.session && focusWatch && focusWatch.state !== 'live'}
             <p class="pending" class:bad={focusWatch.state === 'failed'}>{focusWatch.state === 'failed'
               ? 'Could not connect to the stream. Across the internet both of you need a STUN server; networks that block direct connections need a relay. Both are in Settings, Voice.'
@@ -364,18 +372,12 @@
     {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud autoplay></audio>{/each}
     {#if focused}
       {@render spot()}
-    {:else if watching}
-      <p class="wait" class:bad={watching.state === 'failed'}>
-        <span>{watching.state === 'failed' ? 'Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice.' : 'Connecting to the stream...'}</span>
-        <button class="btn small" onclick={() => share.unwatch(watching.session)}>{watching.state === 'failed' ? 'Close' : 'Cancel'}</button>
+      {#if strip.length}{@render tiles()}{/if}
+    {:else if waiting}
+      <p class="wait" class:bad={waiting.state === 'failed'}>
+        <span>{waiting.state === 'failed' ? 'Could not connect to the stream. Across the internet both of you need a STUN server set in Settings, Voice.' : 'Connecting to the stream...'}</span>
+        <button class="btn small" onclick={() => share.unwatch(waiting.session)}>{waiting.state === 'failed' ? 'Close' : 'Cancel'}</button>
       </p>
-    {/if}
-    <!-- Cameras: a grid of just the pictures -->
-    {#if shown.length && !focused}
-      <div class="camgrid" style:height="{tilesHeight}px">
-        <ResizeHandle bind:width={tilesHeight} edge="bottom" min={110} max={maxHeight} initial={210} storageKey="mumh5.stageHeight" label="Resize the tiles" />
-        {@render tiles()}
-      </div>
     {/if}
   </section>
 {:else if visible && self}
@@ -399,10 +401,11 @@
           </span>
         {/if}
       </button>
-      {#if anyCamera || share.cams}
-        <button class="icon-btn" class:live={share.cams} aria-pressed={share.cams} title={share.cams ? 'Hide everyone\'s camera' : 'Show everyone\'s camera'}
+      <!-- Only about other people's pictures; your own camera is the button next to mute -->
+      {#if anyCamera}
+        <button class="icon-btn" aria-pressed={!share.cams} title={share.cams ? 'Hide other people\'s cameras' : 'Show other people\'s cameras'}
           aria-label={share.cams ? 'Hide all cameras' : 'Show all cameras'} onclick={() => share.setCams(sessions.active, !share.cams)}>
-          <Icon name="camera" size={18} />
+          <Icon name={share.cams ? 'eye' : 'eye-off'} size={18} />
         </button>
       {/if}
       {#if mine}
@@ -457,8 +460,6 @@
      off, a phone held upright gets bars at the sides. Your own is mirrored, like a mirror. */
   .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   .tile video.mirror { transform: scaleX(-1); }
-  .icon-btn.live, .icon-btn.live:hover { color: var(--speaking); }
-  .camgrid { position: relative; display: flex; flex-direction: column; flex: none; }
   /* Name tag over the lower left corner */
   .who { position: absolute; left: 4px; bottom: 4px; max-width: calc(100% - 8px); padding: 1px 6px; font-size: 12px; color: #fff; background: rgb(0 0 0 / 0.6);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -491,7 +492,7 @@
   .vol { width: 110px; flex: none; padding: 0; }
   /* Video only: the picture as wide as the chat, as tall as its shape asks */
   /* It gives way when the window is short, so the chat below keeps its last lines in view */
-  .stage.solo { flex: 0 1 auto; background: #000; }
+  .stage.solo { flex: 0 1 auto; background: #000; overflow: hidden; }
   .stage.solo .spot { flex: 0 1 auto; }
   .stage.solo .pic { flex: 0 1 auto; flex-direction: column; }
   .stage.solo .spot .pic > :global(video) { flex: 0 1 auto; height: auto; max-height: 62vh; }

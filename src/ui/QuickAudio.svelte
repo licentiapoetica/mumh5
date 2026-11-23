@@ -56,6 +56,7 @@
       oninput={e => voice.update({ outputVolume: Number(e.currentTarget.value) })} />
   {/if}
   <button class="more" onclick={() => { close(); ui.settingsTab = 'voice'; ui.settingsOpen = true; }}>Voice settings...</button>
+  {#if q.tools}<button class="more" onclick={() => { const tools = q.tools!; close(); ui.toolbarEdit = tools; }}>Customize toolbar...</button>{/if}
 </div>
 
 <style>

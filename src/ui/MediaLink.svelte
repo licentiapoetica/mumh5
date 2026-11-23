@@ -16,7 +16,7 @@
   const icon = $derived(kind === 'image' ? 'image' : kind === 'video' ? 'screen' : 'headphones');
 </script>
 
-<MediaCard name={name || host} detail={failed ? 'Could not load preview' : local ? noun : `${noun} from ${host}`} {icon} href={shown ? url : undefined} {failed}>
+<MediaCard name={name || host} detail={failed ? 'Could not load preview' : local ? noun : `${noun} from ${host}`} {icon} href={shown ? url : undefined} {failed} fit={kind === 'image' && shown && !failed}>
   {#if !shown}
     <div class="ask">
       <button class="load" onclick={() => (clicked = true)} title="Loads from {host}, which sees your IP address">

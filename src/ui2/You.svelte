@@ -17,6 +17,7 @@
   type Tab = typeof ui.settingsTab;
   const SETTINGS: { tab: Tab; name: string; note: string }[] = [
     { tab: 'voice', name: 'Voice', note: 'Microphone, speakers, how you transmit' },
+    { tab: 'video', name: 'Video', note: 'Camera, resolution, frame rate' },
     { tab: 'sharing', name: 'Screen sharing', note: 'STUN server and relay' },
     { tab: 'sounds', name: 'Sounds', note: 'Notification sounds' },
     { tab: 'appearance', name: 'Appearance', note: 'Colors and interface' },

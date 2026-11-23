@@ -4,6 +4,7 @@
   import { share, QUALITY, type ShareKind } from '../lib/share.svelte.ts';
   import { desktop, type ScreenSource } from '../lib/native.ts';
   import { store } from '../lib/settings.svelte.ts';
+  import { cameraError, openCamera } from '../lib/camera.ts';
 
   // Everything is chosen here, with a preview, before anything is sent: what to show, which
   // sound goes with it and the quality. In a browser, and on Wayland, the system's own dialog
@@ -73,30 +74,20 @@
     }
   }
 
-  async function showCamera(deviceId = camera) {
+  async function showCamera(deviceId = camera || store.settings.cameraDevice) {
     error = '';
     dropPreview();
-    const wanted: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: fps() } };
-    if (deviceId) wanted.deviceId = { exact: deviceId };
-    else wanted.facingMode = 'user';
     try {
-      try {
-        preview = await navigator.mediaDevices.getUserMedia({ video: wanted });
-      } catch (e) {
-        // A refusal or a missing camera is final; anything else may be a phone camera that
-        // dislikes the wishes above, so ask once more for whatever it has
-        if (['NotAllowedError', 'SecurityError', 'NotFoundError'].includes((e as Error).name)) throw e;
-        preview = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : true });
-      }
+      // The saved camera may be unplugged; nothing is sent yet, so the default one is shown instead
+      preview = await openCamera(deviceId).catch(e => {
+        if (!camera && deviceId && (e as Error).name === 'OverconstrainedError') return openCamera('');
+        throw e;
+      });
       // Names are only given out once a camera was allowed
       cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
       camera = preview.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId;
     } catch (e) {
-      const { name, message } = e as Error;
-      error = name === 'NotFoundError' ? 'No camera was found.'
-        : name === 'NotAllowedError' || name === 'SecurityError'
-          ? 'The camera was refused. If no question appeared, access is blocked: allow the camera for this site (the icon next to the address), and for the browser app in the phone\'s settings, then try again.'
-          : `Could not open the camera (${name}): ${message}`;
+      error = cameraError(e);
     }
   }
 
@@ -220,7 +211,7 @@
   <span class="label">Preview</span>
   <div class="preview">
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={video} class:mirror={kind === 'camera' && preview?.getVideoTracks()[0]?.getSettings().facingMode !== 'environment'} autoplay playsinline muted></video>
+    <video bind:this={video} class:mirror={kind === 'camera' && store.settings.cameraMirror && preview?.getVideoTracks()[0]?.getSettings().facingMode !== 'environment'} autoplay playsinline muted></video>
     {#if !preview}<p>Nothing chosen yet</p>{/if}
   </div>
 
@@ -244,13 +235,16 @@
         {/if}
       </div>
     {/if}
-    <div>
-      <label for="sh-quality">Quality</label>
-      <select id="sh-quality" bind:value={store.settings.shareQuality} onchange={() => store.saveSettings()}>
-        {#each Object.entries(QUALITY) as [id, q] (id)}<option value={id}>{q.label}</option>{/each}
-      </select>
-    </div>
+    {#if kind === 'screen'}
+      <div>
+        <label for="sh-quality">Quality</label>
+        <select id="sh-quality" bind:value={store.settings.shareQuality} onchange={() => store.saveSettings()}>
+          {#each Object.entries(QUALITY) as [id, q] (id)}<option value={id}>{q.label}</option>{/each}
+        </select>
+      </div>
+    {/if}
   </div>
+  {#if kind === 'camera'}<p class="help">Resolution and frame rate are in Settings, Video.</p>{/if}
 
   {#if error}<p class="err">{error}</p>{/if}
   {#if kind === 'camera' && error}<div class="row"><button class="btn" onclick={() => showCamera()}>Try the camera again</button></div>{/if}

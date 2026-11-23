@@ -21,7 +21,7 @@
   import { stripDisplayName } from '../core/display-name.ts';
   import { planMove } from '../core/channel-order.ts';
 
-  let { channel, depth = 0, onnavigate }: { channel: Channel; depth?: number; onnavigate: () => void } = $props();
+  let { channel, depth = 0, last = true, onnavigate }: { channel: Channel; depth?: number; last?: boolean; onnavigate: () => void } = $props();
 
   const users = $derived(session.usersIn(channel.id));
   const children = $derived(session.childrenOf(channel.id));
@@ -142,6 +142,7 @@
   let zone = $state<Zone | null>(null);
   const dragging = $derived(drag.item?.kind === 'channel' && drag.item.id === channel.id);
   const open = $derived(expanded && (children.length > 0 || users.length > 0));
+  const lines = $derived(store.settings.treeLines);
 
   function intoAllowed(): boolean {
     const d = drag.item;
@@ -224,15 +225,17 @@
 </script>
 
 <!-- Behind an open channel is below its people and subchannels; the line is drawn there -->
-<li class:after-end={zone === 'after' && open} style:--indent="{8 + depth * 14}px">
-  <div class="row channel" data-menu-row class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
+<li class:after-end={zone === 'after' && open} style:--indent="{8 + depth * 14}px" style:--d={depth}>
+  <div class="row channel" data-menu-row class:is-root={lines && channel.id === 0} class:here class:selected class:dragging class:into={zone === 'into'} class:before={zone === 'before'} class:after={zone === 'after' && !open} class:target={zone === 'after' && open}
     style:padding-left="{8 + depth * 14}px"
     oncontextmenu={e => menu.show(e, channelMenu(channel))} role="presentation"
     ondragover={onDragOver}
     ondragleave={onDragLeave}
     ondrop={onDrop} bind:this={rowEl}
     onmouseenter={hoverRow} onmousemove={trackPointer} onmouseleave={leaveRow}>
-    <!-- Root is always open, so it has no caret -->
+    {#if lines && depth > 0}<span class="branch" class:end={last} class:leaf={!children.length && !users.length}></span>{/if}
+    {#if lines && open}<span class="stem" class:from-root={channel.id === 0}></span>{/if}
+    <!-- Root is always open, so it has a node like a root commit instead of a caret -->
     {#if channel.id !== 0 && (children.length || users.length)}
       <button class="caret" class:collapsed={!expanded} onclick={() => session.toggleExpanded(channel.id)}
         aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={expanded}>
@@ -240,6 +243,8 @@
       </button>
     {:else if channel.id !== 0}
       <span class="caret"></span>
+    {:else if lines}
+      <span class="root-mark"><Icon name="root" size={15} /></span>
     {/if}
     <!-- The name is what people grab; a drag cannot start from a button inside a draggable element -->
     <button class="name" class:text={isText} title={isText ? 'Text channel: click to open' : channel.canEnter ? 'Double-click to join' : 'Locked. Double-click to enter the password'} {...channelClicks}
@@ -268,26 +273,28 @@
     <!-- The people under a channel belong to its drop target, so there is more to aim at -->
     <ul class="users" class:into={zone === 'into'} role="presentation"
       ondragover={e => onDragOver(e, 'into')} ondragleave={onDragLeave} ondrop={e => onDrop(e, 'into')}>
-      {#each users as u (u.session)}
+      {#each users as u, i (u.session)}
         {@const isSelf = u.session === session.self?.session}
         {@const mark = voiceMark(u)}
+        {@const lastRow = i === users.length - 1 && !children.length}
         {@const clicks = clickOrDouble(
           el => openProfile(u.session, el),
           () => { if (!isSelf) { session.selectView(`dm:${u.session}`); onnavigate(); } }
         )}
         <li>
-          <button class="row user" data-menu-row class:self={isSelf} style:padding-left="{30 + depth * 14}px"
+          <button class="row user" data-menu-row class:self={isSelf} style:padding-left="{40 + depth * 14}px"
             draggable="true"
             use:selectUser={{ id: u.session, onselect: () => clearTimeout(timer) }}
             aria-pressed={session.selectedUsers.includes(u.session)}
             title={isSelf ? `You. ${SELECT_HINT}` : `${store.displayName(u)}. Double-click to message, ${SELECT_HINT.toLowerCase()}`} {...clicks}
             oncontextmenu={e => menu.show(e, userMenu(u))}>
+            {#if lines}<span class="branch person" class:end={lastRow} class:marked={mark && store.settings.avatars !== 'spheres'}></span>{/if}
             <UserSelectMark id={u.session} />
             <!-- The icon takes a sphere's place; beside a picture it sits in the indent. Names stay aligned either way -->
             {#if mark && store.settings.avatars === 'spheres'}
               <span class="state face" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={18} /></span>
             {:else}
-              {#if mark}<span class="state voice" style:left="{6 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
+              {#if mark}<span class="state voice" style:left="{24 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
               <Avatar name={store.displayName(u)} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             {/if}
             <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
@@ -308,22 +315,42 @@
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
           </button>
+          {#if lines && !lastRow}<span class="trunk person"></span>{/if}
         </li>
       {/each}
     </ul>
   {/if}
   {#if children.length && expanded}
     <ul>
-      {#each children as c (c.id)}
-        <ChannelNode channel={c} depth={depth + 1} {onnavigate} />
+      {#each children as c, i (c.id)}
+        <ChannelNode channel={c} depth={depth + 1} last={i === children.length - 1} {onnavigate} />
       {/each}
     </ul>
   {/if}
+  <!-- Last in the item, so it paints over the hover background of the rows it passes -->
+  {#if lines && depth > 0 && !last}<span class="trunk"></span>{/if}
 </li>
 
 <style>
   ul { list-style: none; margin: 0; padding: 0; }
-  li { margin: 0; }
+  li { position: relative; margin: 0; }
+  /* Tree lines. A channel's line runs under its caret; each item draws its piece of its parent's line */
+  .branch, .stem, .trunk { position: absolute; pointer-events: none; border: 0 solid var(--line-strong); }
+  .branch { top: 0; left: calc(1px + var(--d) * 14px); width: 8px; height: 50%; border-bottom-width: 1px; }
+  .branch.leaf { width: 21px; }
+  .branch.end { border-left-width: 1px; }
+  .trunk { top: 0; bottom: 0; left: calc(1px + var(--d) * 14px); border-left-width: 1px; }
+  .stem { top: calc(50% + 7px); bottom: 0; left: calc(15px + var(--d) * 14px); border-left-width: 1px; }
+  .stem.from-root { top: calc(50% + 4px); }
+  /* On the text's baseline, then raised to the middle of its capitals (half of Inter's cap height),
+     so it follows the letters at every display scale. 15px wide puts its center on the 1px line */
+  .row.is-root { align-items: baseline; }
+  .root-mark { flex: none; display: inline-flex; position: relative; top: calc(7.5px - 0.364em); margin-right: -1px; color: var(--line-strong); }
+  .branch.person, .trunk.person { left: calc(15px + var(--d) * 14px); }
+  /* As long as a channel's line, so pictures start where channel names do */
+  .branch.person { width: 21px; }
+  /* Stops at the voice icon in the indent */
+  .branch.person.marked { width: 9px; }
   .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
   .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); }
   .channel.selected { background: var(--bg-active); color: var(--text); }
@@ -333,7 +360,6 @@
   .channel.into { background: var(--accent); color: var(--accent-text); outline: 2px solid var(--accent-hover); outline-offset: -2px; }
   .channel.into .label { color: var(--accent-text); }
   .users.into { background: var(--bg-active); box-shadow: inset 3px 0 0 var(--accent); }
-  li.after-end { position: relative; }
   .channel.before::before, .channel.after::before, li.after-end::before { content: ''; position: absolute; z-index: 2; left: var(--indent); right: 4px; height: 4px; background: var(--accent); pointer-events: none; }
   .channel.before::after, .channel.after::after, li.after-end::after { content: ''; position: absolute; z-index: 2; left: calc(var(--indent) - 4px); width: 12px; height: 12px; background: var(--accent); pointer-events: none; }
   .channel.before::before { top: -2px; }
@@ -342,7 +368,6 @@
   .channel.after::after, li.after-end::after { bottom: -6px; }
   .channel.before, .channel.after, .channel.target { background: var(--bg-hover); color: var(--text); }
   .channel.here .label { color: var(--text); font-weight: 600; }
-  .channel.here { box-shadow: inset 2px 0 0 var(--speaking); }
   .caret { width: 14px; flex: none; display: inline-flex; justify-content: center; color: var(--text-faint); }
   .caret.collapsed svg { transform: rotate(-90deg); }
   .name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 5px 0; text-align: left; color: inherit; font-weight: 500; user-select: none; }
