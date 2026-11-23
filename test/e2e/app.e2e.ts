@@ -588,6 +588,11 @@ try {
   const gotSnippet = new Promise<string>(res => bob.on('text', m => { if (m.html.includes('fn main')) res(m.html); }));
   await page.locator('.chat .composer').getByRole('button', { name: 'Code snippet' }).click();
   const snippet = page.getByRole('dialog', { name: 'Code snippet' });
+  // Opened from inside the chat, it still covers the channel list stacked above the chat
+  assert.ok(await snippet.evaluate(el => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + 4));
+  }), 'code dialog is on top of the channel list');
   await snippet.getByLabel('Language').selectOption('rust');
   await snippet.getByLabel('Code').fill('fn main() {\n    println!("hi");\n}');
   await snippet.locator('.hljs-keyword', { hasText: 'fn' }).waitFor();
