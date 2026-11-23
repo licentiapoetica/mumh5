@@ -3,7 +3,7 @@ import { store } from './settings.svelte.ts';
 // Hints are the browser tooltips from title attributes. With the setting off, the title of
 // whatever is under the pointer is set aside while it is hovered and put back afterwards, so
 // the attributes stay in place for screen readers and everything else that reads them.
-export function startHints(): void {
+export function startHints(doc: Document = document): void {
   let held: { el: Element; title: string; labelled: boolean }[] = [];
 
   const restore = () => {
@@ -15,7 +15,7 @@ export function startHints(): void {
     held = [];
   };
 
-  document.addEventListener('mouseover', e => {
+  doc.addEventListener('mouseover', e => {
     restore();
     if (store.settings.hints) return;
     // A title on any ancestor would show too
@@ -29,5 +29,5 @@ export function startHints(): void {
       held.push({ el, title, labelled });
     }
   }, true);
-  document.addEventListener('mouseleave', restore);
+  doc.addEventListener('mouseleave', restore);
 }

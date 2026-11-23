@@ -51,6 +51,20 @@ test('a spacer at the start shows only after the server button', () => {
   assert.deepEqual(drawn({ items: ['sep', 'info'], hidden: ['info'] }, false), []);
 });
 
+test('your name stays last in a layout saved before it could move', () => {
+  const saved = { items: DEFAULT_TOOLBAR.items.filter(i => i !== 'you'), hidden: ['camera'] };
+  const l = normalizeToolbar(saved);
+  assert.equal(l.items.at(-1), 'you');
+  assert.deepEqual(l.hidden, ['camera']);
+});
+
+test('a bar without your name draws no spacer for it', () => {
+  const l: ToolbarLayout = { items: ['you', 'sep', 'mic'], hidden: [] };
+  assert.deepEqual(drawn(l), ['you', 'sep', 'mic']);
+  assert.deepEqual(visibleToolbarItems(l, false, false).map(s => s.item), ['mic']);
+  assert.deepEqual(drawn(setToolHidden(l, 'you', true)), ['mic']);
+});
+
 test('drawn items keep their layout index', () => {
   const l: ToolbarLayout = { items: ['sep', 'info', 'mic'], hidden: ['info'] };
   assert.deepEqual(visibleToolbarItems(l, false), [{ item: 'mic', index: 2 }]);

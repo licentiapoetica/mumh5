@@ -31,8 +31,8 @@ export interface Poke {
   time: number;
 }
 
-// index: the toolbar item that was clicked. spacers: whether this toolbar draws them
-export interface ToolbarEdit { x: number; y: number; index: number | null; spacers: boolean }
+// index: the toolbar item that was clicked. spacers, you: whether this toolbar draws them
+export interface ToolbarEdit { x: number; y: number; index: number | null; spacers: boolean; you: boolean }
 
 // App-wide dialogs that can be opened from anywhere (menus, panels)
 class Ui {

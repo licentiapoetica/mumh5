@@ -1,6 +1,8 @@
 <script lang="ts">
   import BackgroundSettings from './BackgroundSettings.svelte';
+  import CornerSettings from './CornerSettings.svelte';
   import SectionHead from './SectionHead.svelte';
+  import ThemeLibrary from './ThemeLibrary.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
   const TAB_BARS = [
@@ -141,7 +143,10 @@
 
 <BackgroundSettings />
 
+<CornerSettings />
+
 <SectionHead title="Color scheme" part="appearance.scheme" />
+<ThemeLibrary />
 <div class="narrow">
   <input type="search" placeholder="Find a color scheme" aria-label="Find a color scheme" bind:value={find} />
   <div class="shades" role="group" aria-label="Show">
