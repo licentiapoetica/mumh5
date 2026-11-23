@@ -5,15 +5,15 @@
   --r-avatars: 0px; --r-servers: 0px; --r-tiles: 0px; --r-tabs: 0px; --r-popups: 0px; --r-dialogs: 0px; --r-scrollbars: 0px;
 }
 
-.icon-btn, .tool, .emoji-tone, .emoji-group, .emoji-cell, .code .copy { border-radius: var(--r-icons) !important; }
+.icon-btn, .tool, .state.sharing[role=button], .emoji-tone, .emoji-group, .emoji-cell, .code .copy { border-radius: var(--r-icons) !important; }
 
-.btn, .join, .shades { border-radius: var(--r-buttons) !important; }
+.btn, .join, .shades, .media-card .save, .media-card .load, .media-card .always { border-radius: var(--r-buttons) !important; }
 .shades { overflow: clip; }
 
 input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]), textarea, select,
 .composer .frame, .rooms .find, .people .find { border-radius: var(--r-fields) !important; }
 
-.row.channel, .row.user, .dm-row, .entry, .menu button, button[data-select-user], .home .server { border-radius: var(--r-rows) !important; }
+.row.channel, .row.user, .me .profile, .rooms .person, .stage > header .title, .modal .list button, .modal .list li, .dm-row, .entry, .menu button, button[data-select-user], .home .server { border-radius: var(--r-rows) !important; }
 /* Below this width the settings tabs are underlined, and an underline does not bend well */
 @media (min-width: 761px) {
   .layout > .tabs button { border-radius: var(--r-rows) !important; }
@@ -25,9 +25,9 @@ input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]
 .yt, .code { overflow: clip; }
 .yt > * { border-radius: inherit !important; }
 
-.reaction, .badge, .row .count, .srv .count, .bar .count, .online { border-radius: var(--r-badges) !important; }
+.reaction, .badge, .card[role=dialog] .roles li, .card[role=dialog] .flags span, .row .count, .srv .count, .bar .count, .online { border-radius: var(--r-badges) !important; }
 
-.avatar:not(.orb) { border-radius: var(--r-avatars) !important; }
+.avatar:not(.orb), .card[role=dialog] .pic { border-radius: var(--r-avatars) !important; }
 
 .rail .tile, .server-btn, .srv .pic, .home .server .pic { border-radius: var(--r-servers) !important; }
 .rail .tile img, .server-btn img, .srv .pic img { border-radius: inherit !important; }
@@ -36,6 +36,7 @@ input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]
 
 .chat-tab { border-radius: var(--r-tabs) var(--r-tabs) 0 0 !important; }
 
+.card[role=dialog] .box { border-radius: var(--r-popups) !important; }
 .menu, .pop, .emoji-pop, .reactors, .desc-pop, .card[role=dialog] { border-radius: var(--r-popups) !important; }
 /* Along the bottom of a phone screen only the top corners are free */
 .card.sheet[role=dialog] { border-radius: var(--r-popups) var(--r-popups) 0 0 !important; }
