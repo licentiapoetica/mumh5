@@ -14,6 +14,8 @@ for (const key of Object.keys(listeners) as (keyof typeof listeners)[]) {
 // The only native surface the renderer gets
 contextBridge.exposeInMainWorld('mumh5Native', {
   platformInfo: () => ipcRenderer.invoke('platform:info'),
+  // host:port of a test server to add and join at start (scripts/test-client.mjs sets it)
+  testServer: process.env.MUMH5_TEST_SERVER ?? null,
   // Synchronous: the settings store reads these while the page loads
   savedState: {
     sync: (key: string, local: string | null, merge: boolean) => ipcRenderer.sendSync('state:sync', key, local, merge),
