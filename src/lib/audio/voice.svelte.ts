@@ -141,7 +141,7 @@ class VoiceEngine {
     // iOS and Android suspend the audio context on a call, a lock or a route change
     const wake = () => {
       if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
-      if (this.outputEl?.paused) this.outputEl.play().catch(() => {});
+      if (this.outputEl?.paused) this.outputEl.play().catch(e => this.mediaNote(`blocked (${(e as Error).name}), waiting for a tap`));
     };
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { wake(); this.syncAwake(); } });
     window.addEventListener('pointerdown', wake, { passive: true });
@@ -466,15 +466,27 @@ class VoiceEngine {
       if (viaElement && this.direct) { out.disconnect(ctx.destination); this.direct = false; }
       if (!viaElement && !this.direct) { out.connect(ctx.destination); this.direct = true; }
     };
-    el.addEventListener('playing', () => route(true));
-    el.addEventListener('pause', () => route(false));
+    el.addEventListener('playing', () => { this.mediaNote('playing'); route(true); });
+    el.addEventListener('pause', () => { this.mediaNote('paused'); route(false); });
+    el.addEventListener('error', () => this.mediaNote(`error ${el.error?.code ?? ''}`.trim()));
     this.outputEl = el;
-    el.play().catch(() => { /* waits for a tap; see wake() */ });
+    this.mediaNote('started');
+    el.play().catch(e => this.mediaNote(`blocked (${(e as Error).name}), waiting for a tap`));
+  }
+
+  private lastMediaNote = '';
+
+  // One line per change, not one per tap
+  private mediaNote(text: string): void {
+    if (text === this.lastMediaNote) return;
+    this.lastMediaNote = text;
+    connLog.add(`voice media element ${text}`);
   }
 
   private stopOutputElement(): void {
     const el = this.outputEl;
     this.outputEl = null;
+    this.lastMediaNote = '';
     this.playingMedia = false;
     if (!el) return;
     el.pause();
