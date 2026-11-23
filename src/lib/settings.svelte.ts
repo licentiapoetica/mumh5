@@ -1,6 +1,7 @@
 import { atDefaults, changedFrom, freshList, load, loadList, save } from './storage.ts';
 import { GENERATED_THEMES } from './themes-generated.ts';
 import { DEFAULT_TOOLBAR, type ToolbarLayout } from '../core/toolbar.ts';
+import type { CustomThemeId } from './custom-themes.ts';
 import type { Corners } from './corners.ts';
 
 export interface SavedServer {
@@ -73,7 +74,7 @@ export interface BackgroundStyle {
   design: BackgroundDesign; fit: BackgroundFit; strength: number; color: string; mark: number | null; spacing: number | null;
 }
 
-export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'forest' | 'ember' | 'ocean' | 'plum' | 'paper' | 'contrast' | 'win95' | typeof GENERATED_THEMES[number]['id'];
+export type ThemeId = 'dark' | 'light' | 'midnight' | 'frost' | 'forest' | 'ember' | 'ocean' | 'plum' | 'paper' | 'contrast' | 'win95' | typeof GENERATED_THEMES[number]['id'] | CustomThemeId;
 
 // Hand-made schemes first, then the generated ones (scripts/gen-themes.mjs), dark before light
 export const THEMES: { id: ThemeId; name: string; note: string; light: boolean }[] = [

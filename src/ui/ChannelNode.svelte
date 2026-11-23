@@ -10,6 +10,7 @@
   import { channelMenu, userMenu, openProfile, voiceMark } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
+  import { studio } from '../lib/theme-studio.svelte.ts';
   import { drag } from '../lib/drag.svelte.ts';
   import { selectUser, SELECT_HINT } from '../lib/user-selection.svelte.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
@@ -297,7 +298,7 @@
               {#if mark}<span class="state voice" style:left="{24 + depth * 14}px" class:admin={mark.admin} title={mark.title}><Icon name={mark.icon} size={14} /></span>{/if}
               <Avatar name={store.displayName(u)} size={22} speaking={voice.talking[u.session] || (isSelf && voice.transmitting)} src={session.avatar(u.session)} />
             {/if}
-            <span class="label" class:talking={voice.talking[u.session] || (isSelf && voice.transmitting)} style:color={voice.talking[u.session] || (isSelf && voice.transmitting) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
+            <span class="label" class:talking={studio.colorsTalkingName && (voice.talking[u.session] || (isSelf && voice.transmitting))} style:color={studio.colorsTalkingName && (voice.talking[u.session] || (isSelf && voice.transmitting)) ? undefined : session.roleColor(u)}>{store.displayName(u)}</span>
             <RoleBadges user={u} />{#if !session.isAdmin(u) && u.userId != null && !session.rolesFor(u).length}<span class="reg" title="Registered">R</span>{/if}
             {#if session.sharing[u.session]}
               {@const kind = session.sharing[u.session]}
@@ -389,7 +390,9 @@
   .state.voice { position: absolute; top: 50%; transform: translateY(-50%); }
   /* Your own name in bold, as in the desktop client */
   .user.self .label { color: var(--text); font-weight: 600; }
-  .label.talking { color: var(--speaking); }
+  .label.talking { color: var(--name-talking, var(--speaking)); }
+  /* Your own name stays plain unless the theme chose a color for talking names */
+  .user.self .label.talking { color: var(--name-talking, var(--text)); }
   .reg { flex: none; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--accent-hover); border: 1px solid var(--accent); }
   .state { color: var(--text-faint); display: inline-flex; }
   .state.admin { color: var(--danger); }

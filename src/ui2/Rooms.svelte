@@ -6,6 +6,7 @@
   import RoleBadges from '../ui/RoleBadges.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
   import { serverInitials as initials, store, type SavedServer } from '../lib/settings.svelte.ts';
+  import { studio } from '../lib/theme-studio.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
   import { channelMenu, userMenu, openProfile, voiceMark, showServerCert } from '../lib/actions.ts';
@@ -219,7 +220,7 @@
                             {:else}
                               <Avatar name={store.displayName(u)} size={32} speaking={talking(u.session)} src={session.avatar(u.session)} />
                             {/if}
-                            <span class="pname" class:talking={talking(u.session)} style:color={talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
+                            <span class="pname" class:talking={studio.colorsTalkingName && talking(u.session)} style:color={studio.colorsTalkingName && talking(u.session) ? undefined : session.roleColor(u)}>{store.displayName(u)}{#if me} <em>you</em>{/if}</span>
                             <RoleBadges user={u} />
                             {#if session.sharing[u.session]}<span class="mark live" title="Sharing their {session.sharing[u.session]}"><Icon name={session.sharing[u.session]} size={14} /></span>{/if}
                             {#if u.recording}<span class="rec">REC</span>{/if}
@@ -362,7 +363,7 @@
   .person { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 4px 8px; text-align: left; }
   .person:hover { background: var(--bg-hover); }
   .pname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pname.talking { color: var(--speaking); }
+  .pname.talking { color: var(--name-talking, var(--speaking)); }
   .pname em { margin-left: 6px; font-style: normal; font-size: 12px; color: var(--text-faint); }
   .mark { flex: none; display: inline-flex; color: var(--text-faint); }
   .mark.bad { color: var(--danger); }

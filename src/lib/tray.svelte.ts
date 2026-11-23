@@ -5,6 +5,7 @@ import { voice, type TransmitMode } from './audio/voice.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { settingsWindow } from './settings-window.svelte.ts';
 import { store } from './settings.svelte.ts';
+import { studio } from './theme-studio.svelte.ts';
 import { INK, LAMP, lampStops } from './lamp.ts';
 
 type TrayLook = 'offline' | 'idle' | 'talking' | 'muted' | 'deafened';
@@ -118,7 +119,8 @@ export function startTray(): void {
       const look: TrayLook = !connected && !voiceSession ? 'offline'
         : deafened ? 'deafened' : muted ? 'muted' : voice.transmitting ? 'talking' : 'idle';
       const server = voiceSession?.server?.label ?? session.server?.label ?? '';
-      const accent = accentOf(store.settings.theme);
+      const orbs = studio.shown?.indicator;
+      const accent = orbs ? orbs[look === 'talking' ? 'talking' : 'idle'].color : accentOf(store.settings.theme);
       const state = { offline: 'not connected', idle: 'connected', talking: 'talking', muted: 'muted', deafened: 'deafened' }[look];
       api.updateTray({
         icon: drawIcon(look, accent),

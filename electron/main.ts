@@ -289,12 +289,16 @@ function createWindow() {
     if (frameName === 'mumh5-settings' && (url === 'about:blank' || url === '')) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 920, height: 820, minWidth: 360, minHeight: 420, backgroundColor: '#141518', autoHideMenuBar: true, title: 'Settings' } };
     }
+    // The theme creator, filled the same way
+    if (frameName === 'mumh5-themes' && (url === 'about:blank' || url === '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 460, height: 820, minWidth: 360, minHeight: 420, backgroundColor: '#141518', autoHideMenuBar: true, title: 'Theme creator' } };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  // Links in that window (the update download) go to the browser, like those in the app
+  // Links in those windows (the update download) go to the browser, like those in the app
   win.webContents.on('did-create-window', (child, { frameName }) => {
-    if (frameName !== 'mumh5-settings') return;
+    if (frameName !== 'mumh5-settings' && frameName !== 'mumh5-themes') return;
     child.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
       return { action: 'deny' };
