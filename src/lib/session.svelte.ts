@@ -33,6 +33,8 @@ const codec = createCodec();
 const commentTag = (session: number, hash: Uint8Array) => `c:${session}:${[...hash].join(',')}`;
 const COMMENT_BATCH = 20;
 const COMMENT_PAUSE_MS = 500;
+// How long the "connected" line waits for a new person's chosen name
+const JOIN_NAME_WAIT_MS = 2000;
 const NAMES_WAIT_MS = 2000;
 const descriptionTag = (id: number, hash: Uint8Array) => `d:${id}:${[...hash].join(',')}`;
 
@@ -139,6 +141,9 @@ export class Session {
   // Long comments to fetch for the names inside them, asked for a few at a time
   private wantedComments = new Set<number>();
   private commentTimer: ReturnType<typeof setTimeout> | null = null;
+  // "connected" lines waiting for the person's chosen name, which arrives in their comment
+  // after the server first announces them
+  private joinNotes = new Map<number, { channel: number; timer: ReturnType<typeof setTimeout> }>();
   // Pictures of people here as object URLs, made the first time each one is shown
   private pictures = new Map<number, { bytes: Uint8Array; url: string }>();
   // Pictures to fetch, collected while a list renders and asked for in one request
@@ -463,6 +468,8 @@ export class Session {
     this.wantedComments.clear();
     if (this.commentTimer) clearTimeout(this.commentTimer);
     this.commentTimer = null;
+    for (const n of this.joinNotes.values()) clearTimeout(n.timer);
+    this.joinNotes.clear();
     this.dropPictures();
     this.applied = null;
     this.own = null;
@@ -731,6 +738,7 @@ export class Session {
         if (user.session === self.session) share.entered(this);
         else share.userMoved(this, user);
       }
+      if (changed.includes('comment')) this.flushJoin(user.session);
       let flips = { mute: false, deaf: false };
       if (self && user.session === self.session) {
         const was = this.own;
@@ -744,7 +752,11 @@ export class Session {
       if (client.synced && self && this.isVoice()) this.userSound(user.session === self.session, user, changed, actor, isNew, before, self.channelId, flips);
       if (client.synced && self) {
         if (isNew) {
-          if (user.channelId === self.channelId) this.system(`ch:${self.channelId}`, `${escapeHtml(store.displayName(user))} connected`);
+          if (user.channelId === self.channelId) {
+            // A comment that came along already holds the name; otherwise wait a moment for it
+            if (user.comment || client.config.allowHtml === false) this.system(`ch:${self.channelId}`, `${escapeHtml(store.displayName(user))} connected`);
+            else this.joinNotes.set(user.session, { channel: self.channelId, timer: setTimeout(() => this.flushJoin(user.session), JOIN_NAME_WAIT_MS) });
+          }
         } else if (changed.includes('userId') && user.userId != null) {
           const who = user.session === self.session ? 'You are' : `${escapeHtml(store.displayName(user))} is`;
           this.system(this.view, `${who} now registered on this server`);
@@ -768,6 +780,7 @@ export class Session {
         failUserMove(this.userMove, 'Disconnected before the move was confirmed.', user.session);
         this.updateUserMove();
       }
+      this.flushJoin(user.session, user);
       chatHistory.userLeft(this, user);
       this.selectedUsers = this.selectedUsers.filter(id => id !== user.session);
       // We were kicked or banned; the server closes the connection right after
@@ -1184,6 +1197,15 @@ export class Session {
       authorIdentity: online ? chatAuthorKey(online) : m.k ? `hash:${m.k}` : undefined,
       ...renderIncoming(m.h, store.trustedHosts, true)
     }, { time: m.t, quiet, reactions: m.x && copyReactions(m.x) });
+  }
+
+  private flushJoin(session: number, gone?: User): void {
+    const note = this.joinNotes.get(session);
+    if (!note) return;
+    clearTimeout(note.timer);
+    this.joinNotes.delete(session);
+    const user = gone ?? this.client?.users.get(session);
+    if (user) this.system(`ch:${note.channel}`, `${escapeHtml(store.displayName(user))} connected`);
   }
 
   private system(key: string, html: string, trusted = false): void {
