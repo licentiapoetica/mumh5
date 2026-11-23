@@ -49,7 +49,7 @@ interface OfferAttempt {
   viewer: number;
   request: ShareWatchRequest | null;
   route: ShareRoute;
-  fallback: boolean;
+  fallback?: 'standard' | 'mumpeer';
   lease?: RelayLease;
 }
 
@@ -58,8 +58,9 @@ interface WatchAttempt {
   sharer: number;
   request: ShareWatchRequest;
   route?: ShareRoute;
-  fallback: boolean;
+  fallback?: 'standard' | 'mumpeer';
   requestedFallback?: boolean;
+  relayAttempted?: boolean;
   lease?: RelayLease;
 }
 
@@ -166,7 +167,7 @@ class ScreenShare {
       let answered = false;
       ui.prompt = {
         title: 'Screen sharing', label: '', confirm: 'Continue', input: 'none',
-        text: 'Screen sharing connects you directly to other participants in this channel. You see each other\'s IP address. Only mumh5 users in your channel can watch.',
+        text: 'Screen sharing can use a direct connection. You see each other\'s IP address on that route. Only mumh5 users in your channel can watch.',
         onsubmit: () => { answered = true; store.settings.shareNoticeSeen = true; store.saveSettings(); resolve(true); },
         oncancel: () => { if (!answered) resolve(false); }
       };
@@ -388,12 +389,16 @@ class ScreenShare {
     delete this.hidden[this.who(s, session)];
     this.watches = [...this.watches, { host: s, session, kind, stream: null, state: 'connecting' }];
     if (kind === 'screen') {
-      const request = { id: requestId(), relay: s.mumpeer.capability(session), only: policy === 'relay-only', direct: policy === 'direct-only' };
+      const request: ShareWatchRequest = {
+        id: requestId(), relay: s.mumpeer.capability(session),
+        only: policy === 'relay-only', direct: policy === 'direct-only'
+      };
+      if (policy === 'automatic' && request.relay) request.preferRelay = true;
       if (request.only && !request.relay) {
         this.setWatchState(session, 'failed', undefined, { error: 'Mumpeer is unavailable for this user.' });
         return;
       }
-      this.watchAttempts.set(session, { session: s, sharer: session, request, fallback: false });
+      this.watchAttempts.set(session, { session: s, sharer: session, request });
       this.send(s, [session], SHARE.watch, JSON.stringify({ v: 1, ...request }));
     } else {
       this.send(s, [session], SHARE.watch);
@@ -437,14 +442,25 @@ class ScreenShare {
     this.watches = this.watches.map(w => w.session === session ? { ...w, state, stream: stream ?? w.stream, ...detail } : w);
   }
 
+  private requestFallback(attempt: WatchAttempt): void {
+    if (attempt.requestedFallback) return;
+    attempt.requestedFallback = true;
+    this.closeWatchConnection(attempt.sharer);
+    this.setWatchState(attempt.sharer, 'connecting');
+    this.timeWatch(attempt.sharer, attempt.fallback === 'mumpeer' ? RELAY_TIMEOUT : DIRECT_TIMEOUT);
+    void this.flow(attempt.session, attempt.sharer, { t: 'fallback', id: attempt.request.id });
+  }
+
+  private watchRelayFailed(attempt: WatchAttempt, reason: string): void {
+    if (this.watchAttempts.get(attempt.sharer) !== attempt || attempt.route !== 'mumpeer') return;
+    if (attempt.fallback === 'standard') this.requestFallback(attempt);
+    else this.watchFailed(attempt.sharer, reason);
+  }
+
   private watchFailed(session: number, reason?: string): void {
     const attempt = this.watchAttempts.get(session);
-    if (!reason && attempt?.fallback && attempt.route === 'standard' && !attempt.requestedFallback) {
-      attempt.requestedFallback = true;
-      this.closeWatchConnection(session);
-      this.setWatchState(session, 'connecting');
-      this.timeWatch(session, RELAY_TIMEOUT);
-      void this.flow(attempt.session, session, { t: 'fallback', id: attempt.request.id });
+    if (!reason && attempt?.fallback && !attempt.requestedFallback) {
+      this.requestFallback(attempt);
       return;
     }
     if (!reason && (!attempt || (!attempt.lease && !attempt.request.only && !attempt.requestedFallback))) {
@@ -491,6 +507,15 @@ class ScreenShare {
 
   private failOffer(a: OfferAttempt, reason: string): void {
     if (!this.offerCurrent(a)) return;
+    if (a.route === 'mumpeer' && a.fallback === 'standard') {
+      a.route = 'standard';
+      a.fallback = undefined;
+      this.closePeerConnection(a.viewer);
+      a.lease?.close();
+      a.lease = undefined;
+      void this.offerTo(a);
+      return;
+    }
     this.dropPeer(a.viewer);
     if (a.request) void this.flow(a.session, a.viewer, { t: 'error', id: a.request.id, reason: reason.slice(0, 180) });
   }
@@ -505,32 +530,32 @@ class ScreenShare {
     const matchingRelay = !!request?.relay && request.relay === s.mumpeer.capability(viewer);
     const only = policy === 'relay-only' || request?.only;
     const direct = policy === 'direct-only' || request?.direct;
-    const attempt: OfferAttempt = {
-      session: s, viewer, request, route: direct ? 'direct' : 'standard',
-      fallback: matchingRelay && !direct && !only
-    };
+    const prefer = policy === 'automatic' && request?.preferRelay && matchingRelay && !direct && !only;
+    const attempt: OfferAttempt = { session: s, viewer, request, route: direct ? 'direct' : 'standard' };
     this.offers.set(viewer, attempt);
     if (policy === 'off') return this.failOffer(attempt, 'The sharer disabled screen sharing.');
-    if (only) {
-      if (!matchingRelay || direct) return this.failOffer(attempt, 'Both users need to allow the same mumpeer relay.');
-      await this.relayOffer(attempt);
-    } else {
-      await this.offerTo(attempt);
-    }
+    if (only && (!matchingRelay || direct)) return this.failOffer(attempt, 'Both users need to allow the same mumpeer relay.');
+
+    if (matchingRelay && !direct && !only) attempt.fallback = prefer ? 'standard' : 'mumpeer';
+    if (only || prefer) await this.relayOffer(attempt);
+    else await this.offerTo(attempt);
   }
 
   private async relayOffer(a: OfferAttempt): Promise<void> {
     if (!this.offerCurrent(a) || !a.request || a.route === 'mumpeer') return;
     a.route = 'mumpeer';
+    if (a.fallback === 'mumpeer') a.fallback = undefined;
     this.closePeerConnection(a.viewer);
     try {
       if (!a.request.relay || a.request.relay !== a.session.mumpeer.capability(a.viewer)) throw new Error('Mumpeer is unavailable for this user.');
       // Tell the viewer which attempt may acquire a pair before sending any SDP.
-      await this.flow(a.session, a.viewer, { t: 'relay', id: a.request.id });
-      if (!this.offerCurrent(a)) return;
+      await this.flow(a.session, a.viewer, { t: 'relay', id: a.request.id, retryStandard: a.fallback === 'standard' || undefined });
+      if (!this.offerCurrent(a) || a.route !== 'mumpeer') return;
       a.lease = a.session.mumpeer.acquire(a.viewer, a.request.id, a.session.client!.session!, reason => this.failOffer(a, reason));
       await this.offerTo(a);
-    } catch (error) { this.failOffer(a, (error as Error).message); }
+    } catch (error) {
+      if (a.route === 'mumpeer') this.failOffer(a, (error as Error).message);
+    }
   }
 
   private async offerTo(a: OfferAttempt): Promise<void> {
@@ -550,7 +575,7 @@ class ScreenShare {
           this.live.add(viewer);
           sounds.play('viewerJoined');
         } else if (pc.connectionState === 'failed') {
-          if (a.fallback && a.route === 'standard') void this.relayOffer(a);
+          if (a.fallback === 'mumpeer') void this.relayOffer(a);
           else this.failOffer(a, 'Could not connect to the viewer.');
         } else if (pc.connectionState === 'closed') this.dropPeer(viewer);
       });
@@ -568,7 +593,7 @@ class ScreenShare {
       await this.gathered(pc);
       if (!current() || !pc.localDescription) return;
       const sdp = pc.localDescription.sdp;
-      if (request) await this.flow(s, viewer, { t: 'offer', id: request.id, route, sdp, fallback: route === 'standard' && a.fallback });
+      if (request) await this.flow(s, viewer, { t: 'offer', id: request.id, route, sdp, fallback: a.fallback === 'mumpeer' });
       else await this.send(s, [viewer], SHARE.offer, sdp);
     } catch (error) {
       if (a.route === route) this.failOffer(a, (error as Error).message);
@@ -604,14 +629,19 @@ class ScreenShare {
       if (attempt) await this.flow(s, sharer, { t: 'answer', id: attempt.request.id, route, sdp: pc.localDescription.sdp });
       else await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
     } catch (error) {
-      if (mine()) this.watchFailed(sharer, (error as Error).message);
+      if (!mine()) return;
+      if (route === 'mumpeer' && attempt) this.watchRelayFailed(attempt, (error as Error).message);
+      else this.watchFailed(sharer, (error as Error).message);
     }
   }
 
   private receiveFlow(s: Session, sender: number, flow: ShareFlow): void {
     const offer = this.offers.get(sender);
     if (offer?.session === s && offer.request?.id === flow.id && this.offerCurrent(offer)) {
-      if (flow.t === 'fallback' && offer.fallback && offer.route === 'standard') void this.relayOffer(offer);
+      if (flow.t === 'fallback') {
+        if (offer.fallback === 'mumpeer') void this.relayOffer(offer);
+        if (offer.fallback === 'standard' && offer.route === 'mumpeer') this.failOffer(offer, 'The viewer could not use mumpeer.');
+      }
       if (flow.t === 'answer' && offer.route === flow.route) {
         if (offer.route === 'direct' && / typ relay(?: |\r|$)/m.test(flow.sdp)) return this.failOffer(offer, 'The viewer offered a relay in direct-only mode.');
         const pc = this.peers.get(sender);
@@ -624,33 +654,43 @@ class ScreenShare {
     const attempt = this.watchAttempts.get(sender);
     if (!attempt || attempt.session !== s || attempt.request.id !== flow.id) return;
     if (flow.t === 'error') this.watchFailed(sender, flow.reason);
-    if (flow.t === 'relay' && !attempt.lease) {
-      if (attempt.request.direct || !attempt.request.relay || attempt.request.relay !== s.mumpeer.capability(sender)) {
+    if (flow.t === 'relay' && !attempt.relayAttempted) {
+      if (attempt.request.direct || !attempt.request.relay) {
         this.watchFailed(sender, 'Mumpeer is unavailable for this user.');
         return;
       }
+      attempt.relayAttempted = true;
       attempt.route = 'mumpeer';
+      attempt.fallback = flow.retryStandard && attempt.request.preferRelay && !attempt.request.only ? 'standard' : undefined;
+      attempt.requestedFallback = false;
       this.closeWatchConnection(sender);
       this.setWatchState(sender, 'connecting', undefined, { route: 'mumpeer' });
       this.timeWatch(sender, RELAY_TIMEOUT);
       try {
-        attempt.lease = s.mumpeer.acquire(sender, flow.id, sender, reason => {
-          if (this.watchAttempts.get(sender) === attempt) this.watchFailed(sender, reason);
-        });
-        void attempt.lease.config.catch((error: Error) => {
-          if (this.watchAttempts.get(sender) === attempt) this.watchFailed(sender, error.message);
-        });
-      } catch (error) { this.watchFailed(sender, (error as Error).message); }
+        if (attempt.request.relay !== s.mumpeer.capability(sender)) throw new Error('Mumpeer is unavailable for this user.');
+        attempt.lease = s.mumpeer.acquire(sender, flow.id, sender, reason => this.watchRelayFailed(attempt, reason));
+        void attempt.lease.config.catch((error: Error) => this.watchRelayFailed(attempt, error.message));
+      } catch (error) { this.watchRelayFailed(attempt, (error as Error).message); }
     }
     if (flow.t === 'offer') {
-      if (flow.route === 'mumpeer' ? !attempt.lease : attempt.lease || attempt.request.only) return;
-      if (attempt.request.direct && flow.route !== 'direct') return;
-      if (attempt.route === flow.route) {
-        if (this.watchPcs.has(sender)) return;
-        if (attempt.requestedFallback && flow.route !== 'mumpeer') return;
+      if (flow.route === 'mumpeer') {
+        if (attempt.route !== 'mumpeer' || !attempt.lease || attempt.requestedFallback) return;
+      } else if (attempt.request.only || (attempt.request.direct && flow.route !== 'direct')) return;
+      if (attempt.route === flow.route && (this.watchPcs.has(sender) || attempt.requestedFallback)) return;
+
+      if (attempt.route === 'mumpeer' && flow.route !== 'mumpeer') {
+        if (attempt.fallback !== 'standard' || flow.route !== 'standard') return;
+        attempt.route = 'standard';
+        this.closeWatchConnection(sender);
+        attempt.lease?.close();
+        attempt.lease = undefined;
+        attempt.requestedFallback = false;
+        this.timeWatch(sender);
       }
       attempt.route = flow.route;
-      attempt.fallback = flow.fallback && flow.route === 'standard' && !!attempt.request.relay;
+      if (flow.route !== 'mumpeer') {
+        attempt.fallback = flow.fallback && flow.route === 'standard' && attempt.request.relay && !attempt.relayAttempted ? 'mumpeer' : undefined;
+      }
       void this.answerTo(s, sender, flow.sdp, flow.route, attempt);
     }
   }

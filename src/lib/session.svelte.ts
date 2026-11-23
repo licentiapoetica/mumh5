@@ -735,7 +735,7 @@ export class Session {
         confirmUserMove(this.userMove, user.session, user.channelId);
         this.updateUserMove();
       }
-      this.mumpeer.userChanged(user, !!isNew);
+      this.mumpeer.userChanged(user, !!isNew || changed.includes('userId'));
       chatHistory.userChanged(this, user);
       const self = client.self;
       if (changed.includes('comment') && user.commentHash) this.requested.delete(commentTag(user.session, user.commentHash));

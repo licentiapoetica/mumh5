@@ -8,6 +8,7 @@ import { _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import { openTls } from '../../electron/tls-transport.ts';
 import { generateIdentity } from '../../electron/identity.ts';
+import { sameRelayHost } from '../../src/core/mumpeer-signal.ts';
 import { MumbleClient } from '../../src/core/client.ts';
 import { createCodec } from '../../src/core/proto.ts';
 import type { Transport } from '../../src/core/transport.ts';
@@ -34,14 +35,16 @@ async function waitFor(fn: () => unknown | Promise<unknown>, label: string, time
   assert.fail(`Timed out waiting for ${label}`);
 }
 
-async function sessionCount(): Promise<number> {
+async function relayInfo(): Promise<{ host: string; sessions: number }> {
   const response = await fetch(new URL('/v1/status', api), {
     headers: { Authorization: `Bearer ${secret}` },
     signal: AbortSignal.timeout(2000)
   });
   assert.equal(response.status, 200);
-  return (await response.json()).sessions;
+  return response.json();
 }
+
+async function sessionCount(): Promise<number> { return (await relayInfo()).sessions; }
 
 async function adminClient() {
   const identity = generateIdentity('SuperUser');
@@ -62,7 +65,7 @@ async function adminClient() {
 
 const profiles: string[] = [];
 const apps: Awaited<ReturnType<typeof electron.launch>>[] = [];
-async function launch(name: string, admin: MumbleClient): Promise<Page> {
+async function launch(name: string, admin: MumbleClient, address = host): Promise<Page> {
   const profile = mkdtempSync(path.join(tmpdir(), 'mumh5-mumpeer-e2e-'));
   profiles.push(profile);
   const app = await electron.launch({
@@ -95,7 +98,12 @@ async function launch(name: string, admin: MumbleClient): Promise<Page> {
     Object.assign(window, { testPeerConnections: pcs });
     window.RTCPeerConnection = new Proxy(window.RTCPeerConnection, {
       construct(target, args) {
-        const pc = new target(args[0]);
+        const config = args[0] as RTCConfiguration;
+        if (localStorage.getItem('mumh5.testFailRelay') && config?.iceTransportPolicy === 'relay') {
+          localStorage.removeItem('mumh5.testFailRelay');
+          throw new Error('Test failed to establish the relay route');
+        }
+        const pc = new target(config);
         pcs.push(pc);
         return pc;
       }
@@ -113,7 +121,7 @@ async function launch(name: string, admin: MumbleClient): Promise<Page> {
   await page.getByRole('radio', { name: 'Modern' }).click();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByTitle('Add a server').click();
-  await page.getByLabel('Address').fill(host);
+  await page.getByLabel('Address').fill(address);
   await page.getByLabel('Port').fill(port || '64738');
   await page.getByRole('button', { name: 'Save and connect' }).click();
   await page.getByText(/Connected/).first().waitFor();
@@ -135,10 +143,10 @@ async function route(page: Page, mode: string, debug?: string) {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 }
 
-async function available(page: Page, checkTrust = false) {
+async function checkRelayStatus(page: Page, text: string | RegExp, checkTrust = false) {
   await page.getByRole('button', { name: 'Server information', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Server information' });
-  await dialog.getByText(/Available ·/).waitFor({ timeout: 12000 });
+  await dialog.getByText(text).waitFor({ timeout: 12000 });
   if (checkTrust) {
     await dialog.getByRole('button', { name: 'Forget relay' }).click();
     await dialog.getByText('Relay trust required').waitFor();
@@ -147,6 +155,8 @@ async function available(page: Page, checkTrust = false) {
   }
   await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
 }
+
+const available = (page: Page, checkTrust = false) => checkRelayStatus(page, /Available ·/, checkTrust);
 
 async function startShare(page: Page) {
   await page.getByRole('button', { name: 'Share your screen or camera', exact: true }).click();
@@ -190,12 +200,37 @@ async function checkPicture(page: Page, route: 'relay-only' | 'fallback' | 'dire
 
 const admin = await adminClient();
 try {
-  assert.equal(await sessionCount(), 0, 'run against an idle test relay');
+  const relay = await relayInfo();
+  assert.equal(relay.sessions, 0, 'run against an idle test relay');
+  assert.ok(sameRelayHost(host, relay.host), 'use the relay’s public_host as the host in MUMBLE_TEST_HOST');
   const aliceName = `mumpeer-a-${tag}`, bobName = `mumpeer-b-${tag}`;
   const alice = await launch(aliceName, admin);
   const bob = await launch(bobName, admin);
+  await Promise.all([available(alice), available(bob)]);
+  await startShare(alice);
+  await watch(bob, aliceName);
+  await checkPicture(bob, 'relay-only');
+  assert.equal(await sessionCount(), 1, 'a fresh profile automatically chose the same-host relay');
+  await alice.getByRole('button', { name: 'Stop sharing your screen', exact: true }).click();
+  await waitFor(async () => await sessionCount() === 0, 'the automatic pair to close');
+  await bob.locator('.sidebar').getByRole('button', { name: `Watch the screen of ${aliceName}`, exact: true }).waitFor({ state: 'detached' });
+  console.log('ok: automatic discovery used the same-host relay before ordinary ICE');
+
+  await bob.evaluate(() => localStorage.setItem('mumh5.testFailRelay', '1'));
+  await startShare(alice);
+  await watch(bob, aliceName);
+  await checkPicture(bob, 'direct');
+  assert.equal(await bob.evaluate(() => localStorage.getItem('mumh5.testFailRelay')), null, 'the relay was attempted first');
+  await waitFor(async () => await sessionCount() === 0, 'the failed automatic pair to close');
+  console.log('ok: automatic discovery retried over regular ICE when the relay route failed');
+
+  // Murmur's default plugin-data bucket refills 15 messages in just under four seconds.
+  await delay(4000);
   await route(alice, 'relay-only');
   await route(bob, 'relay-only');
+  for (const page of [alice, bob]) {
+    await page.evaluate(() => { (window as Window & { testPeerConnections?: RTCPeerConnection[] }).testPeerConnections!.length = 0; });
+  }
   await Promise.all([available(alice, true), available(bob)]);
   await Promise.all([startShare(alice), startShare(bob)]);
   await Promise.all([watch(alice, bobName), watch(bob, aliceName)]);
@@ -251,6 +286,17 @@ try {
   await route(bob, 'off');
   assert.equal(await bob.getByRole('button', { name: 'Share your screen or camera', exact: true }).isDisabled(), true);
   console.log('ok: discovery can be re-enabled, working direct ICE avoids the relay, and sharing can be turned off');
+
+  if (host === '127.0.0.1') {
+    const otherHost = await launch(`mumpeer-alias-${tag}`, admin, 'localhost');
+    await checkRelayStatus(otherHost, 'Relay announced on a different host');
+    await route(alice, 'automatic');
+    await startShare(alice);
+    await watch(otherHost, aliceName);
+    await checkPicture(otherHost, 'direct');
+    assert.equal(await sessionCount(), 0, 'automatic mode skipped a relay advertised on a different host');
+    console.log('ok: an announcement for a different host kept the regular route');
+  }
 } finally {
   admin.disconnect();
   await Promise.allSettled(apps.map(app => app.close()));

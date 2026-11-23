@@ -206,13 +206,14 @@
     {#if desktop}
       <label for="s-share-route">Screen sharing connection</label>
       <select id="s-share-route" bind:value={s.screenShareRoute} onchange={() => store.saveSettings()}>
-        <option value="standard">Automatic (existing STUN and TURN settings)</option>
-        <option value="fallback">Automatic, with mumpeer fallback</option>
+        <option value="automatic">Automatic (prefer mumpeer on the Mumble host)</option>
+        <option value="standard">Configured STUN and TURN only</option>
+        <option value="fallback">Direct first, with mumpeer fallback</option>
         <option value="relay-only">Mumpeer only (hide my IP from the other person)</option>
         <option value="direct-only">Direct only</option>
         <option value="off">Off</option>
       </select>
-      <p class="help">Mumpeer uses a relay announced by your Mumble server’s bot. Both desktop users must enable it. The relay operator can see your IP address. Changing this setting ends active screen shares.</p>
+      <p class="help">When both desktop clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. The relay operator can see your IP address. Changing this setting ends active screen shares.</p>
     {/if}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
@@ -227,7 +228,7 @@
     <input id="s-relay" bind:value={s.relayServer} onchange={() => { s.relayServer = s.relayServer.trim(); store.saveSettings(); }}
       placeholder={isWeb ? 'this site (automatic)' : 'https://voice.example.com'} autocomplete="off" />
     <p class="help">The address of a mumh5 web version. When a direct connection is not possible (mobile data, strict company networks), the stream goes through that server instead, by itself. {isWeb ? 'Empty uses the site you are on.' : 'Its operator sees your IP address and carries the stream, but cannot watch it.'}</p>
-    <p class="help">Screen sharing connects you directly to the people watching. Across the internet both sides need a STUN server to find a route; it learns your IP address but never sees the stream. {isWeb ? 'By default the site you are on provides it.' : 'With none, no outside server is contacted and streams only work on the same network.'} Networks that block direct connections, like many mobile ones, need more than STUN.</p>
+    <p class="help">A direct connection shares your IP address with the other participant. STUN helps both sides find a direct route across the internet. The STUN server learns your IP address. {isWeb ? 'By default the site you are on provides it.' : 'Without STUN, direct connections generally work best on the same network.'} Networks that block direct connections, like many mobile ones, need more than STUN.</p>
   {:else if tab === 'sounds'}
     <SoundSettings />
   {:else if tab === 'appearance'}
