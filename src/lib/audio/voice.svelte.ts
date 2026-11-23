@@ -216,6 +216,8 @@ class VoiceEngine {
 
   // Starts the audio graph; safe to call repeatedly
   async start(): Promise<void> {
+    // A stop still closing the old context (a reconnect right after a drop) must finish first
+    await this.pendingStop;
     if (this.ctx) return;
     this.error = '';
     try {
@@ -257,7 +259,9 @@ class VoiceEngine {
         if ((ctx.state as string) === 'interrupted') ctx.resume().catch(() => {});
       });
       await this.applyOutputDevice();
-      await this.syncInput();
+      // Not awaited: a browser may hold the request while the tab is hidden, and the watchdog
+      // opens the microphone later if it did not come
+      void this.syncInput();
       this.configureEncoder();
       // Safari can leave this pending outside a gesture; the wake handlers above finish it later
       ctx.resume().catch(() => {});
@@ -273,7 +277,13 @@ class VoiceEngine {
     }
   }
 
-  async stop(): Promise<void> {
+  private pendingStop: Promise<void> | null = null;
+
+  stop(): Promise<void> {
+    return this.pendingStop = this.halt();
+  }
+
+  private async halt(): Promise<void> {
     this.endTransmission();
     if (this.levelTimer) clearInterval(this.levelTimer);
     this.levelTimer = null;
@@ -331,6 +341,7 @@ class VoiceEngine {
     const s = this.settings;
     const browserNoise = this.browserNoise();
     let stream: MediaStream;
+    this.openingSince = performance.now();
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -343,9 +354,13 @@ class VoiceEngine {
         }
       });
     } catch (e) {
+      this.openingSince = 0;
       this.error = `Microphone unavailable: ${(e as Error).message}`;
+      connLog.add(`microphone unavailable (${(e as Error).name})${document.hidden ? ' while the page was hidden' : ''}`);
       return;
     }
+    this.openingSince = 0;
+    this.autoOpens = 0;
     // Muted again, or opened a second time, while the browser was getting the microphone
     if (!this.ctx || !this.inputGainNode || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
     this.stream = stream;
@@ -499,6 +514,7 @@ class VoiceEngine {
   attach(client: MumbleClient): void {
     this.unsubscribe.forEach(off => off());
     this.client = client;
+    this.autoOpens = 0;
     this.stats = { sent: 0, received: 0, decoded: 0, lost: 0 };
     this.unsubscribe = [
       client.on('voice', raw => { if (this.client === client) this.receive(raw); }),
@@ -563,6 +579,8 @@ class VoiceEngine {
     this.encoder = encoder;
   }
 
+  private autoOpens = 0;         // tries by the watchdog since the last connection or success
+  private openingSince = 0;     // a request for the microphone is out since then, 0 when none
   private lastFrameAt = 0;       // when the capture worklet last delivered audio
   private lastSentAt = 0;        // when a voice packet last left
   private talkingSince = 0;
@@ -580,6 +598,16 @@ class VoiceEngine {
   // although it is open), and speech that reaches the encoder but never leaves
   private watchdog(): void {
     const now = performance.now();
+    // Wanted but not open: the request failed or was held while the page was hidden (a reconnect
+    // that happened in the background), or never came. Only tried with the page visible, where the
+    // browser answers; a request still out after 10 s is tried again.
+    // At most three tries, so a microphone that is denied or missing does not ask over and over
+    if (this.running && !this.stream && !document.hidden && this.autoOpens < 3 && this.micWanted() && (!this.openingSince || now - this.openingSince > 10000) && now - this.lastHeal > 5000) {
+      this.autoOpens++;
+      connLog.add('microphone is not open, opening it');
+      this.openingSince = 0;
+      this.reopenInput();
+    }
     if (this.micOpen && this.ctx?.state === 'running' && now - this.lastFrameAt > 2000) {
       connLog.add('microphone gave no audio for 2 s, opening it again');
       this.lastFrameAt = now;
