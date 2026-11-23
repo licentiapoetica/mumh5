@@ -28,6 +28,7 @@ const stubs = `
   export const chatHistory = { entered() {}, record() {}, hide() {}, forget() {}, userChanged() {}, userLeft() {}, closed() {} };
   export const voice = { settings: { forceTcp: false }, attach(c) { control.attached = c; }, detach() { control.attached = null; } };
   export const sounds = { play() {} };
+  export const connLog = { add() {}, hidden: false };
   export const ownAvatar = { loaded: Promise.resolve(), bytes: null };
   export const renderIncoming = x => x, textToHtml = x => x, escapeHtml = x => x;
   export const formatBytes = x => String(x), fileKind = () => 'file';

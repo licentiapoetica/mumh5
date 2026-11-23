@@ -27,6 +27,7 @@ import { reactions } from './reactions.ts';
 import { ui } from './ui.svelte.ts';
 import { notifyPoke } from './notify.ts';
 import { voice } from './audio/voice.svelte.ts';
+import { connLog } from './conn-log.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 import { planUserMove, movePending, confirmUserMove, failUserMove, remainingSelection, type UserMove } from '../core/user-move.ts';
 
@@ -577,8 +578,9 @@ export class Session {
 
   // The page came back or the network returned: check a live connection, retry a waiting one now
   nudge(): void {
-    if (this.client?.synced) this.client.probe();
+    if (this.client?.synced) { connLog.add(`${this.server?.label ?? 'server'}: checking the connection`); this.client.probe(); }
     else if (this.reconnectTimer !== null && this.server) {
+      connLog.add(`${this.server.label}: retrying now`);
       this.clearRetry();
       void this.connect($state.snapshot(this.server) as SavedServer, true);
     }
@@ -629,6 +631,7 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      connLog.add(`${this.server?.label ?? 'server'}: connected${this.reconnectAttempts ? ` (after ${this.reconnectAttempts} ${this.reconnectAttempts === 1 ? 'retry' : 'retries'})` : ''}`);
       // ServerConfig normally follows at once; a server that sends none still gets names
       setTimeout(() => { if (live() && !this.namesStarted) this.startNames(client); }, NAMES_WAIT_MS);
       void chatHistory.entered(this);
@@ -925,6 +928,7 @@ export class Session {
       this.status = 'idle';
       this.error = reason === 'Disconnected' ? '' : reason;
       const retry = !this.noRetry && this.scheduleReconnect();
+      connLog.add(`${this.server?.label ?? 'server'}: connection ended (${reason}); ${client.synced ? 'was connected' : 'before login'}; ${connLog.hidden ? 'page hidden' : 'page visible'}; ${retry ? `retry in ${this.reconnectDelay} s` : this.server?.autoReconnect === false ? 'automatic reconnect is off' : 'no retry'}`);
       sessions.onClosed(this, retry);
       this.tick++;
     });
