@@ -219,7 +219,11 @@
 
   const openText = () => { session.selectView(`ch:${channel.id}`); onnavigate(); };
   const channelClicks = $derived(isText ? { onclick: openText } : clickOrDouble(
-    () => { session.selectedChannel = channel.id; },
+    () => {
+      // Back from a text channel or a private chat: your own channel's chat comes straight back
+      if (here && session.view !== `ch:${channel.id}`) { session.selectView(`ch:${channel.id}`); onnavigate(); return; }
+      session.selectedChannel = channel.id;
+    },
     () => { session.joinChannel(channel.id); onnavigate(); }
   ));
 </script>
