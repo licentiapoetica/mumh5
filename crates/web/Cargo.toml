@@ -1,0 +1,24 @@
+[package]
+name = "dream-cord-web"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+dream-cord-platform.workspace = true
+dream-cord-core.workspace = true
+anyhow.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "limit"] }
+clap = { version = "4", features = ["derive", "env"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
+base64.workspace = true
+uuid.workspace = true
+
+openssl.workspace = true
+url = "2"

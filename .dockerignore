@@ -1,0 +1,6 @@
+.git
+.tooling
+target
+frontend/node_modules
+frontend/dist
+crates/desktop/gen
