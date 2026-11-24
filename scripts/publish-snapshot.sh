@@ -21,7 +21,8 @@ for i in "${!extensions[@]}"; do
   cp -- "${matches[0]}" "$publish_dir/${filenames[$i]}"
 done
 for extra in mumh5-cli-linux-x64 mumh5-cli-win-x64.exe; do
-  if [[ -f "$artifact_dir/$extra" ]]; then cp -- "$artifact_dir/$extra" "$publish_dir/$extra"; filenames+=("$extra"); labels+=("Headless client"); fi
+  mapfile -d '' -t matches < <(find "$artifact_dir" -type f -name "$extra" -print0)
+  if [[ ${#matches[@]} -eq 1 ]]; then cp -- "${matches[0]}" "$publish_dir/$extra"; filenames+=("$extra"); labels+=("Headless client"); fi
 done
 mapfile -d '' -t apks < <(find "$artifact_dir" -type f -name '*.apk' -print0)
 if [[ ${#apks[@]} -eq 1 ]]; then cp -- "${apks[0]}" "$publish_dir/mumh5-android-arm64.apk"; filenames+=(mumh5-android-arm64.apk); labels+=('Android arm64 (development APK)'); fi
@@ -39,6 +40,14 @@ notes="$publish_dir/notes.md"
   printf 'Built from [%s](https://github.com/%s/commit/%s). [Build details](%s).\n' \
     "$SNAPSHOT_SHA" "$GH_REPO" "$SNAPSHOT_SHA" "$SNAPSHOT_RUN_URL"
 } > "$notes"
+
+# SNAPSHOT_DRY_RUN=<dir>: assemble and check everything, copy the result there, publish nothing.
+if [[ -n "${SNAPSHOT_DRY_RUN:-}" ]]; then
+  mkdir -p "$SNAPSHOT_DRY_RUN"
+  cp -- "$publish_dir"/* "$SNAPSHOT_DRY_RUN"/
+  echo "Dry run: ${#filenames[@]} assets assembled in $SNAPSHOT_DRY_RUN"
+  exit 0
+fi
 
 if ! gh release view snapshot --repo "$GH_REPO" >/dev/null 2>&1; then
   gh release create snapshot --repo "$GH_REPO" --target "$SNAPSHOT_SHA" \

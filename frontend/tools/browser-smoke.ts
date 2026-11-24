@@ -52,6 +52,10 @@ try {
  await audioCard.locator('.media-player').waitFor(); await audioCard.getByRole('link', { name: 'Download sample.wav', exact: true }).waitFor();
  const pdfCard = page.locator('.media-card').filter({ has: page.locator('.name', { hasText: 'sample.pdf' }) });
  await pdfCard.locator('canvas:not([hidden])').waitFor(); await pdfCard.getByRole('link', { name: 'Download sample.pdf', exact: true }).waitFor();
+ // Computed styles of the slider knob are not readable, so the rule itself is checked.
+ const knob = await page.evaluate(() => [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules]; } catch { return []; } })
+  .some(r => r instanceof CSSStyleRule && r.selectorText.includes('.media-player') && r.selectorText.includes('slider-thumb') && r.style.borderRadius === '50%'));
+ if (!knob) throw new Error('Media player knob rule is missing');
  console.log('PASS unified audio card, download controls and rendered PDF preview');
  await page.setViewportSize({ width: 390, height: 844 });
  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) throw new Error('Phone layout overflows horizontally');

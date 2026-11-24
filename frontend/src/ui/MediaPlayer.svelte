@@ -62,9 +62,9 @@
   .player-controls { padding: 4px 10px 8px; border-top: 1px solid var(--line); }
   input[type='range'] { display: block; height: 16px; padding: 0; appearance: none; background: transparent; border: 0; box-shadow: none; cursor: pointer; }
   input[type='range']::-webkit-slider-runnable-track { height: 3px; background: var(--line-strong); }
-  input[type='range']::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -4.5px; border-radius: 50% !important; background: var(--accent); }
+  input[type='range']::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -4.5px; background: var(--accent); }
   input[type='range']::-moz-range-track { height: 3px; background: var(--line-strong); }
-  input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50% !important; background: var(--accent); }
+  input[type='range']::-moz-range-thumb { width: 12px; height: 12px; border: 0; background: var(--accent); }
   input:disabled { cursor: default; }
   .seek { width: 100%; margin: 2px 0 4px; }
   .buttons { display: flex; align-items: center; gap: 4px; }

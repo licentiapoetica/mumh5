@@ -15,12 +15,12 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Native libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .tooling
@@ -32,14 +32,32 @@ jobs:
         run: |
           source tools/env.sh
           cargo test --locked -p mumh5-core --no-default-features
-      - name: Native text, audio and video integration
+      - name: Native and frontend client integration against Murmur
         run: |
           source tools/env.sh
-          docker run -d --name mumh5-ci -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 mumblevoip/mumble-server:latest
+          docker run -d --name mumh5-ci -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 -e MUMBLE_SUPERUSER_PASSWORD=ci-superuser mumblevoip/mumble-server:latest
           trap 'docker rm -f mumh5-ci' EXIT
           timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
           MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-core --test live_server -- --nocapture
           MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-web --test mumpeer_gateway -- --nocapture
+          (cd frontend && MUMBLE_TEST_HOST=127.0.0.1:64750 MUMBLE_SUPERUSER_PASSWORD=ci-superuser bun test tests/server.test.ts)
+      - name: Browser, settings and PWA smoke through the gateway
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: |
+          source tools/env.sh
+          docker run -d --name mumh5-smoke -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 mumblevoip/mumble-server:latest
+          trap 'docker rm -f mumh5-smoke; kill $gateway 2>/dev/null || true' EXIT
+          timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
+          cargo build --locked -p mumh5-web
+          MUMH5_PORT=18080 MUMH5_STUN_PORT=0 MUMH5_SERVERS=127.0.0.1:64750 target/debug/mumh5-web & gateway=$!
+          timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/18080) 2>/dev/null; do sleep 0.2; done'
+          cd frontend
+          bun tools/browser-smoke.ts
+          bun tools/settings-smoke.ts
+          bun tools/pwa-smoke.ts
+      - name: Snapshot assembly against fixture artifacts
+        run: ./tools/test-snapshot.sh
   desktop:
     needs: check
     strategy:
@@ -59,7 +77,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -67,7 +85,7 @@ jobs:
           sudo apt-get install -y build-essential cmake pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Windows compiler environment
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
       - name: Windows native libraries
         if: runner.os == 'Windows'
         shell: pwsh
@@ -80,7 +98,7 @@ jobs:
           "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
           "OPUS_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md/lib" >> $env:GITHUB_ENV
           "OPUS_STATIC=1" >> $env:GITHUB_ENV
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .tooling
@@ -113,10 +131,40 @@ jobs:
             cp target/release/bundle/nsis/*-setup.exe artifacts/
             cp target/release/mumh5-cli.exe artifacts/mumh5-cli-win-x64.exe
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mumh5-${{ matrix.platform }}-x64-${{ github.sha }}
           path: artifacts/*
+          if-no-files-found: error
+  macos:
+    # Built on every run so macOS breakage shows up; not part of the snapshot, whose asset set
+    # stays as it was. The package is unsigned and has not been tested on a Mac.
+    needs: check
+    runs-on: macos-14
+    env:
+      CARGO_BUILD_JOBS: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Native libraries
+        run: |
+          brew install opus libvpx protobuf pkg-config cmake openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tooling
+            target
+          key: macos-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
+      - run: ./tools/bootstrap.sh
+      - name: Native Tauri bundle
+        run: |
+          source tools/env.sh
+          cd crates/desktop
+          cargo tauri build --ci --bundles dmg
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-arm64-unsigned-${{ github.sha }}
+          path: target/release/bundle/dmg/*.dmg
           if-no-files-found: error
   android:
     needs: check
@@ -124,15 +172,15 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
       - run: sudo apt-get update && sudo apt-get install -y cmake pkg-config protobuf-compiler libssl-dev libopus-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .tooling
@@ -148,7 +196,7 @@ jobs:
           rustup target add aarch64-linux-android
           cd crates/desktop
           cargo tauri android build --ci --target aarch64 --apk --debug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mumh5-android-arm64-${{ github.sha }}
           path: crates/desktop/gen/android/app/build/outputs/apk/**/**/*.apk
@@ -160,18 +208,18 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Image name
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
@@ -190,8 +238,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: mumh5-*
           path: artifacts
@@ -209,8 +257,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: mumh5-*
           path: artifacts

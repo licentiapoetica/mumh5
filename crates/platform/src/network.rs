@@ -65,11 +65,9 @@ fn public_url(url: &reqwest::Url) -> bool {
             Err(_) => host != "localhost" && !host.ends_with(".localhost"),
         }
 }
+/// Fetches a URL from a chat message (link previews): private addresses are refused on every hop.
 pub async fn fetch(url: &str, max: usize) -> Result<(reqwest::Url, Vec<u8>)> {
     let url = reqwest::Url::parse(url)?;
-    if !matches!(url.scheme(), "http" | "https") {
-        bail!("Only HTTP(S) URLs are supported");
-    }
     if !public_url(&url) {
         bail!("Private addresses are not fetched");
     }
@@ -87,6 +85,26 @@ pub async fn fetch(url: &str, max: usize) -> Result<(reqwest::Url, Vec<u8>)> {
             }
         }))
         .build()?;
+    download(&client, url, max).await
+}
+/// Fetches a URL the user configured (the public server list), which may be on their own network.
+pub async fn fetch_configured(url: &str, max: usize) -> Result<(reqwest::Url, Vec<u8>)> {
+    let url = reqwest::Url::parse(url)?;
+    if !matches!(url.scheme(), "http" | "https") {
+        bail!("Only HTTP(S) URLs are supported");
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("mumh5/0.2")
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()?;
+    download(&client, url, max).await
+}
+async fn download(
+    client: &reqwest::Client,
+    url: reqwest::Url,
+    max: usize,
+) -> Result<(reqwest::Url, Vec<u8>)> {
     let response = client.get(url).send().await?.error_for_status()?;
     let url = response.url().clone();
     if response.content_length().is_some_and(|n| n > max as u64) {
@@ -168,7 +186,7 @@ struct Server {
     ca: String,
 }
 pub async fn public_servers(url: &str) -> Result<Value> {
-    let (_, bytes) = fetch(url, 4 * 1024 * 1024).await?;
+    let (_, bytes) = fetch_configured(url, 4 * 1024 * 1024).await?;
     let list: ServerList = quick_xml::de::from_reader(bytes.as_slice())?;
     Ok(Value::Array(list.servers.into_iter().filter(|s|!s.ip.is_empty()).map(|s|json!({"name":s.name,"host":s.ip,"port":if s.port==0{64738}else{s.port},"url":s.url,"country":s.country,"countryCode":s.country_code,"continent":s.continent,"ca":s.ca=="1"})).collect()))
 }
@@ -195,5 +213,15 @@ mod tests {
         assert!(public_url(
             &reqwest::Url::parse("https://example.com/a").unwrap()
         ));
+    }
+    /// Contacts publist.mumble.info; run with `--ignored`. Known to fail: the list answers HTTP 501
+    /// to non-browser HTTP clients (the Electron app used Chromium's network stack). Open issue.
+    #[tokio::test]
+    #[ignore]
+    async fn live_public_list_parses() {
+        let list = public_servers("https://publist.mumble.info/v1/list?version=1.5.0")
+            .await
+            .unwrap();
+        assert!(list.as_array().unwrap().len() > 10, "{list}");
     }
 }

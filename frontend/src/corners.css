@@ -47,3 +47,9 @@ input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]
 .shell > .sheet { border-radius: var(--r-dialogs) var(--r-dialogs) 0 0 !important; overflow: clip; }
 
 ::-webkit-scrollbar-thumb { border-radius: var(--r-scrollbars); }
+
+/* Fixed exception, not a corner setting: the seek and volume knobs of media cards are round, like a
+   player's, whatever the corner settings (accepted design for unified media cards). */
+/* Separate rules: a selector list with another engine's pseudo-element is dropped as a whole. */
+.media-player input[type='range']::-webkit-slider-thumb { border-radius: 50% !important; }
+.media-player input[type='range']::-moz-range-thumb { border-radius: 50% !important; }

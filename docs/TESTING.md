@@ -104,3 +104,47 @@ docker rm -f mumh5-test
 
 Linux x86-64/WebKitGTK is the validated desktop platform. The README lists
 features still dependent on native WebView or not ported from the old desktop.
+
+## Frontend client against Murmur
+
+`frontend/tests/server.test.ts` is upstream's server suite on Bun: two clients,
+channel passwords and tokens, temporary channels, the admin list, pictures, XML
+limits, pacing, the voice tunnel and encrypted UDP, files, pokes, ACLs, the
+access checker against random rules, roles and display names. It skips unless
+`MUMBLE_TEST_HOST` is set; the SuperUser tests also need
+`MUMBLE_SUPERUSER_PASSWORD`. Test-only TLS, UDP and OCB2 helpers are in
+`frontend/tests/support/` (identities come from the `openssl` tool).
+
+```sh
+docker run -d --name mumh5-test-su -p 127.0.0.1:64751:64738/tcp -p 127.0.0.1:64751:64738/udp \
+  -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 -e MUMBLE_SUPERUSER_PASSWORD=testsuper mumblevoip/mumble-server:latest
+(cd frontend && MUMBLE_TEST_HOST=127.0.0.1:64751 MUMBLE_SUPERUSER_PASSWORD=testsuper bun test tests/server.test.ts)
+```
+
+## Where upstream's tests went
+
+Every unit test file of the Electron version, and what covers it now:
+
+| Upstream | Now |
+| --- | --- |
+| 32 frontend unit files (`access`, `audio-pack`, `channel-*`, `code`, `custom-themes`, `emoji`, `i18n*`, `keepalive`, `opus-wasm`, `themes`, ...) | Same files in `frontend/tests/` on Bun |
+| `server.test.ts` | `frontend/tests/server.test.ts` (see above); CI runs it with a SuperUser |
+| `ocb2.test.ts` | `crates/core/src/crypt.rs` tests (Mumble's vectors, replay, resync) |
+| `identity.test.ts` | `crates/core/src/identity.rs` (persistence, pins) and `profiles.rs` `profile_and_backups_round_trip` (PKCS#12 export and import, wrong password, duplicates) |
+| `saved-state.test.ts`, `sound-store.test.ts`, `dev-profile.test.ts` | `crates/platform/src/profiles.rs` tests: legacy shapes, damaged files and backups, sound files. Runtime merging of saved state across windows is not ported. |
+| `pipewire.test.ts` | `crates/platform/src/pipewire.rs` tests (same fixtures, plus WebView children and stale nodes) |
+| `turn.test.ts` | `crates/platform/src/turn.rs` tests (UDP and TCP relay, lanes, loopback restriction) |
+| `mumpeer-link.test.ts` | `crates/platform/src/mumpeer.rs` tests (pinned TLS, ALPN, refusal, teardown, lanes) |
+| `proxy.test.ts`, `proxy-mumpeer.test.ts` | `crates/web` tests (config, rate limits, relay validation) and `crates/web/tests/mumpeer_gateway.rs`; origin and target checks in `browser-smoke.ts` |
+| `dbus.test.ts` | `crates/platform/src/color.rs` tests |
+| `publist.test.ts` | `network::tests::live_public_list_parses` (ignored; the list answers HTTP 501 to the Rust client, an open issue) |
+| `denoise.test.ts` | Not ported: it checked the Node proxy's compressed serving of the model. The model files are precached and fetched in `pwa-smoke.ts`. |
+| `reaction-delivery.test.ts`, `reconnect.test.ts` | Not ported: they compile `session.svelte.ts` with esbuild and Node stubs. Reconnect behavior is exercised by `settings-smoke.ts` (background connection, close codes). |
+| `build-electron.test.ts` | Not applicable (Electron packaging) |
+
+The Electron E2E suites (`test/e2e/*.e2e.ts`) drove the Electron app with
+Playwright. Their replacements are `browser-smoke.ts`, `settings-smoke.ts` and
+`pwa-smoke.ts` (all in CI) and the Tauri smoke (`crates/desktop/tests/smoke.js`,
+run locally). Not yet replaced: the two-instance screen-share E2E, backgrounds,
+the theme creator, saved state and the sound E2E. Screen sharing between two
+Rust clients is covered by `live_server`'s native video test, not through the UI.
