@@ -1,4 +1,4 @@
-import { androidVoiceStart, androidVoiceStop } from '../android-shell.ts';
+import { androidVoiceStart, androidVoiceStop, inAndroidShell } from '../android-shell.ts';
 import { WasmEncoder, WasmDecoder, type Opus } from './opus-wasm.ts';
 import { loadOpus } from './opus-load.ts';
 import captureUrl from './capture.worklet.ts?worker&url';
@@ -304,7 +304,9 @@ class VoiceEngine {
 
   // The microphone is not needed while we cannot talk anyway (muted or deafened, by us or the server)
   private micWanted(): boolean {
-    if (!this.settings.releaseMicMuted || this.testing) return true;
+    // The Android app cannot open the microphone again with the screen off (getUserMedia just waits),
+    // so unmuting from the notification would not bring it back
+    if (!this.settings.releaseMicMuted || this.testing || inAndroidShell()) return true;
     const self = this.client?.self;
     return !self || !(self.selfMute || self.mute || self.suppress || self.selfDeaf || self.deaf);
   }

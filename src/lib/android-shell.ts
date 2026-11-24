@@ -24,6 +24,11 @@ function call(method: string, options: object): Promise<unknown> | null {
 let onStarted: (() => void) | null = null;
 export function androidVoiceOnStarted(fn: () => void): void { onStarted = fn; }
 
+// Whether this page runs inside the Android app
+export function inAndroidShell(): boolean {
+  return !!(globalThis as { Capacitor?: CapacitorGlobal }).Capacitor?.isNativePlatform?.();
+}
+
 export function androidVoiceStart(text = 'In voice'): void {
   call('start', { text })?.then(r => { onStarted?.(); connLog.add(`android voice service started, battery optimization ${(r as { batteryExempt?: boolean })?.batteryExempt ? 'off' : 'on'}`); },
     (e: unknown) => connLog.add(`android voice service failed: ${(e as Error)?.message ?? e}`));
