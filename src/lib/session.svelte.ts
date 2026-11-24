@@ -1,6 +1,6 @@
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, PERM, describeDenial, type Channel, type ChannelAcl, type User, type TextMessage } from '../core/client.ts';
-import { native, desktop, openTransport, ElectronTransport } from './native.ts';
+import { native, desktop, openTransport, relayTransport } from './native.ts';
 import { MumpeerSession } from './mumpeer.svelte.ts';
 import { share, type ShareKind } from './share.svelte.ts';
 import { textChannels } from './text-channels.ts';
@@ -520,7 +520,7 @@ export class Session {
     const client = new MumbleClient(codec);
     client.forceTcp = voice.settings.forceTcp;
     this.client = client;
-    this.mumpeer.attach(transport instanceof ElectronTransport ? transport : null);
+    this.mumpeer.attach(relayTransport(transport));
     this.wire(client);
     // TLS is up but the server may still never finish the login
     setTimeout(() => { if (this.client === client && !client.synced) client.disconnect('Login timed out'); }, 20000);

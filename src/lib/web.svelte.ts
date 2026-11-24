@@ -130,7 +130,11 @@ export const webApi: PlatformApi = {
 
 export async function openWebTransport(host: string, port: number, identityId?: string): Promise<WebSocketTransport> {
   const identity = await identityFor(identityId);
-  return new WebSocketTransport(`${base.replace(/^http/, 'ws')}api/connect`, { host, port }, identity);
+  // Whether the proxy keeps mumpeer links is part of its config; it is normally loaded by now
+  if (!proxyInfo.loaded) await proxyInfo.load();
+  const transport = new WebSocketTransport(`${base.replace(/^http/, 'ws')}api/connect`, { host, port }, identity);
+  transport.relayAvailable = proxyInfo.mumpeer;
+  return transport;
 }
 
 // Which servers the proxy connects to; the connect dialog offers these
@@ -142,6 +146,8 @@ class ProxyInfo {
   any = $state(false);
   // UDP port of the proxy's STUN responder, if it runs one
   stun = $state<number | null>(null);
+  // The proxy keeps mumpeer links for browsers (needs its relay on)
+  mumpeer = $state(false);
   loaded = $state(false);
   error = $state('');
   audioPackLimits = DEFAULT_AUDIO_PACK_LIMITS;
@@ -153,13 +159,14 @@ class ProxyInfo {
 
   private async fetchConfig(): Promise<void> {
     try {
-      const c = await call<{ servers: ProxyServer[]; default?: ProxyServer | null; any: boolean; stun?: number | null; turn?: boolean; audioPackLimits?: unknown }>('config');
+      const c = await call<{ servers: ProxyServer[]; default?: ProxyServer | null; any: boolean; stun?: number | null; turn?: boolean; mumpeer?: boolean; audioPackLimits?: unknown }>('config');
       this.audioPackLimits = parseAudioPackLimits(c.audioPackLimits);
       this.servers = c.servers;
       this.defaultServer = c.default ?? null;
       if (this.defaultServer) store.addDefaultServer(this.defaultServer);
       this.any = c.any;
       this.stun = c.stun ?? null;
+      this.mumpeer = !!c.mumpeer;
       this.error = '';
     } catch (e) {
       this.error = (e as Error).message;

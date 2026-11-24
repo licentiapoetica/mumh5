@@ -10,7 +10,7 @@ import { requestId } from '../core/mumpeer-signal.ts';
 import type { RelayLease } from './mumpeer.svelte.ts';
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
-import { desktop, isWeb } from './native.ts';
+import { desktop, isWeb, mumpeerSupported } from './native.ts';
 import { proxyIce, relayIce } from './web.svelte.ts';
 import { store, type ScreenShareRoute } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
@@ -64,7 +64,7 @@ interface WatchAttempt {
   lease?: RelayLease;
 }
 
-const screenRoute = (): ScreenShareRoute => desktop ? store.settings.screenShareRoute : 'standard';
+const screenRoute = (): ScreenShareRoute => mumpeerSupported() ? store.settings.screenShareRoute : 'standard';
 const DIRECT_TIMEOUT = 20000;
 const RELAY_TIMEOUT = 25000;
 

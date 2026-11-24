@@ -1,17 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
-import type { RelayEndpoint } from '../src/core/mumpeer-signal.ts';
+import type { LocalTurn, RelayEndpoint } from '../src/core/mumpeer-signal.ts';
+
+export type { LocalTurn };
 import { CREDENTIAL_TTL, startTurn, turnCredential, type VirtualTurnPeer } from '../server/turn.ts';
 
 const ALPN = 'mumpeer/1';
 const MAX_FRAME = 1500;
 const MAX_BACKLOG = 128 * 1024;
 const SETUP_TIMEOUT = 10000;
-
-// What a lane's WebRTC connection uses as its TURN server. The desktop app answers with a loopback
-// URL; the web proxy answers with the port of its public relay, and the page adds the host it reached.
-export interface LocalTurn { urls: string; username: string; credential: string; port?: number }
 
 // Opens the TURN endpoint of one lane: packets to and from the pair go through `peer`
 export type LaneHost = (peer: VirtualTurnPeer, lane: number) => Promise<{ ice: LocalTurn; close(): void }>;

@@ -17,6 +17,10 @@ function isSession(value: unknown): value is number {
 
 export interface RelayEndpoint { host: string; tcp: number; fp: string }
 
+// The TURN server of one lane, as WebRTC takes it. The desktop app answers with a loopback URL; the
+// web proxy answers with the port of its public relay and the page adds the host it reached.
+export interface LocalTurn { urls: string | string[]; username: string; credential: string; port?: number }
+
 const DNS_NAME = /^(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)*[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.?$/i;
 
 function ipv6Host(host: string): string | null {

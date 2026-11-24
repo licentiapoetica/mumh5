@@ -11,6 +11,7 @@ import { WebSocket as WsClient } from 'ws';
 import { generateIdentity } from '../electron/identity.ts';
 import { startProxy, defaults, parseServers, type ProxyConfig } from '../server/proxy.ts';
 import { build, parse, unxorAddress, xorAddress } from '../server/turn.ts';
+import { WebSocketTransport } from '../src/core/ws-transport.ts';
 
 const TOKEN = 'A'.repeat(43);
 const text = (s: string) => new TextEncoder().encode(s);
@@ -267,5 +268,34 @@ test('a relay on another host is refused when it resolves to a private address',
     await proxy.close();
     mumble.close();
     relay.close();
+  }
+});
+
+test('the browser transport opens a link, gets TURN servers for the proxy and hears when the link ends', async () => {
+  const t = await setup({ turnUrls: ['turns:turn.example.org:443?transport=tcp'] });
+  const id = generateIdentity('Browser');
+  const transport = new WebSocketTransport(`${t.base.replace(/^http/, 'ws')}/api/connect`, { host: '127.0.0.1', port: t.mumble.port }, id);
+  try {
+    await transport.secure;
+    const ended: string[] = [];
+    transport.onRelayClose((rid, reason) => ended.push(`${rid}: ${reason}`));
+    await transport.relayOpen('0123456789abcdef', t.endpoint, TOKEN, true);
+    const ice = await transport.relayTurn('0123456789abcdef', 1);
+    assert.deepEqual(ice.urls, [
+      `turn:127.0.0.1:${t.proxy.stunPort}?transport=udp`, `turn:127.0.0.1:${t.proxy.stunPort}?transport=tcp`, 'turns:turn.example.org:443?transport=tcp'
+    ]);
+    assert.match(ice.username, /^\d+:lane-[0-9a-f]{32}$/);
+    await assert.rejects(transport.relayTurn('ffffffffffffffff', 0), /unavailable/);
+    // The relay going away is reported with its id
+    t.relay.close();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('the browser was not told')), 3000);
+      const tick = setInterval(() => { if (ended.length) { clearTimeout(timer); clearInterval(tick); resolve(); } }, 20);
+    });
+    assert.match(ended[0], /^0123456789abcdef: /);
+    await assert.rejects(transport.relayTurn('0123456789abcdef', 0), /unavailable/);
+  } finally {
+    transport.close();
+    await t.done();
   }
 });

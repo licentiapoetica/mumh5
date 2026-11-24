@@ -1,7 +1,7 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
   import { session } from '../lib/session.svelte.ts';
-  import { desktop } from '../lib/native.ts';
+  import { mumpeerSupported } from '../lib/native.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -25,7 +25,7 @@
     <dl>
       <dt>Ping (TCP)</dt><dd>{session.rtt ? `${session.rtt} ms` : 'n/a'}</dd>
       <dt>Voice</dt><dd>{voice.udp ? `Encrypted UDP${voice.rtt ? `, ${Math.round(voice.rtt)} ms` : ''}` : 'Through the TCP connection'}</dd>
-      {#if desktop}
+      {#if mumpeerSupported()}
         <dt>Mumpeer relay</dt>
         <dd>
           {session.mumpeer.status}

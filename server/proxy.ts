@@ -396,7 +396,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       if (!relay) throw new Error('The mumpeer link is unavailable');
       if (msg.type === 'relay-turn') {
         if (msg.lane !== 0 && msg.lane !== 1) throw new Error('The mumpeer allocation is unavailable');
-        return await relay.link.turn(msg.lane, relay.lowSide);
+        return { ...(await relay.link.turn(msg.lane, relay.lowSide)), extra: config.turnUrls };
       }
       if (msg.type === 'relay-lane-close') {
         if (msg.lane === 0 || msg.lane === 1) relay.link.closeLane(msg.lane);

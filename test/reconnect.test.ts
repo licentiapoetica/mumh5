@@ -13,6 +13,7 @@ const stubs = `
   export const control = { opens: 0, failure: false, fingerprint: 'first', hold: null, attached: null };
   export const native = { platformInfo: async () => ({ os: 'test', osVersion: '' }) };
   export class ElectronTransport {}
+  export const relayTransport = () => null;
   export class MumpeerSession { attach() {} close() {} hello() {} receive() {} userChanged() {} userLeft() {} }
   export const desktop = null, ui = { pokes: [] }, notifyPoke = () => {};
   export async function openTransport() {
