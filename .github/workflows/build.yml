@@ -197,6 +197,11 @@ jobs:
           source tools/env.sh
           export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
           export ANDROID_NDK_ROOT="$NDK_HOME"
+          # OpenSSL's static build calls the target's ar/ranlib; the NDK only ships the LLVM ones
+          llvm="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export PATH="$llvm:$PATH"
+          export AR_aarch64_linux_android="$llvm/llvm-ar" RANLIB_aarch64_linux_android="$llvm/llvm-ranlib"
+          export AR="$llvm/llvm-ar" RANLIB="$llvm/llvm-ranlib"
           rustup target add aarch64-linux-android
           cd crates/desktop
           cargo tauri android build --ci --target aarch64 --apk --debug
