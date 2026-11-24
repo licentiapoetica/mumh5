@@ -45,6 +45,8 @@ export const en = {
   'settings.tab.files': 'Chat and files',
   'settings.tab.identities': 'Identities',
   'settings.tab.about': 'About',
+  'settings.shareRouteHelp': 'When both clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. The relay operator can see your IP address. Changing this setting ends active screen shares.',
+  'settings.shareRouteHelpWeb': 'When both clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. The site you are on keeps the link to the relay for you, so the relay sees that site’s address, not yours, and the site sees the traffic between you and the relay. Changing this setting ends active screen shares.',
   'settings.language': 'Language',
   'settings.languageAuto': 'Automatic',
   'settings.languageHelp': 'Follows your browser or system language. Text not translated yet stays in English.',

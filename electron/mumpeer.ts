@@ -11,17 +11,18 @@ const MAX_FRAME = 1500;
 const MAX_BACKLOG = 128 * 1024;
 const SETUP_TIMEOUT = 10000;
 
-// Opens the TURN endpoint of one lane: packets to and from the pair go through `peer`
-export type LaneHost = (peer: VirtualTurnPeer, lane: number) => Promise<{ ice: LocalTurn; close(): void }>;
+// Opens the TURN endpoint of one lane: packets to and from the pair go through `peer`.
+// `Ice` is what turn() hands out: complete ICE settings on desktop, the proxy's own answer on the web.
+export type LaneHost<Ice> = (peer: VirtualTurnPeer, lane: number) => Promise<{ ice: Ice; close(): void }>;
 
-export interface LinkOptions {
-  lanes?: LaneHost;
+export interface LinkOptions<Ice> {
+  lanes: LaneHost<Ice>;
   // Resolves the relay's address; the proxy uses it to refuse private networks
   lookup?: net.LookupFunction;
 }
 
 // The desktop app: a TURN server on loopback for each lane, never reachable from outside
-export const loopbackLanes: LaneHost = async peer => {
+export const loopbackLanes: LaneHost<LocalTurn> = async peer => {
   const secret = randomBytes(32).toString('hex');
   const turn = await startTurn({
     port: 0, bind: '127.0.0.1', relay: true, publicIp: null, minPort: 0, maxPort: 0,
@@ -32,23 +33,23 @@ export const loopbackLanes: LaneHost = async peer => {
   return { ice, close: () => turn.close() };
 };
 
-export class MumpeerLink {
+export class MumpeerLink<Ice = LocalTurn> {
   readonly ready: Promise<void>;
   private socket: tls.TLSSocket;
   private buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   private connected = false;
   private ended = false;
-  private lanes = new Map<number, Promise<{ ice: LocalTurn; close(): void }>>();
+  private lanes = new Map<number, Promise<{ ice: Ice; close(): void }>>();
   private receivers = new Map<number, (data: Uint8Array) => void>();
   private finishReady!: () => void;
   private failReady!: (error: Error) => void;
   private timer: ReturnType<typeof setTimeout>;
   private endedLink: (reason: string) => void;
-  private laneHost: LaneHost;
+  private laneHost: LaneHost<Ice>;
 
-  constructor(endpoint: RelayEndpoint, token: string, cert: string, key: string, endedLink: (reason: string) => void, options: LinkOptions = {}) {
+  constructor(endpoint: RelayEndpoint, token: string, cert: string, key: string, endedLink: (reason: string) => void, options: LinkOptions<Ice>) {
     this.endedLink = endedLink;
-    this.laneHost = options.lanes ?? loopbackLanes;
+    this.laneHost = options.lanes;
     this.ready = new Promise((resolve, reject) => { this.finishReady = resolve; this.failReady = reject; });
     this.socket = tls.connect({
       host: endpoint.host, port: endpoint.tcp,
@@ -113,7 +114,7 @@ export class MumpeerLink {
     this.close('Invalid mumpeer control message');
   }
 
-  private startLane(lane: number, lowSide: boolean): Promise<{ ice: LocalTurn; close(): void }> {
+  private startLane(lane: number, lowSide: boolean): Promise<{ ice: Ice; close(): void }> {
     // These addresses appear in SDP and inside TURN. They are never dialed or bound.
     const port = 40000 + lane;
     const low = { ip: '192.0.2.1', port };
@@ -132,7 +133,7 @@ export class MumpeerLink {
     }, lane);
   }
 
-  async turn(lane: number, lowSide: boolean): Promise<LocalTurn> {
+  async turn(lane: number, lowSide: boolean): Promise<Ice> {
     await this.ready;
     if (this.ended) throw new Error('The mumpeer link closed');
     let pending = this.lanes.get(lane);

@@ -10,7 +10,7 @@ import * as tray from './tray.ts';
 import { fetchLinkPreview } from './link-preview.ts';
 import { fetchPublicListWith, pingServer } from './publist.ts';
 import { openTls } from './tls-transport.ts';
-import { MumpeerLink } from './mumpeer.ts';
+import { MumpeerLink, loopbackLanes } from './mumpeer.ts';
 import { isRelayToken, isRequestId, relayEndpoint } from '../src/core/mumpeer-signal.ts';
 import { udpChannel } from './udp-voice.ts';
 import { ShareAudio, pipewireAvailable, VIRTUAL_MIC_LABEL, type AudioTarget } from './pipewire.ts';
@@ -145,7 +145,7 @@ ipcMain.handle('mumble:open', async (e, connId: string, host: string, port: numb
   conns.set(connId, Object.assign(conn, {
     owner, relays: new Map(),
     openRelay: (endpoint: NonNullable<ReturnType<typeof relayEndpoint>>, token: string, ended: (reason: string) => void) =>
-      new MumpeerLink(endpoint, token, id.certPem, id.keyPem, ended)
+      new MumpeerLink(endpoint, token, id.certPem, id.keyPem, ended, { lanes: loopbackLanes })
   }));
   owner.once('destroyed', () => conn.close());
 });

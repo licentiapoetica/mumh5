@@ -172,8 +172,17 @@ try {
 
   await page.locator('.me').getByRole('button', { name: 'Server information' }).click();
   await page.getByRole('dialog', { name: 'Server information' }).getByText('Through the TCP connection').waitFor();
+  // The proxy runs its relay, so it keeps mumpeer links for the page and the row shows
+  await page.getByRole('dialog', { name: 'Server information' }).getByText('Mumpeer relay').waitFor();
   await page.getByRole('dialog', { name: 'Server information' }).getByRole('button', { name: 'Close', exact: true }).last().click();
-  console.log('ok: server information shows voice over TCP');
+  console.log('ok: server information shows voice over TCP and the mumpeer relay row');
+
+  await page.getByTitle('Settings').click();
+  await page.getByRole('tab', { name: 'Screen sharing' }).click();
+  await page.getByLabel('Screen sharing connection').waitFor();
+  await page.getByText(/The site you are on keeps the link to the relay/).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  console.log('ok: the screen sharing connection setting is offered in the browser');
 
   // Own information: with the proxy on this machine the server sees our own address, shown as such
   await page.locator('.sidebar .row.user.self').click({ button: 'right' });

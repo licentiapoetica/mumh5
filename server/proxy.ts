@@ -14,7 +14,7 @@ import { describeCert } from '../electron/certs.ts';
 import { pingServer } from '../electron/publist.ts';
 import { startTurn, turnCredential, stunResponse, isPrivateAddress, CREDENTIAL_TTL, LaneRegistry } from './turn.ts';
 import { MumpeerLink, type LaneHost } from '../electron/mumpeer.ts';
-import { isRelayToken, isRequestId, relayEndpoint, sameRelayHost } from '../src/core/mumpeer-signal.ts';
+import { isRelayToken, isRequestId, relayEndpoint, sameRelayHost, type LaneTurn } from '../src/core/mumpeer-signal.ts';
 import { DEFAULT_AUDIO_PACK_LIMITS, MIB, type AudioPackLimits } from '../src/core/audio-pack-limits.ts';
 
 export { stunResponse, isPrivateAddress };
@@ -178,6 +178,8 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
   const lanes = new LaneRegistry();
   // At most this many mumpeer links per Mumble connection, as in the desktop app
   const MAX_RELAYS = 9;
+  // Each relay-open dials out, failed ones included, so a connection gets a budget of attempts per minute
+  const RELAY_OPENS = 20, RELAY_WINDOW = 60_000;
   // Made up at every start: credentials are handed out by this process and checked by it
   const turnSecret = randomBytes(24).toString('hex');
   // Identity requests per address in the current minute; key generation is the costly part
@@ -220,7 +222,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
 
   async function api(req: http.IncomingMessage, route: string): Promise<unknown> {
     if (route === 'config' && req.method === 'GET') {
-      return { servers: config.servers, default: config.defaultServer, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn, mumpeer: stunPort != null && config.turn, audioPackLimits: config.audioPackLimits };
+      return { servers: config.servers, default: config.defaultServer, any: config.allowAny, stun: stunPort, turn: stunPort != null && config.turn, mumpeer: stunPort != null && config.turn && config.mumpeerPorts.length > 0, audioPackLimits: config.audioPackLimits };
     }
     // What a client needs for screen sharing: the STUN port and, with the relay on, credentials
     // for it. Open to any origin, because the desktop app asks from outside this site; checking
@@ -352,14 +354,20 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     // Mumpeer: set once the Mumble connection is secure; the certificate is the one of this connection
     let target: { host: string; guard: boolean; certPem: string; keyPem: string } | null = null;
     let secure = false;
-    const relays = new Map<string, { link: MumpeerLink; lowSide: boolean }>();
-    const finish = (reason: string) => {
-      if (done) return;
+    const relays = new Map<string, { link: MumpeerLink<LaneTurn>; lowSide: boolean }>();
+    const opens: number[] = [];
+    // Shared by finish and the socket's close; links are dropped first so their close sends nothing
+    const teardown = () => {
       done = true;
       clearTimeout(hello);
-      for (const relay of relays.values()) relay.link.close();
+      const links = [...relays.values()].map(r => r.link);
       relays.clear();
+      for (const link of links) link.close();
       conn?.close();
+    };
+    const finish = (reason: string) => {
+      if (done) return;
+      teardown();
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: 'close', reason }));
         ws.close(1000);
@@ -376,7 +384,11 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       if (msg.type === 'relay-open') {
         const endpoint = relayEndpoint(msg.address);
         if (!isRequestId(msg.rid) || !endpoint || !isRelayToken(msg.token) || typeof msg.lowSide !== 'boolean') throw new Error('Invalid mumpeer connection');
-        if (relays.has(msg.rid) || relays.size >= MAX_RELAYS) throw new Error('Too many mumpeer connections');
+        if (relays.has(msg.rid)) throw new Error('That mumpeer connection is already open');
+        if (relays.size >= MAX_RELAYS) throw new Error('Too many mumpeer connections');
+        const now = Date.now();
+        while (opens.length && opens[0] <= now - RELAY_WINDOW) opens.shift();
+        if (opens.length >= RELAY_OPENS) throw new Error('Too many mumpeer connections, try again in a minute');
         // The relay is the Mumble server's own host, or any host this proxy would connect to for a user
         const sameHost = sameRelayHost(t.host, endpoint.host);
         if (!sameHost && !config.allowAny) throw new Error('This proxy only allows a relay on the Mumble server host');
@@ -384,32 +396,42 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
         const guard = sameHost ? t.guard : !config.allowPrivate;
         // The guard below is a DNS lookup, which Node skips for IP literals
         if (guard && net.isIP(endpoint.host) && isPrivateAddress(endpoint.host)) throw new Error('This proxy does not connect to private addresses');
+        opens.push(now);
         const rid: string = msg.rid;
-        const host: LaneHost = async peer => {
+        const host: LaneHost<LaneTurn> = async peer => {
           const username = `${Math.floor(Date.now() / 1000) + CREDENTIAL_TTL}:lane-${randomBytes(16).toString('hex')}`;
           const off = lanes.register(username, peer);
-          return { ice: { urls: '', port: stunPort!, username, credential: turnCredential(turnSecret, username) }, close: off };
+          return { ice: { port: stunPort!, username, credential: turnCredential(turnSecret, username), extra: config.turnUrls }, close: off };
         };
-        const link = new MumpeerLink(endpoint, msg.token, t.certPem, t.keyPem, reason => {
-          if (relays.get(rid)?.link === link) relays.delete(rid);
-          reply({ type: 'relay-closed', rid, reason });
-        }, { lanes: host, lookup: guard ? publicLookup : undefined });
-        relays.set(rid, { link, lowSide: msg.lowSide });
-        // A link that never became ready is this request's to close; an existing one is not
         // One answer for every way of not getting through, so the error cannot be used to probe a host;
-        // a refusal from a relay that identified itself (a pinned certificate) is the user's to see
+        // a refusal from a relay that identified itself (a pinned certificate) is the user's to see.
+        // Until the link is ready its close reason stays here for the same reason.
+        let ready = false;
+        let link: MumpeerLink<LaneTurn>;
+        try {
+          link = new MumpeerLink(endpoint, msg.token, t.certPem, t.keyPem, reason => {
+            if (relays.get(rid)?.link === link) relays.delete(rid);
+            if (ready) reply({ type: 'relay-closed', rid, reason });
+          }, { lanes: host, lookup: guard ? publicLookup : undefined });
+        } catch {
+          throw new Error('Could not connect to mumpeer');
+        }
+        relays.set(rid, { link, lowSide: msg.lowSide });
         try { await link.ready; } catch (error) {
           link.close();
           const reason = error instanceof Error ? error.message : '';
           throw new Error(reason.startsWith('Mumpeer refused the link') ? reason : 'Could not connect to mumpeer');
         }
+        // A link that closed in between already said nothing; say it here
+        if (relays.get(rid)?.link !== link) throw new Error('Could not connect to mumpeer');
+        ready = true;
         return null;
       }
       const relay = isRequestId(msg.rid) ? relays.get(msg.rid) : undefined;
       if (!relay) throw new Error('The mumpeer link is unavailable');
       if (msg.type === 'relay-turn') {
         if (msg.lane !== 0 && msg.lane !== 1) throw new Error('The mumpeer allocation is unavailable');
-        return { ...(await relay.link.turn(msg.lane, relay.lowSide)), extra: config.turnUrls };
+        return relay.link.turn(msg.lane, relay.lowSide);
       }
       if (msg.type === 'relay-lane-close') {
         if (msg.lane === 0 || msg.lane === 1) relay.link.closeLane(msg.lane);
@@ -469,11 +491,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
       }, { lookup: guard ? publicLookup : undefined, proxyClient: config.sendProxy ? clientAddress : undefined });
     });
     ws.on('close', () => {
-      done = true;
-      clearTimeout(hello);
-      for (const relay of relays.values()) relay.link.close();
-      relays.clear();
-      conn?.close();
+      teardown();
       const left = (perAddress.get(addr) ?? 1) - 1;
       if (left > 0) perAddress.set(addr, left); else perAddress.delete(addr);
     });

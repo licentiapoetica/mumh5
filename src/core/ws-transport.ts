@@ -1,5 +1,5 @@
 import { HeldData, type Transport, type ServerCertInfo, type RelayTransport } from './transport.ts';
-import type { LocalTurn, RelayEndpoint } from './mumpeer-signal.ts';
+import type { LaneTurn, LocalTurn, RelayEndpoint } from './mumpeer-signal.ts';
 
 // Transport through the mumh5 web proxy: one WebSocket per Mumble connection. The proxy opens
 // the TLS socket and presents the client certificate, since a browser can do neither.
@@ -74,7 +74,7 @@ export class WebSocketTransport implements Transport, RelayTransport {
   }
 
   async relayTurn(rid: string, lane: number): Promise<LocalTurn> {
-    const t = await this.call<{ port: number; username: string; credential: string; extra?: string[] }>({ type: 'relay-turn', rid, lane });
+    const t = await this.call<LaneTurn>({ type: 'relay-turn', rid, lane });
     // The lane is a credential on the proxy's own relay, which speaks UDP and TCP on one port
     const host = this.host;
     return {

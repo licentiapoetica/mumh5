@@ -91,7 +91,7 @@ async function browser(base: string, mumblePort: number, waitSecure = true) {
     if (answer.type === 'relay-fail') throw new Error(answer.reason);
     return answer.result;
   };
-  return { ws, call, wait, close: () => ws.close() };
+  return { ws, call, wait, unread: () => inbox, close: () => ws.close() };
 }
 
 async function setup(over: Partial<ProxyConfig> = {}) {
@@ -167,7 +167,7 @@ test('a browser reaches the relay through the proxy and uses a lane as a TURN se
     assert.deepEqual(JSON.parse(bind!.data.toString()), { v: 1, t: 'bind', tok: TOKEN });
 
     const ice = await b.call({ type: 'relay-turn', rid: '0123456789abcdef', lane: 0 });
-    assert.equal(ice.urls, '');
+    assert.equal(ice.urls, undefined, 'the page builds the URLs from the host it reached');
     assert.equal(ice.port, t.proxy.stunPort);
     assert.ok(typeof ice.credential === 'string' && ice.credential.length > 10);
     assert.match(ice.username, /^\d+:lane-[0-9a-f]{32}$/);
@@ -228,7 +228,7 @@ test('mumpeer requests are refused before the Mumble connection is secure, for o
       // Nine links, then the tenth is refused; the same id twice is refused without closing the first
       for (let i = 0; i < 9; i++) await b.call({ type: 'relay-open', rid: i.toString(16).padStart(16, '0'), address: t.endpoint, token: TOKEN, lowSide: false });
       await assert.rejects(b.call({ type: 'relay-open', rid: 'a'.repeat(16), address: t.endpoint, token: TOKEN, lowSide: false }), /Too many/);
-      await assert.rejects(b.call({ type: 'relay-open', rid: '0'.repeat(16), address: t.endpoint, token: TOKEN, lowSide: false }), /Too many/);
+      await assert.rejects(b.call({ type: 'relay-open', rid: '0'.repeat(16), address: t.endpoint, token: TOKEN, lowSide: false }), /already open/);
       assert.ok((await b.call({ type: 'relay-turn', rid: '0'.repeat(16), lane: 1 })).username, 'the first link still works');
       await assert.rejects(b.call({ type: 'relay-turn', rid: '0'.repeat(16), lane: 2 }), /unavailable/);
     } finally {
@@ -303,6 +303,23 @@ test('the browser transport opens a link, gets TURN servers for the proxy and he
   }
 });
 
+test('relay-open attempts have a budget per minute, failed ones included', async () => {
+  const dead = net.createServer();
+  await new Promise<void>(r => dead.listen(0, '127.0.0.1', r));
+  const deadPort = (dead.address() as net.AddressInfo).port;
+  await new Promise<void>(r => dead.close(() => r()));
+  const t = await setup({ mumpeerPorts: [deadPort] });
+  const b = await browser(t.base, t.mumble.port);
+  try {
+    const open = (i: number) => b.call({ type: 'relay-open', rid: i.toString(16).padStart(16, '0'), address: { ...t.endpoint, tcp: deadPort }, token: TOKEN, lowSide: true });
+    for (let i = 0; i < 20; i++) await assert.rejects(open(i), /^Error: Could not connect to mumpeer$/);
+    await assert.rejects(open(20), /try again in a minute/);
+  } finally {
+    b.close();
+    await t.done();
+  }
+});
+
 test('every way of not getting through to the relay gives the same answer', async () => {
   const dead = net.createServer();
   await new Promise<void>(r => dead.listen(0, '127.0.0.1', r));
@@ -317,6 +334,8 @@ test('every way of not getting through to the relay gives the same answer', asyn
     await assert.rejects(open({ ...t.endpoint, tcp: deadPort }), /^Error: Could not connect to mumpeer$/);
     await assert.rejects(open({ host: '127.0.0.1', tcp: relay.port, fp: '00'.repeat(32) }), /^Error: Could not connect to mumpeer$/);
     assert.equal(relay.frames.length, 0, 'no bind was sent to a relay that did not match');
+    // The close reason of a link that never got through would tell the cases apart, so it is not sent
+    assert.deepEqual(b.unread().filter((m: any) => m.type === 'relay-closed'), []);
     await open({ host: '127.0.0.1', tcp: relay.port, fp: relay.fp });
   } finally {
     b.close();
