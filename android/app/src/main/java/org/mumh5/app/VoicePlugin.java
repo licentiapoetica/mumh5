@@ -22,6 +22,19 @@ import android.os.Build;
     @Permission(strings = { Manifest.permission.POST_NOTIFICATIONS }, alias = "notifications")
 })
 public class VoicePlugin extends Plugin {
+    private static VoicePlugin current;
+
+    @Override
+    public void load() { current = this; }
+
+    // From the notification buttons, to the page
+    static void emitAction(String action) {
+        if (current == null) return;
+        JSObject data = new JSObject();
+        data.put("action", action);
+        current.notifyListeners("action", data);
+    }
+
     @PluginMethod
     public void start(PluginCall call) {
         // The microphone service type needs the permission already granted; getUserMedia asks first.
@@ -82,5 +95,18 @@ public class VoicePlugin extends Plugin {
         if (getBridge().getWebView() instanceof VoiceWebView) {
             getActivity().runOnUiThread(() -> ((VoiceWebView) getBridge().getWebView()).setKeepVisible(keep));
         }
+    }
+
+    // Redraws the notification's text and buttons; does nothing while the service is not running
+    @PluginMethod
+    public void update(PluginCall call) {
+        VoiceService service = VoiceService.instance;
+        if (service != null) {
+            String text = call.getString("text", "In voice");
+            boolean muted = Boolean.TRUE.equals(call.getBoolean("muted", false));
+            boolean deafened = Boolean.TRUE.equals(call.getBoolean("deafened", false));
+            getActivity().runOnUiThread(() -> service.update(text, muted, deafened));
+        }
+        call.resolve(new JSObject());
     }
 }
