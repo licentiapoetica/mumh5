@@ -9,6 +9,7 @@
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
+  import { t } from '../lib/i18n.svelte.ts';
   import { normalizeToolbar, visibleToolbarItems } from '../core/toolbar.ts';
 
   // You and your buttons, under the channel list and on the start screen.
@@ -28,7 +29,7 @@
     if (share.screenOn) share.stop();
     else share.start(sessions.active);
   }
-  const cameraHint = $derived(share.cameraOn ? 'Turn off your camera' : share.screenOn ? 'Stop sharing your screen to turn on your camera' : 'Turn on your camera');
+  const cameraHint = $derived(share.cameraOn ? t('Turn off your camera') : share.screenOn ? t('Stop sharing your screen to turn on your camera') : t('Turn on your camera'));
 
   // One button for the whole tree. It follows the tree, which single channels can change too
   const allOpen = $derived(session.allExpanded);
@@ -65,18 +66,18 @@
 <footer class="me" class:toolbar class:inline>
   {#if !toolbar}
     {#if self}
-      <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
+      <button class="profile" data-menu-row title={t('Your profile')} onclick={e => openProfile(self.session, e.currentTarget)}
         oncontextmenu={e => menu.show(e, userMenu(self))}>
         <Avatar name={store.displayName(self)} size={32} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
         <span class="who">
           <strong>{store.displayName(self)}</strong>
-          <span>{voice.error ? 'Voice unavailable' : voice.settings.mode === 'ptt' && !self.selfMute ? (voice.pttDown ? 'Talking' : 'Push to talk') : session.channel(self.channelId)?.name || 'Root'}</span>
+          <span>{voice.error ? t('Voice unavailable') : voice.settings.mode === 'ptt' && !self.selfMute ? (voice.pttDown ? t('Talking') : t('Push to talk')) : session.channel(self.channelId)?.name || t('Root')}</span>
         </span>
       </button>
     {:else}
-      <span class="who offline-who" title="Mute and deafen apply when you connect">
-        <strong>{session.status === 'connecting' ? 'Connecting...' : 'Not connected'}</strong>
-        <span>{deafened ? 'Deafened' : muted ? 'Muted' : 'Microphone on'}</span>
+      <span class="who offline-who" title={t('Mute and deafen apply when you connect')}>
+        <strong>{session.status === 'connecting' ? t('Connecting...') : t('Not connected')}</strong>
+        <span>{deafened ? t('Deafened') : muted ? t('Muted') : t('Microphone on')}</span>
       </span>
     {/if}
   {/if}
@@ -86,55 +87,55 @@
       {#if item === 'sep'}
         <span class="sep" class:lead={serverButton && drawn === 0} data-tool={index}></span>
       {:else if item === 'info'}
-        <button class="icon-btn info" data-tool={index} title="Server information" aria-label="Server information"
+        <button class="icon-btn info" data-tool={index} title={t('Server information')} aria-label={t('Server information')}
           disabled={session.status !== 'connected'} onclick={() => (ui.serverInfo = true)}>
           <Icon name="info" size={18} />
         </button>
       {:else if item === 'mic'}
-        <button class="icon-btn" data-tool={index} class:on={muted} title={muted ? 'Unmute (right-click for microphone options)' : 'Mute (right-click for microphone options)'}
-          aria-label={muted ? 'Unmute' : 'Mute'}
+        <button class="icon-btn" data-tool={index} class:on={muted} title={muted ? t('Unmute (right-click for microphone options)') : t('Mute (right-click for microphone options)')}
+          aria-label={muted ? t('Unmute') : t('Mute')}
           onclick={() => session.setSelfMute(!muted)} oncontextmenu={e => openQuick(e, 'input')}>
           <Icon name={muted ? 'mic-off' : 'mic'} size={18} />
         </button>
       {:else if item === 'deafen'}
-        <button class="icon-btn" data-tool={index} class:on={deafened} title={deafened ? 'Undeafen (right-click for output options)' : 'Deafen (right-click for output options)'}
-          aria-label={deafened ? 'Undeafen' : 'Deafen'}
+        <button class="icon-btn" data-tool={index} class:on={deafened} title={deafened ? t('Undeafen (right-click for output options)') : t('Deafen (right-click for output options)')}
+          aria-label={deafened ? t('Undeafen') : t('Deafen')}
           onclick={() => session.setSelfDeaf(!deafened)} oncontextmenu={e => openQuick(e, 'output')}>
           <Icon name={deafened ? 'headphones-off' : 'headphones'} size={18} />
         </button>
       {:else if item === 'camera'}
         <button class="icon-btn" data-tool={index} class:live={share.cameraOn} aria-pressed={share.cameraOn} title={cameraHint}
-          aria-label={share.cameraOn ? 'Turn off your camera' : 'Turn on your camera'}
+          aria-label={share.cameraOn ? t('Turn off your camera') : t('Turn on your camera')}
           disabled={!share.cameraOn && (!canShare || share.screenOn || share.opening)} onclick={() => share.toggleCamera(sessions.active)}>
           <Icon name="camera" size={18} />
         </button>
       {:else if item === 'screen'}
-        <button class="icon-btn" data-tool={index} class:live={share.screenOn} title={share.screenOn ? 'Stop sharing your screen' : share.cameraOn ? 'Turn off your camera to share your screen' : 'Share your screen or camera with your channel'}
-          aria-label={share.screenOn ? 'Stop sharing your screen' : 'Share your screen or camera'} disabled={!share.screenOn && (!canShareScreen || share.cameraOn)} onclick={toggleShare}>
+        <button class="icon-btn" data-tool={index} class:live={share.screenOn} title={share.screenOn ? t('Stop sharing your screen') : share.cameraOn ? t('Turn off your camera to share your screen') : t('Share your screen or camera with your channel')}
+          aria-label={share.screenOn ? t('Stop sharing your screen') : t('Share your screen or camera')} disabled={!share.screenOn && (!canShareScreen || share.cameraOn)} onclick={toggleShare}>
           <Icon name="screen" size={18} />
         </button>
       {:else if item === 'profile'}
-        <button class="icon-btn" data-tool={index} title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>
+        <button class="icon-btn" data-tool={index} title={t('Edit your profile')} aria-label={t('Edit your profile')} disabled={!self} onclick={() => (ui.profileEdit = true)}>
           <Icon name="message" size={18} />
         </button>
       {:else if item === 'settings'}
-        <button class="icon-btn" data-tool={index} title="Configure" aria-label="Configure" onclick={() => (ui.settingsOpen = true)}>
+        <button class="icon-btn" data-tool={index} title={t('Configure')} aria-label={t('Configure')} onclick={() => (ui.settingsOpen = true)}>
           <Icon name="settings" size={18} />
         </button>
       {:else if item === 'tree'}
-        <button class="icon-btn" data-tool={index} title={allOpen ? 'Collapse all channels' : 'Expand all channels'} aria-label={allOpen ? 'Collapse all channels' : 'Expand all channels'}
+        <button class="icon-btn" data-tool={index} title={allOpen ? t('Collapse all channels') : t('Expand all channels')} aria-label={allOpen ? t('Collapse all channels') : t('Expand all channels')}
           disabled={session.status !== 'connected'} onclick={toggleAll}>
           <Icon name="filter" size={18} />
         </button>
       {:else if item === 'you' && self}
         <!-- Who you are; the name gives way to the buttons when narrow -->
         <span class="you" class:corner={inCorner(drawn)} data-tool={index}>
-          <button class="profile" data-menu-row title="Your profile" onclick={e => openProfile(self.session, e.currentTarget)}
+          <button class="profile" data-menu-row title={t('Your profile')} onclick={e => openProfile(self.session, e.currentTarget)}
             oncontextmenu={e => menu.show(e, userMenu(self))}>
             <span class="who">
               <strong>{store.displayName(self)}</strong>
               <!-- Not shown, but screen readers still hear where you are -->
-              <span class="sr-only">{session.channel(self.channelId)?.name || 'Root'}</span>
+              <span class="sr-only">{session.channel(self.channelId)?.name || t('Root')}</span>
             </span>
             <Avatar name={store.displayName(self)} size={28} speaking={voice.transmitting} src={session.avatar(self.session)} keep />
           </button>

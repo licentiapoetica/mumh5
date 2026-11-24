@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte.ts';
   import Background from '../ui/Background.svelte';
   import Icon from '../ui/Icon.svelte';
   import ChatLog from '../ui/ChatLog.svelte';
@@ -59,7 +60,7 @@
       </div>
     {/snippet}
   </ChatLog>
-  {#if connected}<Composer target={session.view} placeholder={`Message ${isDm ? '@' : '#'}${title}`} />{/if}
+  {#if connected}<Composer target={session.view} placeholder={t('Message {target}', { target: `${isDm ? '@' : '#'}${title}` })} />{/if}
 </section>
 
 <style>

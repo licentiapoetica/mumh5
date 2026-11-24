@@ -3,6 +3,7 @@ import { GENERATED_THEMES } from './themes-generated.ts';
 import { DEFAULT_TOOLBAR, type ToolbarLayout } from '../core/toolbar.ts';
 import type { CustomThemeId } from './custom-themes.ts';
 import type { Corners } from './corners.ts';
+import type { LanguageId } from '../core/i18n.ts';
 
 export interface SavedServer {
   id: string;
@@ -20,6 +21,7 @@ export interface SavedServer {
 export type ScreenShareRoute = 'automatic' | 'standard' | 'fallback' | 'relay-only' | 'direct-only' | 'off';
 
 export interface Settings {
+  language: 'auto' | LanguageId; // the interface language; auto follows the browser
   embedHosts: string[];    // hosts whose media links render inline
   mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
   sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
@@ -100,6 +102,7 @@ export const serverInitials = (label: string) =>
   label.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
 
 const defaults: Settings = {
+  language: 'auto',
   embedHosts: [],
   mediaLinks: 'click',
   sendThumbnails: true,
@@ -168,6 +171,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',
   hints: 'accessibility',
+  language: 'accessibility',
   updateCheck: 'about',
   pokeNotify: 'sounds',
   roleIcons: 'appearance.roles', roleColors: 'appearance.roles',
