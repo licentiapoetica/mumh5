@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte.ts';
   import Background from './Background.svelte';
   import Icon from './Icon.svelte';
   import ServerButton from './ServerButton.svelte';
@@ -95,7 +96,7 @@
   </div>
 
   {#if session.status === 'connected'}
-    <Composer target={session.view} placeholder={`Message ${isDm ? '@' : '#'}${title}`} />
+    <Composer target={session.view} placeholder={t('chat.placeholder', { target: `${isDm ? '@' : '#'}${title}` })} />
   {/if}
 </section>
 
