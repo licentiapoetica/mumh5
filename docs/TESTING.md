@@ -52,6 +52,27 @@ layout. It blocks external HTTPS requests. Screenshot output is ignored under
 `.tooling/`. `DREAM_CORD_TEST_URL` overrides the gateway URL; the test target
 remains 127.0.0.1:64750.
 
+## Connection diagnostics and settings regression
+
+With the same disposable server and gateway running, run:
+
+```sh
+(cd frontend && bun tools/settings-smoke.ts)
+```
+
+This checks migration from a saved Rooms interface without changing its layout,
+exactly one Settings button beside Home across layouts, collapsed server lists
+and phone navigation (outside the audio toolbar), the About debug
+window and its copy/download/filter/clear controls, and a background connection
+idle for 36 seconds (longer than stock Mumble's timeout). It then closes the test
+WebSocket with a known code/reason and checks that both appear in the log.
+
+The frontend unit suite (`cd frontend && bun run test`) covers worker startup and
+failure fallback, timer cancellation, bounded logs, credentials staying out of
+diagnostics, and a local disconnect reason surviving synchronous native close.
+Rust tests also check that upstream TLS EOF preserves queued bytes and a useful
+close reason.
+
 ## Actual Tauri window
 
 This test runs the built native Tauri/WebKit application, not a browser mock.

@@ -1,7 +1,7 @@
 // The order of the toolbar's buttons and spacers, and which buttons are hidden.
 // Hidden buttons keep their place, so showing one again puts it back where it was.
 
-export type ToolId = 'info' | 'mic' | 'deafen' | 'camera' | 'screen' | 'profile' | 'settings' | 'tree' | 'you';
+export type ToolId = 'info' | 'mic' | 'deafen' | 'camera' | 'screen' | 'profile' | 'tree' | 'you';
 export type ToolbarItem = ToolId | 'sep';
 export interface ToolbarLayout { items: ToolbarItem[]; hidden: ToolId[] }
 
@@ -12,14 +12,13 @@ export const TOOLS: { id: ToolId; label: string; icon: string }[] = [
   { id: 'camera', label: 'Camera', icon: 'camera' },
   { id: 'screen', label: 'Share screen', icon: 'screen' },
   { id: 'profile', label: 'Edit profile', icon: 'message' },
-  { id: 'settings', label: 'Configure', icon: 'settings' },
   { id: 'tree', label: 'Expand or collapse all', icon: 'filter' },
   { id: 'you', label: 'Name and picture', icon: 'user' }
 ];
 
 // The first spacer sets the server button apart
 export const DEFAULT_TOOLBAR: ToolbarLayout = {
-  items: ['sep', 'info', 'mic', 'deafen', 'camera', 'screen', 'sep', 'profile', 'sep', 'settings', 'sep', 'tree', 'you'],
+  items: ['sep', 'info', 'mic', 'deafen', 'camera', 'screen', 'sep', 'profile', 'sep', 'tree', 'you'],
   hidden: []
 };
 

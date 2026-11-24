@@ -117,10 +117,6 @@
         <button class="icon-btn" data-tool={index} title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>
           <Icon name="message" size={18} />
         </button>
-      {:else if item === 'settings'}
-        <button class="icon-btn" data-tool={index} title="Configure" aria-label="Configure" onclick={() => (ui.settingsOpen = true)}>
-          <Icon name="settings" size={18} />
-        </button>
       {:else if item === 'tree'}
         <button class="icon-btn" data-tool={index} title={allOpen ? 'Collapse all channels' : 'Expand all channels'} aria-label={allOpen ? 'Collapse all channels' : 'Expand all channels'}
           disabled={session.status !== 'connected'} onclick={toggleAll}>

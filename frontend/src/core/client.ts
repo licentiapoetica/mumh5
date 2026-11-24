@@ -1,3 +1,4 @@
+import { debugLog } from './debug-log.ts';
 import { Emitter } from './emitter.ts';
 import { FrameReader, frame, type Codec, type MessageName } from './proto.ts';
 import type { Transport } from './transport.ts';
@@ -179,7 +180,10 @@ type ClientEvents = {
   message: (name: MessageName, msg: any) => void;
 };
 
+let nextDebugId = 1;
+
 export class MumbleClient extends Emitter<ClientEvents> {
+  readonly debugId = nextDebugId++;
   readonly channels = new Map<number, Channel>();
   readonly users = new Map<number, User>();
   // Our effective permissions per channel (PermissionQuery); cleared when the server flushes
@@ -270,8 +274,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
   }
 
   disconnect(reason = 'Disconnected'): void {
-    this.transport?.close();
     this.handleClose(reason);
+    this.transport?.close();
   }
 
   send(name: MessageName, payload: Record<string, unknown>): void {
@@ -544,6 +548,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
     const at = Date.now();
     const gap = at - this.lastTick;
     this.lastTick = at;
+    debugLog.record(gap > 2 * PING_INTERVAL_MS ? 'warn' : 'debug', 'keepalive', 'Keepalive tick', { connection: this.debugId, gapMs: gap, silenceMs: at - this.lastRx });
     // Only silence while the timer ran on time counts: after the page was paused, or for ticks
     // that queued up meanwhile, the answer may simply not have been read yet
     if (this.synced && at - this.lastRx > SILENCE_LIMIT_MS && gap > PING_INTERVAL_MS / 2 && gap < 2 * PING_INTERVAL_MS) {
@@ -562,6 +567,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
   private handleClose(reason: string): void {
     if (this.closed) return;
     this.closed = true;
+    debugLog.record(reason === 'Disconnected' ? 'info' : 'warn', 'connection', 'Connection closed', { connection: this.debugId, reason, synced: this.synced, silenceMs: Date.now() - this.lastRx });
     this.stopPings?.();
     if (this.queueTimer) clearTimeout(this.queueTimer);
     this.stopPings = null;

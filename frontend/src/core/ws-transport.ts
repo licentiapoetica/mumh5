@@ -1,3 +1,4 @@
+import { debugLog } from './debug-log.ts';
 import { HeldData, type Transport, type ServerCertInfo } from './transport.ts';
 
 // Transport through the mumh5 web proxy: one WebSocket per Mumble connection. The proxy opens
@@ -22,11 +23,13 @@ export class WebSocketTransport implements Transport {
     this.secure.catch(() => {});
     let reason = '';
     let opened = false;
+    debugLog.record('info', 'websocket', 'Opening gateway connection', { host: target.host, port: target.port });
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       opened = true;
+      debugLog.record('info', 'websocket', 'Gateway WebSocket opened', { host: target.host, port: target.port });
       ws.send(JSON.stringify({ host: target.host, port: target.port, certPem: identity.certPem, keyPem: identity.keyPem }));
     };
     ws.onmessage = e => {
@@ -34,10 +37,15 @@ export class WebSocketTransport implements Transport {
       let msg: any;
       try { msg = JSON.parse(e.data); } catch { return; }
       if (msg.type === 'secure') resolveSecure(msg.info);
-      else if (msg.type === 'close') reason = String(msg.reason ?? '');
+      else if (msg.type === 'close') {
+        reason = String(msg.reason ?? '');
+        debugLog.record('warn', 'websocket', 'Gateway closed upstream connection', { host: target.host, port: target.port, reason });
+      }
     };
-    ws.onclose = () => {
-      reason ||= opened ? 'Connection closed' : 'Could not reach the proxy';
+    ws.onerror = () => debugLog.record('error', 'websocket', 'Gateway WebSocket error', { host: target.host, port: target.port, online: navigator.onLine });
+    ws.onclose = e => {
+      reason ||= e.reason || (opened ? `WebSocket closed (code ${e.code}${e.wasClean ? '' : ', unclean'})` : `Could not reach the gateway (code ${e.code})`);
+      debugLog.record(e.wasClean ? 'info' : 'warn', 'websocket', 'Gateway WebSocket closed', { host: target.host, port: target.port, code: e.code, clean: e.wasClean, reason });
       rejectSecure(new Error(reason));
       this.onClose?.(reason);
     };

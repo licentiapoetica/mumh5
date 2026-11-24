@@ -14,15 +14,6 @@
     { id: 'stacked', name: 'Stacked', note: 'Channels on top, chat below, like Mumble' }
   ];
 
-  const INTERFACES: { id: 'standard' | 'rooms'; name: string; note: string }[] = [
-    { id: 'standard', name: 'Standard', note: 'Channel tree, chat and members side by side' },
-    { id: 'rooms', name: 'Rooms', note: 'One screen at a time, made for phones. New and not complete yet' }
-  ];
-  function choose(id: 'standard' | 'rooms') {
-    store.settings.interface = id;
-    store.saveSettings();
-  }
-
   function arrange(id: Arrangement) {
     store.settings.arrangement = id;
     store.saveSettings();
@@ -70,30 +61,6 @@
 </div>
 <p class="help">Chat, members, profiles and voice tiles keep the picture.</p>
 
-<SectionHead title="Interface" part="appearance.interface" />
-<div class="themes" role="radiogroup" aria-label="Interface">
-  {#each INTERFACES as f (f.id)}
-    {@const on = (store.settings.interface ?? 'standard') === f.id}
-    <button role="radio" aria-checked={on} class:active={on} onclick={() => choose(f.id)} aria-label={f.name}>
-      <span class="mini face {f.id}" aria-hidden="true">
-        {#if f.id === 'standard'}
-          <span class="m-rail"><span></span><span></span></span>
-          <span class="m-side"><i></i><i class="sel"></i><i></i></span>
-          <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><span class="m-box"></span></span>
-        {:else}
-          <span class="m-col">
-            <span class="m-chat"><span class="m-head"></span><i class="a"></i><i></i><i class="short"></i></span>
-            <span class="m-tabs"><i class="sel"></i><i></i><i></i><i></i></span>
-          </span>
-        {/if}
-      </span>
-      <span class="name">{f.name}</span>
-      <span class="note">{f.note}</span>
-    </button>
-  {/each}
-</div>
-
-{#if (store.settings.interface ?? 'standard') === 'standard'}
 <SectionHead title="Layout" part="appearance.layout" />
 <div class="themes" role="radiogroup" aria-label="Layout">
   {#each ARRANGEMENTS as a (a.id)}
@@ -139,7 +106,6 @@
   </div>
 {/if}
 <p class="help">Narrow windows use the phone layout, except Stacked, which stays as it is.</p>
-{/if}
 
 <BackgroundSettings />
 
@@ -214,9 +180,5 @@
   .m-chat i { height: 4px; background: var(--text-dim); width: 80%; }
   .m-chat i.a { background: var(--accent); width: 35%; }
   .m-chat i.short { width: 55%; }
-  .face.rooms .m-col { flex: 1; display: flex; flex-direction: column; }
-  .m-tabs { flex: none; height: 12px; display: flex; gap: 6px; align-items: center; justify-content: center; background: var(--bg-0); border-top: 1px solid var(--line); }
-  .m-tabs i { width: 10px; height: 4px; background: var(--text-faint); }
-  .m-tabs i.sel { background: var(--accent); }
   .m-box { margin-top: auto; height: 10px; background: var(--bg-3); border: 1px solid var(--line); }
 </style>

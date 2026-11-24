@@ -286,7 +286,7 @@ async fn wire_open(
              data=transport.receive.recv()=>match data{
               Some(Ok(data))=>{if events.send(json!({"event":"data","args":[data]})).is_err(){break;}
                tokio::select!{_ = cancel.cancelled()=>break,r=tokio::time::timeout(std::time::Duration::from_secs(30),acks.recv())=>{if !matches!(r,Ok(Some(()))){reason="Frontend stopped receiving data".into();break;}}}
-              },Some(Err(e))=>{reason=e.to_string();break;},None=>break
+              },Some(Err(e))=>{reason=format!("{e:#}");break;},None=>break
              }
             }
         }
