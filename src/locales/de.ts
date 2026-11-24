@@ -6,7 +6,7 @@ export const de: Partial<Record<Key, string>> = {
   'chat.placeholder': 'Nachricht an {target}',
   // composer
   'composer.sendFile': 'Datei senden',
-  'composer.codeHint': 'Codeausschnitt (oder ```sprache in der Nachricht)',
+  'composer.codeHint': 'Codeausschnitt (oder ```lang in der Nachricht)',
   'composer.code': 'Codeausschnitt',
   'composer.message': 'Nachricht',
   'composer.emojiHint': 'Emoji (Umschalt+Klick in der Liste lässt sie offen)',
@@ -26,7 +26,7 @@ export const de: Partial<Record<Key, string>> = {
   'home.banned': 'Du wurdest gebannt',
   'home.refused': 'Der Server hat die Verbindung abgelehnt',
   'home.lost': 'Verbindung verloren',
-  'home.reconnect': 'Neu verbinden',
+  'home.reconnect': 'Wiederverbinden',
   'home.couldNotConnect': 'Verbindung nicht möglich',
   'home.retrying': 'Neuer Versuch in {n} Sekunden.',
   'home.retrying#one': 'Neuer Versuch in {n} Sekunde.',
