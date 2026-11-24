@@ -1,0 +1,222 @@
+name: Build and release mumh5
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .tooling
+            target
+          key: check-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
+      - run: ./tools/bootstrap.sh
+      - run: ./tools/check.sh
+      - name: Core without video dependencies
+        run: |
+          source tools/env.sh
+          cargo test --locked -p mumh5-core --no-default-features
+      - name: Native text, audio and video integration
+        run: |
+          source tools/env.sh
+          docker run -d --name mumh5-ci -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 mumblevoip/mumble-server:latest
+          trap 'docker rm -f mumh5-ci' EXIT
+          timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
+          MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-core --test live_server -- --nocapture
+  desktop:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+            bundles: deb,appimage
+          - os: windows-2022
+            platform: win
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Windows compiler environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Windows native libraries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install openssl:x64-windows-static-md libvpx:x64-windows-static-md opus:x64-windows-static-md
+          choco install protoc --no-progress -y
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+          "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+          "OPUS_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md/lib" >> $env:GITHUB_ENV
+          "OPUS_STATIC=1" >> $env:GITHUB_ENV
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .tooling
+            target
+          key: desktop-${{ runner.os }}-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
+      - run: ./tools/bootstrap.sh
+      - name: Native Tauri installers
+        run: |
+          source tools/env.sh
+          cd crates/desktop
+          cargo tauri build --ci --bundles '${{ matrix.bundles }}'
+      - name: Headless client
+        run: |
+          source tools/env.sh
+          cargo build --locked --release -p mumh5-cli
+      - name: Linux portable archive and AppImage runtime check
+        if: runner.os == 'Linux'
+        run: |
+          ./tools/package-linux.sh --no-build
+          for image in target/release/bundle/appimage/*.AppImage; do
+            if readelf -l "$image" | grep -q INTERP; then echo 'AppImage runtime must be static' >&2; exit 1; fi
+          done
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          if [[ '${{ runner.os }}' == Linux ]]; then
+            cp target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage target/mumh5-linux-x64.tar.gz artifacts/
+            cp target/release/mumh5-cli artifacts/mumh5-cli-linux-x64
+          else
+            cp target/release/bundle/nsis/*-setup.exe artifacts/
+            cp target/release/mumh5-cli.exe artifacts/mumh5-cli-win-x64.exe
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mumh5-${{ matrix.platform }}-x64-${{ github.sha }}
+          path: artifacts/*
+          if-no-files-found: error
+  android:
+    needs: check
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - run: sudo apt-get update && sudo apt-get install -y cmake pkg-config protobuf-compiler libssl-dev libopus-dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .tooling
+            target
+            ~/.gradle/caches
+          key: android-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock', '**/*.gradle.kts') }}
+      - run: ./tools/bootstrap.sh
+      - name: Build native Android APK
+        run: |
+          source tools/env.sh
+          export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          export ANDROID_NDK_ROOT="$NDK_HOME"
+          rustup target add aarch64-linux-android
+          cd crates/desktop
+          cargo tauri android build --ci --target aarch64 --apk --debug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mumh5-android-arm64-${{ github.sha }}
+          path: crates/desktop/gen/android/app/build/outputs/apk/**/**/*.apk
+          if-no-files-found: error
+  docker:
+    needs: check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:${{ github.ref_name == 'main' && 'latest' || 'testing' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            MUMH5_BUILD_COMMIT=${{ github.sha }}
+            MUMH5_BUILD_REPO=${{ github.repository }}
+  snapshot:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [desktop, android, docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mumh5-*
+          path: artifacts
+          merge-multiple: true
+      - run: ./scripts/publish-snapshot.sh artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SNAPSHOT_SHA: ${{ github.sha }}
+          SNAPSHOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, android, docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mumh5-*
+          path: artifacts
+          merge-multiple: true
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd artifacts && sha256sum * > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --generate-notes

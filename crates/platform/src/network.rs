@@ -38,7 +38,7 @@ pub async fn fetch(url: &str, max: usize) -> Result<(reqwest::Url, Vec<u8>)> {
         bail!("Only HTTP(S) URLs are supported");
     }
     let client = reqwest::Client::builder()
-        .user_agent("DreamCord/0.1")
+        .user_agent("mumh5/0.2")
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()?;

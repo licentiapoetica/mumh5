@@ -17,11 +17,12 @@ export const SHARE = {
 } as const;
 export type ShareType = typeof SHARE[keyof typeof SHARE];
 
-export interface ShareWatchRequest { id: string; relay: string; only: boolean; direct: boolean }
+export interface ShareWatchRequest { id: string; relay: string; only: boolean; direct: boolean; preferRelay?: true }
 export type ShareRoute = 'standard' | 'direct' | 'mumpeer';
 export type ShareFlow = { t: 'offer'; id: string; route: ShareRoute; sdp: string; fallback: boolean }
   | { t: 'answer'; id: string; route: ShareRoute; sdp: string }
-  | { t: 'fallback' | 'relay'; id: string }
+  | { t: 'fallback'; id: string }
+  | { t: 'relay'; id: string; retryStandard?: boolean }
   | { t: 'error'; id: string; reason: string };
 
 function message(text: string | undefined): (Record<string, unknown> & { id: string }) | null {
@@ -36,7 +37,10 @@ export function decodeWatchRequest(text: string | undefined): ShareWatchRequest 
   const msg = message(text);
   if (!msg || typeof msg.only !== 'boolean' || typeof msg.direct !== 'boolean' || (msg.only && msg.direct)) return null;
   if (typeof msg.relay !== 'string' || (msg.relay !== '' && !/^[0-9a-f]{40}:[0-9a-f]{64}$/.test(msg.relay))) return null;
-  return { id: msg.id, relay: msg.relay, only: msg.only, direct: msg.direct };
+  if (msg.preferRelay != null && typeof msg.preferRelay !== 'boolean') return null;
+  const request: ShareWatchRequest = { id: msg.id, relay: msg.relay, only: msg.only, direct: msg.direct };
+  if (msg.preferRelay === true) request.preferRelay = true;
+  return request;
 }
 
 export function decodeShareFlow(text: string | undefined): ShareFlow | null {
@@ -45,7 +49,11 @@ export function decodeShareFlow(text: string | undefined): ShareFlow | null {
   if (msg.t === 'error' && typeof msg.reason === 'string' && msg.reason.length <= 180) {
     return { t: msg.t, id: msg.id, reason: msg.reason };
   }
-  if (msg.t === 'fallback' || msg.t === 'relay') return { t: msg.t, id: msg.id };
+  if (msg.t === 'fallback') return { t: msg.t, id: msg.id };
+  if (msg.t === 'relay') {
+    if (msg.retryStandard != null && typeof msg.retryStandard !== 'boolean') return null;
+    return msg.retryStandard === true ? { t: msg.t, id: msg.id, retryStandard: true } : { t: msg.t, id: msg.id };
+  }
   if (msg.route !== 'standard' && msg.route !== 'direct' && msg.route !== 'mumpeer') return null;
   if (typeof msg.sdp !== 'string' || !msg.sdp) return null;
   if (msg.t === 'answer') return { t: msg.t, id: msg.id, route: msg.route, sdp: msg.sdp };

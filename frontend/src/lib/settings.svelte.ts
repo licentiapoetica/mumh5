@@ -17,7 +17,7 @@ export interface SavedServer {
   autoConnect?: boolean;   // connect when the app starts; off unless chosen
 }
 
-export type ScreenShareRoute = 'standard' | 'fallback' | 'relay-only' | 'direct-only' | 'off';
+export type ScreenShareRoute = 'automatic' | 'standard' | 'fallback' | 'relay-only' | 'direct-only' | 'off';
 
 export interface Settings {
   embedHosts: string[];    // hosts whose media links render inline
@@ -128,7 +128,7 @@ const defaults: Settings = {
   cameraFps: 30,
   cameraMirror: true,
   shareVolume: 1,
-  screenShareRoute: 'standard',
+  screenShareRoute: 'automatic',
   relayServer: '',
   stunServer: '',
   shareNoticeSeen: false,

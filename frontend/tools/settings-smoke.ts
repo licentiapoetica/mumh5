@@ -1,5 +1,5 @@
 import { chromium, type Page } from 'playwright-core';
-const base = Bun.env.DREAM_CORD_TEST_URL ?? 'http://127.0.0.1:18080';
+const base = Bun.env.MUMH5_TEST_URL ?? 'http://127.0.0.1:18080';
 const browser = await chromium.launch({ executablePath: Bun.env.CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
 context.setDefaultTimeout(10000);
@@ -50,7 +50,8 @@ try {
  }
  console.log('PASS Settings next to Home across layouts and sizes, with rail shown and hidden');
  await page.locator('section.home').getByRole('button', { name: 'Add a server', exact: true }).click();
- await page.getByLabel('Address', { exact: true }).fill('127.0.0.1'); await page.getByLabel('Port', { exact: true }).fill('64750');
+ if (await page.locator('select#c-host').count()) await page.locator('select#c-host').selectOption('127.0.0.1:64750');
+ else { await page.getByLabel('Address', { exact: true }).fill('127.0.0.1'); await page.getByLabel('Port', { exact: true }).fill('64750'); }
  await page.getByLabel('Username', { exact: true }).fill('debug-smoke');
  await page.getByLabel('Password', { exact: false }).fill('private-password-sentinel');
  await page.getByRole('button', { name: 'Save and connect' }).click(); await page.getByText('Root', { exact: true }).first().waitFor();
@@ -81,7 +82,7 @@ try {
  const copied = await page.evaluate(() => navigator.clipboard.readText());
  require(copied.includes('Server synchronized') && !copied.includes('private-password-sentinel'), 'Copy log missing diagnostics or includes credentials');
  const downloading = page.waitForEvent('download'); await log.getByRole('button', { name: 'Download log' }).click();
- require((await downloading).suggestedFilename().startsWith('dream-cord-debug-'), 'Debug download missing');
+ require((await downloading).suggestedFilename().startsWith('mumh5-debug-'), 'Debug download missing');
  await log.getByRole('searchbox').fill('nonexistent-filter-value'); await log.getByText('No matching events.').waitFor();
  await log.getByRole('searchbox').fill('');
  await page.screenshot({ path: `${new URL('../../', import.meta.url).pathname}.tooling/debug-log.png` });

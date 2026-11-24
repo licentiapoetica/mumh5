@@ -14,6 +14,6 @@ export class DebugLog {
   snapshot(): readonly DebugEntry[] { return this.entries.slice(); }
   subscribe(fn: () => void): () => void { this.listeners.add(fn); fn(); return () => { this.listeners.delete(fn); }; }
   clear(): void { this.entries = []; for (const fn of this.listeners) fn(); }
-  export(entries = this.snapshot()): string { return ['Dream Cord debug log', ...entries.map(e => `${e.time} ${e.level.toUpperCase()} [${e.area}] ${e.message}${Object.keys(e.details).length ? ' ' + JSON.stringify(e.details) : ''}`)].join('\n') + '\n'; }
+  export(entries = this.snapshot()): string { return ['mumh5 debug log', ...entries.map(e => `${e.time} ${e.level.toUpperCase()} [${e.area}] ${e.message}${Object.keys(e.details).length ? ' ' + JSON.stringify(e.details) : ''}`)].join('\n') + '\n'; }
 }
 export const debugLog = new DebugLog();

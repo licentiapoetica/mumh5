@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Local main window only; embedded remote pages have no native authority.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-save", "notification:default", "opener:allow-open-url"]
+  "permissions": ["core:default", "voice:default", "dialog:allow-save", "notification:default", "opener:allow-open-url"]
 }

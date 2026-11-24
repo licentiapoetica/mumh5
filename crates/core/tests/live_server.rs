@@ -1,6 +1,6 @@
 //! Opt-in integration against a disposable stock Mumble server. No external hosts by default.
 use anyhow::{Context, Result};
-use dream_cord_core::{Client, Options, Target};
+use mumh5_core::{Client, Options, Target};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -17,10 +17,10 @@ async fn next_text(events: &mut tokio::sync::mpsc::Receiver<Value>, expected: &s
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_text_audio_and_independent_streams() -> Result<()> {
-    let Ok(host) = std::env::var("DREAM_CORD_TEST_HOST") else {
+    let Ok(host) = std::env::var("MUMH5_TEST_HOST") else {
         return Ok(());
     };
-    let port = std::env::var("DREAM_CORD_TEST_PORT")
+    let port = std::env::var("MUMH5_TEST_PORT")
         .unwrap_or_else(|_| "64750".into())
         .parse()?;
     for tcp_only in [true, false] {
@@ -103,10 +103,10 @@ async fn native_text_audio_and_independent_streams() -> Result<()> {
 #[cfg(feature = "video")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_video_round_trip() -> Result<()> {
-    let Ok(host) = std::env::var("DREAM_CORD_TEST_HOST") else {
+    let Ok(host) = std::env::var("MUMH5_TEST_HOST") else {
         return Ok(());
     };
-    let port = std::env::var("DREAM_CORD_TEST_PORT")
+    let port = std::env::var("MUMH5_TEST_PORT")
         .unwrap_or_else(|_| "64750".into())
         .parse()?;
     let dir = std::env::temp_dir().join(format!("dream-video-live-{}", uuid::Uuid::new_v4()));

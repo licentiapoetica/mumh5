@@ -111,7 +111,7 @@
     <input id="c-user" bind:value={username} autocomplete="username" required />
     <label for="c-pass">Password <span class="opt">(optional)</span></label>
     <input id="c-pass" type="password" bind:value={password} autocomplete="current-password" />
-    <label class="check"><input type="checkbox" bind:checked={autoConnect} /> Connect when Dream Cord starts</label>
+    <label class="check"><input type="checkbox" bind:checked={autoConnect} /> Connect when mumh5 starts</label>
     <label class="check"><input type="checkbox" bind:checked={autoReconnect} /> Automatically reconnect</label>
     <p class="note">Retry connection loss and kicks after 5 seconds, backing off to 30 seconds. Disconnecting yourself, bans, login rejections and certificate changes stop retries.</p>
     {#if identities.list.length > 1}

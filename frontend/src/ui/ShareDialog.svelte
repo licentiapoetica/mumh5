@@ -172,7 +172,7 @@
 </script>
 
 <Modal title="Share your screen" {onclose} width={760}>
-  <p class="help">Dream Cord users in your channel can watch. Nothing is sent until you press Start sharing.</p>
+  <p class="help">mumh5 users in your channel can watch. Nothing is sent until you press Start sharing.</p>
 
   <div class="kinds" role="tablist" aria-label="What to share">
     <button role="tab" aria-selected={kind === 'screen'} class:active={kind === 'screen'} disabled={!canScreen}

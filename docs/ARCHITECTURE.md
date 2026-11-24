@@ -25,7 +25,7 @@ The existing UI checks its saved SHA-256 pin before sending credentials. The
 CLI likewise checks pins before authentication; changed pins need explicit
 verified replacement. Desktop profile files are atomic and mode 0600 in a 0700
 directory on Unix. Do not run multiple desktop processes on the same profile.
-Set `DREAM_CORD_PROFILE` for a separate desktop profile. CLI `--state-dir` is a
+Set `MUMH5_PROFILE` for a separate desktop profile. CLI `--state-dir` is a
 separate identity/pin format, intended for persistent individual bots.
 
 TLS byte queues are bounded. Desktop packets use Tauri IPC channels and explicit
@@ -51,4 +51,4 @@ these are browser/build dependencies, not a Node runtime dependency.
 
 The legacy `mumh5.*` wire identifiers and local-storage keys are retained for
 interoperability. Original source/asset attribution is preserved. Visible product
-and release identification are Dream Cord; updates point to this repository.
+and release identification are mumh5; updates point to this repository.

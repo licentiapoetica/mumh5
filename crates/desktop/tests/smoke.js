@@ -7,7 +7,7 @@
  const click = async text => (await wait(() => button(text), text)).click();
  const input = (selector, value) => { const el = document.querySelector(selector); if (!el) throw new Error(`Missing ${selector}`); el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); };
  try {
-  await wait(() => window.dreamCordNative && document.querySelector('[role=dialog]'), 'Tauri UI mounted');
+  await wait(() => window.mumh5Native && document.querySelector('[role=dialog]'), 'Tauri UI mounted');
   // No hardware access during tests. Normal builds use the WebView's own user-media API.
   if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = async () => { const ctx = new AudioContext(); return ctx.createMediaStreamDestination().stream; };
   await wait(() => [...document.querySelectorAll('button')].find(e => e.textContent.includes('Create a new identity')), 'identity wizard').then(e => e.click());
@@ -16,7 +16,7 @@
   await wait(() => !document.querySelector('[role=dialog]'), 'wizard closes');
   if (getComputedStyle(document.querySelector('.app')).display !== 'flex') throw new Error('Component styles missing');
   results.push('styled Tauri window');
-  const api = window.dreamCordNative;
+  const api = window.mumh5Native;
   const list = await api.identities.list();
   if (!list.setupDone || list.identities.length !== 1 || 'keyPem' in list.identities[0]) throw new Error('Identity API failed');
   results.push('native identity wizard and private key isolation');
@@ -34,8 +34,8 @@
   await wait(() => udp, 'encrypted native UDP probe'); stopUdp(); results.push('native encrypted UDP voice lane');
   if (!document.querySelector('[contenteditable=true]')) await wait(() => [...document.querySelectorAll('button')].find(e => /^(Chat|Text)$/.test(e.textContent.trim())), 'chat navigation').then(e => e.click());
   const composer = await wait(() => document.querySelector('[contenteditable=true]'), 'chat composer');
-  composer.textContent = 'Dream Cord desktop integration message'; composer.dispatchEvent(new Event('input', { bubbles: true })); composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-  await wait(() => document.querySelector('.msg')?.textContent?.includes('Dream Cord desktop integration message') || [...document.querySelectorAll('.msg')].some(e => e.textContent.includes('Dream Cord desktop integration message')), 'sent chat rendered');
+  composer.textContent = 'mumh5 desktop integration message'; composer.dispatchEvent(new Event('input', { bubbles: true })); composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+  await wait(() => document.querySelector('.msg')?.textContent?.includes('mumh5 desktop integration message') || [...document.querySelectorAll('.msg')].some(e => e.textContent.includes('mumh5 desktop integration message')), 'sent chat rendered');
   results.push('chat send and rendering');
   await invoke('smoke_report', { report: { ok: true, results, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
  } catch (error) { await invoke('smoke_report', { report: { ok: false, results, udpEvents, error: String(error), text: document.body?.innerText } }); }

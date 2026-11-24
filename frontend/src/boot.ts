@@ -1,3 +1,5 @@
+import { startAndroidControls } from './lib/android-controls.svelte.ts';
+import { connLog } from './lib/conn-log.svelte.ts';
 import { debugLog } from './core/debug-log.ts';
 import { mount } from 'svelte';
 // Inter, bundled: the font files are served by the app itself
@@ -19,7 +21,7 @@ import { updates } from './lib/updates.svelte.ts';
 import { useWorkerTimers } from './lib/worker-timer.ts';
 import { startMediaControls } from './lib/media-controls.svelte.ts';
 
-debugLog.record('info', 'app', 'Dream Cord started', { platform: isWeb ? 'web' : 'desktop', version: __DREAM_CORD_BUILD__.version });
+debugLog.record('info', 'app', 'mumh5 started', { platform: isWeb ? 'web' : 'desktop', version: __MUMH5_BUILD__.version });
 if (isWeb) void proxyInfo.load();
 useWorkerTimers();
 window.addEventListener('online', () => debugLog.record('info', 'network', 'Network reported online'));
@@ -35,3 +37,10 @@ startHints();
 serverStatus.start();
 updates.start();
 startMediaControls();
+
+startAndroidControls();
+connLog.start();
+
+if (isWeb && 'serviceWorker' in navigator) {
+ window.addEventListener('load', () => { void navigator.serviceWorker.register(new URL('./sw.js', document.baseURI)).catch(error => debugLog.record('warn', 'app', 'Offline support could not start', { error: String(error) })); });
+}

@@ -1172,7 +1172,7 @@ async fn run(
         flush_serial: 1 << 63,
     };
     let result = async {
-        runner.send(0, &pb::Version { version_v1: Some(0x010500), version_v2: Some((1u64 << 48) | (5u64 << 32)), release: Some("Dream Cord 0.1.0".into()), os: Some(std::env::consts::OS.into()), ..Default::default() }).await?;
+        runner.send(0, &pb::Version { version_v1: Some(0x010500), version_v2: Some((1u64 << 48) | (5u64 << 32)), release: Some("mumh5 0.1.0".into()), os: Some(std::env::consts::OS.into()), ..Default::default() }).await?;
         runner.send(2, &pb::Authenticate { username: Some(options.name), password: options.password, tokens: options.tokens, opus: Some(true), client_type: Some(1), ..Default::default() }).await?;
         let mut ready = Some(ready);
         let mut clock = interval(Duration::from_millis(10)); clock.set_missed_tick_behavior(MissedTickBehavior::Skip);

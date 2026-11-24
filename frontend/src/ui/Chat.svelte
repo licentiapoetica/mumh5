@@ -50,7 +50,7 @@
 
   const isDm = $derived(session.view.startsWith('dm:'));
   const isText = $derived(!isDm && session.isText(Number(session.view.slice(3))));
-  const title = $derived(session.status === 'connected' ? session.viewTitle() : 'Dream Cord');
+  const title = $derived(session.status === 'connected' ? session.viewTitle() : 'mumh5');
   const topic = $derived.by(() => {
     if (isDm || session.status !== 'connected') return '';
     return channelTopic(session.channel(Number(session.view.slice(3)))?.description ?? '');

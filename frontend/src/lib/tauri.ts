@@ -21,9 +21,9 @@ export async function initializePlatform(): Promise<void> {
   udpPending.set(id, next); return next;
  };
  const report = (p: Promise<unknown>) => { void p.catch(e => console.error('Native operation failed:', e)); };
- const relayUnavailable = async (): Promise<never> => { throw new Error('The optional mumpeer relay is not available in Dream Cord yet. Use direct WebRTC sharing.'); };
+ const relayCall = <T = any>(id: string, action: string, args: unknown) => invoke<T>('wire_relay', { id, action, args });
  const api: NativeApi = {
-  relaySupported: false,
+  relaySupported: true,
   platformInfo: () => call('platformInfo'), describeCerts: ders => call('describeCerts', { ders: ders.map(toBase64) }),
   pingServer: (host, port) => call('ping', { host, port }),
   identities: {
@@ -37,6 +37,18 @@ export async function initializePlatform(): Promise<void> {
   savedState: {
    sync(key, local, merge) {
     if (cache[key] === undefined && merge && local !== null) { cache[key] = local; report(call('stateWrite', { key, raw: local })); }
+    if (merge && local !== null && cache[key] !== undefined) {
+     try {
+      const a = JSON.parse(cache[key]), b = JSON.parse(local);
+      if (key === 'mumh5.servers' && Array.isArray(a) && Array.isArray(b)) {
+       cache[key] = JSON.stringify([...a, ...b.filter(s => !a.some(x => x.id === s.id || (String(x.host).toLowerCase() === String(s.host).toLowerCase() && x.port === s.port && x.username === s.username)))]);
+      } else if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+       for (const [k, v] of Object.entries(b)) a[k] = Array.isArray(a[k]) && Array.isArray(v) ? [...new Set([...a[k], ...v])] : v;
+       cache[key] = JSON.stringify(a);
+      }
+      report(call('stateWrite', { key, raw: cache[key] }));
+     } catch { /* Keep the valid native backup when an origin has damaged data. */ }
+    }
     return cache[key] ?? local;
    },
    write(key, raw) { cache[key] = raw; report(call('stateWrite', { key, raw })); return true; }
@@ -50,6 +62,7 @@ export async function initializePlatform(): Promise<void> {
   onTrayAction(fn) { void listen<string>('tray-action', e => fn(e.payload)); },
   attention: () => report(call('attention')), showWindow: () => report(call('showWindow')),
   onWindowShown(fn) {
+   if (/Android/i.test(navigator.userAgent)) { const update = () => fn(!document.hidden); update(); document.addEventListener('visibilitychange', update); return () => document.removeEventListener('visibilitychange', update); }
    const w = getCurrentWindow(); let stopped = false;
    const update = async () => { const shown = await w.isVisible() && !await w.isMinimized(); if (!stopped) fn(shown); };
    report(update()); const off = w.onFocusChanged(() => report(update())); const resize = w.onResized(() => report(update()));
@@ -66,15 +79,24 @@ export async function initializePlatform(): Promise<void> {
     event.preventDefault(); fn(p);
    });
   },
-  editAction(action) {
+  editAction(action, arg) {
+   if (action === 'copyImageAt' || action === 'saveImage') {
+    const image = action === 'copyImageAt' ? document.elementFromPoint((arg as { x: number; y: number }).x, (arg as { x: number; y: number }).y)?.closest<HTMLImageElement>('img') : null;
+    const url = image?.src ?? (typeof arg === 'string' ? arg : '');
+    if (url) report((async () => {
+     const data = /^(data:|blob:)/.test(url) ? toBase64(new Uint8Array(await (await fetch(url)).arrayBuffer())) : undefined;
+     await call(action === 'saveImage' ? 'saveImage' : 'copyImage', { url, data });
+    })());
+    return;
+   }
    if (['undo', 'redo', 'cut', 'copy', 'selectAll'].includes(action)) document.execCommand(action);
    else if (action === 'paste') report(navigator.clipboard.readText().then(text => { document.execCommand('insertText', false, text); }));
   },
   // WebView/OS picker controls screen access. The normal camera and mic APIs remain unchanged.
   screenSources: async () => ({ sources: [{ id: 'portal', name: 'Choose with system picker', thumbnail: '' }], chosen: false }),
-  pickScreenSource() {}, shareInfo: async () => ({ portal: true, audio: 'none', micLabel: '' }), shareAudioApps: async () => [],
-  shareAudioStart: async () => { throw new Error('System audio capture is unavailable in this WebView.'); }, shareAudioStop: async () => {},
-  canPickColor: async () => false, pickColor: async () => null,
+  pickScreenSource() {}, shareInfo: () => call('shareInfo'), shareAudioApps: () => call('shareAudioApps'),
+  shareAudioStart: target => call('shareAudioStart', { target }), shareAudioStop: () => call('shareAudioStop'),
+  canPickColor: () => call('canPickColor'), pickColor: () => call('pickColor'),
   async open(id, host, port, identityId) {
    active.add(id);
    const channel = new Channel<{ event: string; args: any[] }>(); channels.set(id, channel);
@@ -93,14 +115,14 @@ export async function initializePlatform(): Promise<void> {
    pending.set(id, next); void next.catch(e => { emit('close', id, [String(e)]); api.close(id); });
   },
   close(id) { active.delete(id); channels.delete(id); pending.delete(id); udpPending.delete(id); emit('close', id, ['Connection closed']); report(invoke('wire_close', { id })); },
-  relayOpen: relayUnavailable, relayTurn: relayUnavailable, relayCloseLane() {}, relayClose() {},
+  relayOpen: (id, rid, endpoint, token, lowSide) => relayCall(id, 'open', { rid, endpoint, token, lowSide }), relayTurn: (id, rid, lane) => relayCall(id, 'turn', { rid, lane }), relayCloseLane: (id, rid, lane) => report(relayCall(id, 'closeLane', { rid, lane })), relayClose: (id, rid) => report(relayCall(id, 'close', { rid })),
   on(name, fn) { const set = events.get(name) ?? new Set(); events.set(name, set); set.add(fn); return () => { set.delete(fn); }; },
   udpSetup: (id, key, cn, sn, protobuf) => report(udpCall(id, 'setup', { key: [...key], cn: [...cn], sn: [...sn], protobuf })),
   udpNonce: (id, sn) => report(udpCall(id, 'nonce', { sn: [...sn] })),
   udpSend: (id, bytes) => report(udpCall(id, 'send', { bytes: [...bytes] })),
   udpClientNonce: async id => { const n = await udpCall<number[] | null>(id, 'clientNonce', {}); return n ? new Uint8Array(n) : null; }
  };
- window.dreamCordNative = api;
+ window.mumh5Native = api;
  // Open external links with the system browser. Keep untrusted pages outside native IPC.
  addEventListener('click', e => { const a = (e.target as HTMLElement)?.closest<HTMLAnchorElement>('a[href]'); if (a && /^https?:/.test(a.href)) { e.preventDefault(); report(openUrl(a.href)); } });
  const originalOpen = window.open.bind(window);

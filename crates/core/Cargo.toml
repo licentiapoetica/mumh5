@@ -1,5 +1,5 @@
 [package]
-name = "dream-cord-core"
+name = "mumh5-core"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -9,7 +9,7 @@ description = "Native headless Mumble client and bot library"
 build = "build.rs"
 
 [lib]
-name = "dream_cord_core"
+name = "mumh5_core"
 
 [features]
 default = ["video"]
@@ -38,3 +38,8 @@ webrtc = { version = "0.17.3", optional = true }
 cc = "1"
 pkg-config = "0.3"
 prost-build = "0.14"
+vcpkg = "0.2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+audiopus_sys = { version = "0.2", features = ["static"] }

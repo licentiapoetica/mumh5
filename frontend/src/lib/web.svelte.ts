@@ -20,9 +20,9 @@ interface StoreData { identities: StoredIdentity[]; defaultId: string | null; se
 
 const KEY = 'mumh5.identities';
 
-// The proxy normally serves the page; DREAM_CORD_PROXY_URL points a separately hosted page at it
+// The proxy normally serves the page; MUMH5_PROXY_URL points a separately hosted page at it
 const base = (() => {
-  const fixed = import.meta.env?.DREAM_CORD_PROXY_URL as string | undefined;
+  const fixed = import.meta.env?.MUMH5_PROXY_URL as string | undefined;
   if (fixed) return fixed.replace(/\/*$/, '/');
   return typeof location !== 'undefined' ? new URL('.', location.href).href : '';
 })();

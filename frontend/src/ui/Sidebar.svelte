@@ -76,7 +76,7 @@
     <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
       <strong>
         {#if marked}<span class="mark">{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={12} />{/if}</span>{/if}
-        <span class="server-name">{session.server?.label ?? 'Dream Cord'}</span>
+        <span class="server-name">{session.server?.label ?? 'mumh5'}</span>
       </strong>
       <span class="status" role="status" onpointerenter={e => (e.currentTarget.title = describeLink(session.client?.link.read(Date.now())))}>
         {#if marked}<span class="mark">{#if session.status === 'connected'}<span class="dot"></span>{/if}</span>{/if}

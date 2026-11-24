@@ -1,10 +1,10 @@
 import type { User } from '../core/client.ts';
 import {
   MUMCORD_HELLO, MUMCORD_PEER, PAIR_SIGNAL, PEER_HELLO,
-  decodeBot, decodePair, encodePair, requestId, requestPair,
+  decodeBot, decodePair, encodePair, requestId, requestPair, sameRelayHost,
   type BotMessage, type PairMessage, type RelayAnnouncement
 } from '../core/mumpeer-signal.ts';
-import { desktop, type TauriTransport } from './native.ts';
+import { type TauriTransport } from './native.ts';
 import type { Session } from './session.svelte.ts';
 import { store } from './settings.svelte.ts';
 
@@ -51,13 +51,13 @@ export class MumpeerSession {
   // A small buffer covers a request arriving while the corresponding share signal is being decoded.
   private needs = new Map<number, string[]>();
   private forgotPin = false;
-  private greeted = false;
+  private greeted = new Set<number>();
 
   constructor(session: Session) { this.session = session; }
 
-  get enabled(): boolean { if (!desktop?.relaySupported) return false;
+  get enabled(): boolean {
     const route = store.settings.screenShareRoute;
-    return !!this.transport && (route === 'fallback' || route === 'relay-only');
+    return !!this.transport && (route === 'automatic' || route === 'fallback' || route === 'relay-only');
   }
 
   private get key(): string | null {
@@ -66,8 +66,14 @@ export class MumpeerSession {
     return server && hash ? JSON.stringify([server.host.toLowerCase(), server.port, hash.toLowerCase()]) : null;
   }
 
+  private get eligible(): Announcer[] {
+    if (store.settings.screenShareRoute !== 'automatic') return this.announcements;
+    const host = this.session.server?.host ?? '';
+    return this.announcements.filter(bot => sameRelayHost(host, bot.message.host));
+  }
+
   private get candidate(): Announcer | null {
-    const active = this.announcements.filter(bot => !bot.departed);
+    const active = this.eligible.filter(bot => !bot.departed);
     return active.length === 1 ? active[0] : null;
   }
 
@@ -81,10 +87,15 @@ export class MumpeerSession {
 
   get status(): string {
     if (!this.enabled) return 'Discovery is off';
-    if (this.announcements.filter(bot => !bot.departed).length > 1) return 'Multiple relay bots announced';
+    const eligible = this.eligible;
+    if (eligible.filter(bot => !bot.departed).length > 1) return 'Multiple relay bots announced';
     if (this.changed) return 'The relay identity changed';
     const bot = this.candidate;
-    if (!bot) return this.announcements.length ? 'Waiting for relay bot to reconnect' : 'No relay announced';
+    if (!bot) {
+      if (eligible.length) return 'Waiting for relay bot to reconnect';
+      if (this.announcements.some(bot => !bot.departed)) return 'Relay announced on a different host';
+      return 'No relay announced';
+    }
     if (!this.hasPin) return 'Relay trust required';
     if (bot.message.state === 'down') return 'Relay unavailable';
     if (!bot.message.screen) return 'Screen sharing is disabled on the relay';
@@ -141,14 +152,17 @@ export class MumpeerSession {
   hello(to?: number): void {
     const client = this.session.client;
     if (!this.enabled || !client?.synced || client.serverVersionNum < 0x010400) return;
-    this.greeted = true;
     const peers = to == null ? [...client.users.keys()] : [to];
-    client.sendPluginData(peers.filter(id => id !== client.session), MUMCORD_HELLO, PEER_HELLO);
+    // Only a registered sender can announce a relay.
+    const recipients = peers.filter(id => id !== client.session && !this.greeted.has(id) && client.users.get(id)?.userId != null);
+    if (!recipients.length) return;
+    for (const id of recipients) this.greeted.add(id);
+    client.sendPluginData(recipients, MUMCORD_HELLO, PEER_HELLO);
   }
 
   policyChanged(): void {
     if (this.enabled) {
-      if (!this.hasPin && !this.forgotPin && this.candidate) this.trust();
+      this.pinCandidate();
       this.hello();
     } else {
       // The bot remembers sessions and can send an announcement only once until it changes.
@@ -156,8 +170,8 @@ export class MumpeerSession {
     }
   }
 
-  userChanged(user: User, isNew: boolean): void {
-    if (isNew) this.hello(user.session);
+  userChanged(user: User, discover: boolean): void {
+    if (discover) this.hello(user.session);
     const announcer = this.announcements.find(bot => bot.sender === user.session && !bot.departed);
     if (announcer && (announcer.hash !== user.hash.toLowerCase() || user.userId == null)) this.userLeft(user.session);
     const pair = this.pairs.get(user.session);
@@ -165,6 +179,7 @@ export class MumpeerSession {
   }
 
   userLeft(id: number): void {
+    this.greeted.delete(id);
     this.needs.delete(id);
     const pair = this.pairs.get(id);
     if (pair) this.end(pair, 'The other user left the server.');
@@ -190,7 +205,7 @@ export class MumpeerSession {
       if (msg) this.peerMessage(sender, msg);
       return;
     }
-    if (dataId !== MUMCORD_PEER || !this.greeted) return;
+    if (dataId !== MUMCORD_PEER || !this.greeted.has(sender)) return;
     const user = this.session.client?.users.get(sender);
     if (!user || user.userId == null || !validHash(user.hash) || sender === this.session.client?.session) return;
     const msg = decodeBot(data);
@@ -200,16 +215,20 @@ export class MumpeerSession {
   }
 
   private announce(sender: number, hash: string, message: RelayAnnouncement): void {
-    const key = this.key;
-    if (!key) return;
+    if (!this.key) return;
     const current = this.announcements.find(bot => bot.sender === sender && !bot.departed);
     if (current && message.seq <= current.message.seq) return;
     for (const bot of this.announcements) if (bot.hash === hash && bot.departed) clearTimeout(bot.departed);
     const bot = { sender, hash, message };
-    // Pin the first valid announcement. Forgetting within this connection requires explicit trust.
-    if (this.enabled && !store.mumpeerPins[key] && !this.forgotPin && !this.announcements.length) store.setMumpeerPin(key, pin(bot));
     this.announcements = [...this.announcements.filter(entry => entry !== current && !(entry.hash === hash && entry.departed)), bot];
+    this.pinCandidate();
     this.rejectPending();
+  }
+
+  private pinCandidate(): void {
+    const key = this.key, bot = this.candidate;
+    // Forgetting within this connection requires explicit trust.
+    if (this.enabled && key && bot && !store.mumpeerPins[key] && !this.forgotPin) store.setMumpeerPin(key, pin(bot));
   }
 
   private rejectPending(): void {
@@ -363,6 +382,6 @@ export class MumpeerSession {
     this.offClose = null;
     this.transport = null;
     this.forgotPin = false;
-    this.greeted = false;
+    this.greeted.clear();
   }
 }

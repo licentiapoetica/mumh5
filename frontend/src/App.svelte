@@ -209,10 +209,10 @@
   <div class="update-bar" role="status">
     <Icon name="download" size={16} />
     {#if updates.web}
-      <span class="msg">This site has a newer version of Dream Cord.</span>
+      <span class="msg">This site has a newer version of mumh5.</span>
       <button class="btn primary" title="Loads the new version. Disconnects from servers until it has loaded." onclick={() => updates.reload()}>Reload</button>
     {:else}
-      <span class="msg">A newer Dream Cord is available ({updates.info.changes} {updates.info.changes === 1 ? 'change' : 'changes'}).</span>
+      <span class="msg">A newer mumh5 is available ({updates.info.changes} {updates.info.changes === 1 ? 'change' : 'changes'}).</span>
       <a class="btn primary" href={updates.info.url} target="_blank" rel="noreferrer">Download</a>
     {/if}
     <button class="icon-btn" aria-label="Not now" title="Hide until there is another update" onclick={() => updates.dismiss()}><Icon name="x" size={16} /></button>

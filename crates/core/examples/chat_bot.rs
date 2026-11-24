@@ -1,21 +1,21 @@
 use anyhow::{Context, Result};
-use dream_cord_core::{Client, Options, bot};
+use mumh5_core::{Client, Options, bot};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 #[tokio::main(worker_threads = 2)]
 async fn main() -> Result<()> {
-    let host = std::env::var("DREAM_CORD_HOST").context("Set DREAM_CORD_HOST")?;
-    let directory = std::env::var("DREAM_CORD_STATE_DIR")
-        .context("Set DREAM_CORD_STATE_DIR to a persistent bot profile directory")?;
+    let host = std::env::var("MUMH5_HOST").context("Set MUMH5_HOST")?;
+    let directory = std::env::var("MUMH5_STATE_DIR")
+        .context("Set MUMH5_STATE_DIR to a persistent bot profile directory")?;
     let mut options = Options::new(host, "rust-helper", directory);
-    options.port = std::env::var("DREAM_CORD_PORT")
+    options.port = std::env::var("MUMH5_PORT")
         .unwrap_or_else(|_| "64738".into())
         .parse()?;
-    options.password = std::env::var("DREAM_CORD_PASSWORD").ok();
-    options.trust_new = std::env::var("DREAM_CORD_TRUST_NEW").as_deref() == Ok("1");
-    options.server_fingerprint = std::env::var("DREAM_CORD_SERVER_FINGERPRINT").ok();
-    let admins: HashSet<u32> = std::env::var("DREAM_CORD_ADMIN_USER_IDS")
+    options.password = std::env::var("MUMH5_PASSWORD").ok();
+    options.trust_new = std::env::var("MUMH5_TRUST_NEW").as_deref() == Ok("1");
+    options.server_fingerprint = std::env::var("MUMH5_SERVER_FINGERPRINT").ok();
+    let admins: HashSet<u32> = std::env::var("MUMH5_ADMIN_USER_IDS")
         .unwrap_or_default()
         .split(',')
         .filter(|s| !s.trim().is_empty())

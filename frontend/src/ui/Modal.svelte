@@ -20,9 +20,21 @@
     view.addEventListener('keydown', key);
     return { destroy: () => view.removeEventListener('keydown', key) };
   }
+
+  // A section with a background is its own stacking context, which would keep the dialog
+  // under whatever is stacked above that section (the channel list over the chat)
+  function leaveBackground(node: HTMLElement) {
+    if (!node.parentElement?.closest('[data-background]')) return;
+    const doc = node.ownerDocument;
+    const focused = doc.activeElement as HTMLElement | null;
+    doc.body.appendChild(node);
+    // Moving a node drops its focus
+    if (focused && node.contains(focused)) focused.focus();
+    return { destroy: () => node.remove() };
+  }
 </script>
 
-<div class="backdrop" class:windowed role="presentation" use:escapeCloses
+<div class="backdrop" class:windowed role="presentation" use:escapeCloses use:leaveBackground
   onmousedown={e => { if (!windowed && e.target === e.currentTarget) onclose(); }}>
   <div class="modal" role="dialog" aria-modal={windowed ? undefined : 'true'} aria-label={title} style:max-width="{width}px"
     style:height={height ? `${height}px` : undefined} class:fixed={!!height}>

@@ -19,12 +19,27 @@ export interface RelayEndpoint { host: string; tcp: number; fp: string }
 
 const DNS_NAME = /^(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)*[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.?$/i;
 
+function ipv6Host(host: string): string | null {
+  if (!/^[a-f\d:.]+$/i.test(host)) return null;
+  try { return new URL(`https://[${host}]/`).hostname; }
+  catch { return null; }
+}
+
 function validHost(host: string): boolean {
   if (host.length > 253) return false;
-  if (!host.includes(':')) return DNS_NAME.test(host);
-  if (!/^[a-f\d:.]+$/i.test(host)) return false;
-  try { return new URL(`https://[${host}]/`).hostname.length > 0; }
-  catch { return false; }
+  return host.includes(':') ? ipv6Host(host) != null : DNS_NAME.test(host);
+}
+
+// Automatic discovery compares the configured host without resolving DNS aliases.
+function hostKey(value: string): string | null {
+  const host = value.toLowerCase().replace(/\.$/, '');
+  if (host.includes(':')) return ipv6Host(host.replace(/^\[(.*)\]$/, '$1'));
+  return validHost(host) ? host : null;
+}
+
+export function sameRelayHost(server: string, relay: string): boolean {
+  const host = hostKey(server);
+  return host != null && host === hostKey(relay);
 }
 
 export function relayEndpoint(value: unknown): RelayEndpoint | null {

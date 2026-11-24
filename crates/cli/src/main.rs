@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use dream_cord_core::{
+use mumh5_core::{
     Client, Options, Target,
     video::{VideoFrame, frame_bytes},
 };
@@ -25,7 +25,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 #[derive(Parser, Debug)]
 #[command(
-    name = "dream-cord-cli",
+    name = "mumh5-cli",
     version,
     about = "Native Rust headless Mumble client and bot (no browser or Node)"
 )]
@@ -44,7 +44,7 @@ struct Args {
     trust_new: bool,
     #[arg(long)]
     server_fingerprint: Option<String>,
-    #[arg(long, default_value = "DREAM_CORD_PASSWORD")]
+    #[arg(long, default_value = "MUMH5_PASSWORD")]
     password_env: String,
     #[arg(long)]
     token: Vec<String>,
@@ -214,7 +214,7 @@ async fn video_output(
         tokio::fs::create_dir_all(dir).await?;
     }
     loop {
-        tokio::select! {_=cancel.cancelled()=>break,frame=stream.recv()=>{let Some(frame)=frame else{break};if let Some(dir)=&directory{let next=(frame.session,frame.width,frame.height);if next!=shape{if let Some(output)=&mut current{let output:&mut File=output;output.flush().await?;}let file=dir.join(format!("video-{}-{}-{serial}.y4m",frame.session,dream_cord_core::client::now()));serial+=1;let mut output=OpenOptions::new().write(true).create_new(true).open(&file).await?;output.write_all(format!("YUV4MPEG2 W{} H{} F{fps}:1 Ip A1:1 C420jpeg\n",frame.width,frame.height).as_bytes()).await?;current=Some(output);shape=next;out.emit(json!({"event":"video","session":frame.session,"width":frame.width,"height":frame.height,"file":file}))?;}let output=current.as_mut().unwrap();output.write_all(b"FRAME\n").await?;output.write_all(&frame.data).await?;}}}
+        tokio::select! {_=cancel.cancelled()=>break,frame=stream.recv()=>{let Some(frame)=frame else{break};if let Some(dir)=&directory{let next=(frame.session,frame.width,frame.height);if next!=shape{if let Some(output)=&mut current{let output:&mut File=output;output.flush().await?;}let file=dir.join(format!("video-{}-{}-{serial}.y4m",frame.session,mumh5_core::client::now()));serial+=1;let mut output=OpenOptions::new().write(true).create_new(true).open(&file).await?;output.write_all(format!("YUV4MPEG2 W{} H{} F{fps}:1 Ip A1:1 C420jpeg\n",frame.width,frame.height).as_bytes()).await?;current=Some(output);shape=next;out.emit(json!({"event":"video","session":frame.session,"width":frame.width,"height":frame.height,"file":file}))?;}let output=current.as_mut().unwrap();output.write_all(b"FRAME\n").await?;output.write_all(&frame.data).await?;}}}
     }
     if let Some(output) = &mut current {
         output.flush().await?;
@@ -298,14 +298,14 @@ async fn signal() {
 }
 async fn main_async(mut args: Args) -> Result<()> {
     if args.admin_user_ids.is_empty() {
-        args.admin_user_ids = std::env::var("DREAM_CORD_ADMIN_USER_IDS")
+        args.admin_user_ids = std::env::var("MUMH5_ADMIN_USER_IDS")
             .unwrap_or_default()
             .split(',')
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::parse)
             .collect::<std::result::Result<_, _>>()
-            .context("DREAM_CORD_ADMIN_USER_IDS must contain nonnegative registered user IDs")?;
+            .context("MUMH5_ADMIN_USER_IDS must contain nonnegative registered user IDs")?;
     }
     let size = frame_bytes(args.width, args.height)?;
     for path in [&args.audio_in, &args.audio_out, &args.video_in]
@@ -334,7 +334,7 @@ async fn main_async(mut args: Args) -> Result<()> {
             .context("Specify --state-dir when no configuration directory is available")?;
         let key =
             serde_json::to_string(&(args.server.to_ascii_lowercase(), args.port, &args.name))?;
-        base.join("dream-cord-cli")
+        base.join("mumh5-cli")
             .join(&hex::encode(Sha256::digest(key))[..16])
     };
     let mut options = Options::new(args.server, args.name.clone(), directory);
@@ -401,7 +401,7 @@ async fn main_async(mut args: Args) -> Result<()> {
                     output.emit(event.clone())?;
                     if closed { bail!("{}", event["reason"].as_str().unwrap_or("Disconnected")); }
                     if args.bot && Instant::now() >= next_command {
-                        let shutdown = dream_cord_core::bot::handle(&client, &event, &admin).await?;
+                        let shutdown = mumh5_core::bot::handle(&client, &event, &admin).await?;
                         if event["event"] == "text" && event["html"].as_str().is_some_and(|s| s.starts_with('!')) {
                             next_command = Instant::now() + Duration::from_millis(1500);
                         }

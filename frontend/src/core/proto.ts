@@ -1,4 +1,4 @@
-// Generated from proto/Mumble.proto by `npm run proto` (static code, no eval, so it runs under a strict CSP)
+// Generated from proto/Mumble.proto as static browser codecs (static code, no eval, so it runs under a strict CSP)
 import { MumbleProto } from './mumble-pb.js';
 
 // TCP control message type ids, in wire order (index = type id).

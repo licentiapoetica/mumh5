@@ -6,7 +6,7 @@ From the repository root in Bash:
 ./tools/bootstrap.sh
 source tools/env.sh
 ./tools/check.sh
-cargo test --locked -p dream-cord-core --no-default-features
+cargo test --locked -p mumh5-core --no-default-features
 ```
 
 The normal suite checks OCB2 vectors/replay protection, voice framing and Opus,
@@ -20,11 +20,11 @@ Use a test server, not a production server. Port 64750 is loopback only. The tes
 image's ban limit is disabled because tests create several short-lived clients.
 
 ```sh
-docker run -d --name dream-cord-test \
+docker run -d --name mumh5-test \
   -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp \
   -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 mumblevoip/mumble-server:latest
-DREAM_CORD_TEST_HOST=127.0.0.1 DREAM_CORD_TEST_PORT=64750 \
-  cargo test --locked -p dream-cord-core --test live_server -- --nocapture
+MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 \
+  cargo test --locked -p mumh5-core --test live_server -- --nocapture
 ```
 
 This checks private and channel text, native audio over both encrypted UDP and
@@ -38,7 +38,7 @@ Build the frontend and gateway, then start the gateway in another terminal:
 
 ```sh
 (cd frontend && bun run build)
-cargo run --locked -p dream-cord-web -- \
+cargo run --locked -p mumh5-web -- \
   --server 127.0.0.1:64750 --bind 127.0.0.1:18080
 # Another terminal, with tools/env.sh sourced:
 (cd frontend && bun tools/browser-smoke.ts)
@@ -49,7 +49,7 @@ browser context and synthetic media devices. It checks gateway origin/target
 restrictions, component styling, identity setup, server sync, chat, certificate
 pin persistence, opt-in history, unified audio/PDF cards, PDF rendering, and phone
 layout. It blocks external HTTPS requests. Screenshot output is ignored under
-`.tooling/`. `DREAM_CORD_TEST_URL` overrides the gateway URL; the test target
+`.tooling/`. `MUMH5_TEST_URL` overrides the gateway URL; the test target
 remains 127.0.0.1:64750.
 
 ## Connection diagnostics and settings regression
@@ -80,11 +80,11 @@ The test-only reporting command and injected script are compiled exclusively
 with `smoke-test`. Normal builds do not contain the command or script.
 
 ```sh
-cargo build --locked -p dream-cord-desktop --features smoke-test
+cargo build --locked -p mumh5-desktop --features smoke-test
 # With a disposable Xvfb display (install xvfb if required):
-DREAM_CORD_PROFILE="$PWD/.tooling/desktop-test" \
-DREAM_CORD_SMOKE_REPORT="$PWD/.tooling/desktop-smoke.json" \
-  xvfb-run -a dbus-run-session -- ./target/debug/dream-cord-desktop
+MUMH5_PROFILE="$PWD/.tooling/desktop-test" \
+MUMH5_SMOKE_REPORT="$PWD/.tooling/desktop-smoke.json" \
+  xvfb-run -a dbus-run-session -- ./target/debug/mumh5-desktop
 cat .tooling/desktop-smoke.json
 ```
 
@@ -99,7 +99,7 @@ WebViews are not covered by this smoke test.
 When done, stop the gateway and remove only your disposable test container:
 
 ```sh
-docker rm -f dream-cord-test
+docker rm -f mumh5-test
 ```
 
 Linux x86-64/WebKitGTK is the validated desktop platform. The README lists

@@ -1,4 +1,5 @@
 import { sessions } from './session.svelte.ts';
+import { inAndroidShell } from './android-shell.ts';
 import { voice } from './audio/voice.svelte.ts';
 
 // The media notification of phones (see VoiceEngine.startOutputElement): it names the channel and
@@ -6,7 +7,7 @@ import { voice } from './audio/voice.svelte.ts';
 // playback state stays "playing", since a paused session lets Android stop the page.
 export function startMediaControls(): void {
   const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined;
-  if (!ms) return;
+  if (!ms || inAndroidShell()) return;  // the shell's service notification has the buttons
   const target = () => sessions.voiceSession;
   const toggleMute = () => {
     const s = target();

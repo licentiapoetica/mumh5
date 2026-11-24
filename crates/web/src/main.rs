@@ -1,5 +1,7 @@
-//! Browser frontend and Mumble WebSocket gateway, implemented entirely in Rust.
+mod config;
+// Browser frontend and Mumble WebSocket gateway, implemented entirely in Rust.
 use anyhow::{Context, Result};
+use axum::extract::{ConnectInfo, Extension};
 use axum::{
     Json, Router,
     extract::Request,
@@ -7,48 +9,79 @@ use axum::{
         DefaultBodyLimit, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
-use dream_cord_core::{identity::Identity, transport::Transport};
-use dream_cord_platform::{certificates, network};
 use futures_util::SinkExt;
+use mumh5_core::{identity::Identity, transport::Transport};
+use mumh5_platform::turn::TurnServer;
+use mumh5_platform::{certificates, network};
 use serde_json::{Value, json};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::sync::Semaphore;
 use tower_http::services::{ServeDir, ServeFile};
 #[derive(Parser)]
-#[command(about = "Dream Cord browser UI and native Rust Mumble gateway")]
+#[command(about = "mumh5 browser UI and native Rust Mumble gateway")]
 struct Options {
-    #[arg(long, default_value = "127.0.0.1:8080")]
-    bind: std::net::SocketAddr,
-    /// Explicitly permitted Mumble target (HOST:PORT); repeat for multiple servers.
+    #[arg(long)]
+    bind: Option<SocketAddr>,
+    /// Explicit permitted target, HOST[:PORT][=Label]; repeat for multiple servers.
     #[arg(long = "server")]
     servers: Vec<String>,
-    /// Permit arbitrary targets, including private network addresses. Use only for trusted users.
+    /// Permit public targets; private targets require --allow-private or explicit --server.
     #[arg(long)]
     allow_any: bool,
-    #[arg(long, default_value = "frontend/dist")]
-    assets: PathBuf,
+    #[arg(long)]
+    allow_private: bool,
+    #[arg(long)]
+    assets: Option<PathBuf>,
 }
 struct App {
-    servers: Vec<(String, u16)>,
-    allow_any: bool,
+    config: config::Config,
+    turn: Option<TurnServer>,
     crypto: Arc<Semaphore>,
     connections: Arc<Semaphore>,
+    addresses: Mutex<HashMap<IpAddr, Arc<Semaphore>>>,
+    rates: Mutex<HashMap<(IpAddr, String), (Instant, u32)>>,
 }
 impl App {
-    fn allowed(&self, host: &str, port: u16) -> bool {
-        port > 0
-            && (self.allow_any
-                || self
-                    .servers
-                    .iter()
-                    .any(|(h, p)| h.eq_ignore_ascii_case(host) && *p == port))
+    fn rate(&self, ip: IpAddr, route: &str, limit: u32) -> bool {
+        let Ok(mut rates) = self.rates.lock() else {
+            return false;
+        };
+        rates.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
+        if rates.len() > 20000 {
+            return false;
+        }
+        let entry = rates
+            .entry((ip, route.into()))
+            .or_insert((Instant::now(), 0));
+        entry.1 += 1;
+        entry.1 <= limit
+    }
+    fn address_slot(&self, ip: IpAddr) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let mut map = self.addresses.lock().ok()?;
+        map.retain(|_, s| {
+            s.available_permits() < self.config.max_per_address || Arc::strong_count(s) > 1
+        });
+        if map.len() > 20000 {
+            return None;
+        }
+        map.entry(ip)
+            .or_insert_with(|| Arc::new(Semaphore::new(self.config.max_per_address)))
+            .clone()
+            .try_acquire_owned()
+            .ok()
     }
 }
 type Shared = Arc<App>;
@@ -82,20 +115,66 @@ fn target(v: &Value) -> Result<(&str, u16)> {
     }
     Ok((host, port))
 }
-async fn origin_guard(request: Request, next: Next) -> Response {
+async fn origin_guard(
+    State(app): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let client = if app.config.trust_proxy {
+        request
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next_back())
+            .and_then(|v| v.trim().parse::<IpAddr>().ok())
+            .map(|ip| SocketAddr::new(ip, peer.port()))
+            .unwrap_or(peer)
+    } else {
+        peer
+    };
+    request.extensions_mut().insert(client);
+    let route = request.uri().path();
+    let rate = if route.ends_with("/ping") {
+        60
+    } else if route.contains("/identity/") || route.ends_with("/relay") {
+        20
+    } else {
+        240
+    };
+    if !app.rate(client.ip(), route, rate) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many requests; retry in a minute",
+        )
+            .into_response();
+    }
+    if route.ends_with("/relay") {
+        let mut response = next.run(request).await;
+        response
+            .headers_mut()
+            .insert("access-control-allow-origin", "*".parse().unwrap());
+        return response;
+    }
     // Browser requests must originate on the gateway itself. No wildcard CORS or ambient credentials.
     if let Some(origin) = request.headers().get("origin") {
-        let valid = origin
-            .to_str()
-            .ok()
-            .and_then(reqwest_url)
-            .is_some_and(|authority| {
-                request
-                    .headers()
-                    .get("host")
-                    .and_then(|v| v.to_str().ok())
-                    .is_some_and(|host| host.eq_ignore_ascii_case(&authority))
-            });
+        let valid = app
+            .config
+            .origins
+            .iter()
+            .any(|v| v == "*" || origin.to_str().ok() == Some(v.as_str()))
+            || (app.config.origins.is_empty()
+                && origin
+                    .to_str()
+                    .ok()
+                    .and_then(reqwest_url)
+                    .is_some_and(|authority| {
+                        request
+                            .headers()
+                            .get("host")
+                            .and_then(|v| v.to_str().ok())
+                            .is_some_and(|host| host.eq_ignore_ascii_case(&authority))
+                    }));
         if !valid {
             return (
                 StatusCode::FORBIDDEN,
@@ -115,8 +194,31 @@ fn reqwest_url(s: &str) -> Option<String> {
 }
 async fn config(State(app): State<Shared>) -> Json<Value> {
     Json(
-        json!({"servers":app.servers.iter().map(|(host,port)|json!({"host":host,"port":port,"label":host})).collect::<Vec<_>>(),"any":app.allow_any,"stun":null,"turn":false}),
+        json!({"servers":app.config.servers,"default":app.config.default,"any":app.config.allow_any,"stun":app.turn.as_ref().map(|t|t.port),"turn":app.turn.is_some()&&app.config.turn.as_ref().is_some_and(|o|o.relay),"audioPackLimits":app.config.audio_limits}),
     )
+}
+async fn relay(State(app): State<Shared>) -> Response {
+    let Some(turn) = &app.turn else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"No STUN or relay here"})),
+        )
+            .into_response();
+    };
+    if !app.config.turn.as_ref().is_some_and(|o| o.relay) {
+        return Json(json!({"port":turn.port})).into_response();
+    }
+    match turn.credentials() {
+        Ok((username, credential)) => {
+            let mut v =
+                json!({"port":turn.port,"username":username,"credential":credential,"ttl":43200});
+            if !app.config.turn_urls.is_empty() {
+                v["urls"] = json!(app.config.turn_urls);
+            }
+            Json(v).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 async fn identity(
     State(app): State<Shared>,
@@ -143,40 +245,52 @@ async fn describe(Json(v): Json<Value>) -> ApiResult {
     for der in ders {
         let cert =
             openssl::x509::X509::from_der(&STANDARD.decode(der.as_str().context("Invalid DER")?)?)?;
-        out.push(dream_cord_core::certificates::describe(&cert)?);
+        out.push(mumh5_core::certificates::describe(&cert)?);
     }
     Ok(Json(json!(out)))
 }
 async fn ping(State(app): State<Shared>, Json(v): Json<Value>) -> ApiResult {
     let (h, p) = target(&v)?;
-    if !app.allowed(h, p) {
-        return Err(anyhow::anyhow!("Server is not permitted by this gateway").into());
+    if !app.config.listed(h, p) {
+        return Err(anyhow::anyhow!("Not a listed server of this proxy").into());
     }
-    Ok(Json(network::ping(h, p).await.unwrap_or(Value::Null)))
+    let address = app.config.address(h, p).await?;
+    Ok(Json(
+        network::ping(&address.ip().to_string(), p)
+            .await
+            .unwrap_or(Value::Null),
+    ))
 }
-async fn connect(State(app): State<Shared>, ws: WebSocketUpgrade, headers: HeaderMap) -> Response {
+async fn connect(
+    State(app): State<Shared>,
+    Extension(address): Extension<SocketAddr>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let Some(address_permit) = app.address_slot(address.ip()) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many connections from this address",
+        )
+            .into_response();
+    };
     let Ok(permit) = app.connections.clone().try_acquire_owned() else {
         return (StatusCode::SERVICE_UNAVAILABLE, "Too many connections").into_response();
     };
-    let address = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
     ws.max_message_size(8 * 1024 * 1024)
         .max_frame_size(8 * 1024 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
+            let _address_permit = address_permit;
             let _ = tunnel(socket, app, address).await;
         })
 }
-async fn tunnel(mut ws: WebSocket, app: Shared, _address: String) -> Result<()> {
+async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<()> {
     let result=async{
   let Some(Ok(Message::Text(hello)))=tokio::time::timeout(Duration::from_secs(10),ws.recv()).await? else{anyhow::bail!("Expected connection handshake");};
   if hello.len()>128*1024{anyhow::bail!("Handshake too large");}let hello:Value=serde_json::from_str(&hello)?;let(host,port)=target(&hello)?;
-  if !app.allowed(host,port){anyhow::bail!("Server is not permitted by this gateway");}
+  let resolved=app.config.address(host,port).await?;
   let identity=Identity{cert_pem:text(&hello,"certPem").into(),key_pem:text(&hello,"keyPem").into()};
-  let mut transport=Transport::connect(host,port,&identity).await?;
+  let mut transport=Transport::connect_to(host,port,&identity,Some(resolved),app.config.send_proxy.then_some(address)).await?;
   ws.send(Message::Text(json!({"type":"secure","info":transport.secure}).to_string().into())).await?;
   loop{tokio::select!{
    frame=ws.recv()=>match frame{Some(Ok(Message::Binary(b)))=>transport.send.send(b.to_vec()).await?,Some(Ok(Message::Ping(p)))=>ws.send(Message::Pong(p)).await?,Some(Ok(Message::Pong(_)))=>{},Some(Ok(Message::Close(_)))|None=>break,Some(Err(e))=>return Err(e.into()),_=>anyhow::bail!("Expected binary Mumble frames")},
@@ -199,54 +313,67 @@ async fn tunnel(mut ws: WebSocket, app: Shared, _address: String) -> Result<()> 
 #[tokio::main]
 async fn main() -> Result<()> {
     let options = Options::parse();
-    let mut servers = vec![];
-    for server in options.servers {
-        let (h, p) = server.rsplit_once(':').context("Use --server HOST:PORT")?;
-        let p = p.parse::<u16>()?;
-        if h.is_empty() || p == 0 {
-            anyhow::bail!("Invalid server");
-        }
-        servers.push((h.trim_matches(['[', ']']).to_string(), p));
+    let mut cfg = config::Config::from_env()?;
+    if let Some(bind) = options.bind {
+        cfg.bind = bind;
     }
-    if servers.is_empty() && !options.allow_any {
-        anyhow::bail!("Specify at least one --server HOST:PORT, or explicitly enable --allow-any");
+    if let Some(assets) = options.assets {
+        cfg.assets = assets;
+    }
+    for s in options.servers {
+        cfg.servers.extend(config::servers(&s)?);
+    }
+    cfg.allow_any |= options.allow_any;
+    cfg.allow_private |= options.allow_private;
+    if cfg.servers.is_empty() && !cfg.allow_any {
+        anyhow::bail!("Set MUMH5_SERVERS, MUMH5_DEFAULT_SERVER, --server or --allow-any");
+    }
+    let turn = if let Some(opts) = cfg.turn.clone() {
+        Some(TurnServer::start(opts, None).await?)
+    } else {
+        None
+    };
+    let assets_path = cfg.assets.clone();
+    let bind = cfg.bind;
+    if cfg.debug {
+        eprintln!(
+            "mumh5 gateway: {} permitted targets, {} connection slots",
+            cfg.servers.len(),
+            cfg.max_connections
+        );
     }
     let app = Arc::new(App {
-        servers,
-        allow_any: options.allow_any,
         crypto: Arc::new(Semaphore::new(4)),
-        connections: Arc::new(Semaphore::new(128)),
+        connections: Arc::new(Semaphore::new(cfg.max_connections)),
+        addresses: Default::default(),
+        rates: Default::default(),
+        config: cfg,
+        turn,
     });
-    let api=Router::new().route("/config",get(config)).route("/identity/{action}",post(identity)).route("/certs/describe",post(describe)).route("/ping",post(ping)).route("/connect",get(connect)).route("/relay",get(||async{(StatusCode::NOT_FOUND,Json(json!({"error":"Configure STUN/TURN in sharing settings; built-in relay is unavailable"})))})).layer(DefaultBodyLimit::max(4*1024*1024)).layer(middleware::from_fn(origin_guard));
-    let assets = ServeDir::new(&options.assets)
-        .not_found_service(ServeFile::new(options.assets.join("index.html")));
+    let api = Router::new()
+        .route("/config", get(config))
+        .route("/identity/{action}", post(identity))
+        .route("/certs/describe", post(describe))
+        .route("/ping", post(ping))
+        .route("/connect", get(connect))
+        .route("/relay", get(relay))
+        .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
+        .layer(middleware::from_fn_with_state(app.clone(), origin_guard));
+    let assets = ServeDir::new(&assets_path)
+        .not_found_service(ServeFile::new(assets_path.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
         .fallback_service(assets)
         .with_state(app);
-    let listener = tokio::net::TcpListener::bind(options.bind).await?;
-    println!("Dream Cord: http://{}", listener.local_addr()?);
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    let listener = tokio::net::TcpListener::bind(bind).await?;
+    println!("mumh5: http://{}", listener.local_addr()?);
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
     Ok(())
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn targets_require_exact_explicit_allowlist() {
-        let a = App {
-            servers: vec![("voice.example".into(), 64738)],
-            allow_any: false,
-            crypto: Arc::new(Semaphore::new(1)),
-            connections: Arc::new(Semaphore::new(1)),
-        };
-        assert!(a.allowed("VOICE.example", 64738));
-        assert!(!a.allowed("127.0.0.1", 64738));
-        assert!(!a.allowed("voice.example", 80));
-        assert!(target(&json!({"host":"x","port":65536})).is_err());
-    }
 }

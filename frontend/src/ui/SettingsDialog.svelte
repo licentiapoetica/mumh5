@@ -19,6 +19,8 @@
   import { formatBytes } from '../lib/html.ts';
   import { updates, build } from '../lib/updates.svelte.ts';
   import { credits } from '../lib/credits.ts';
+  import { connLog } from '../lib/conn-log.svelte.ts';
+  import { formatTime } from '../core/conn-log.ts';
   const repoUrl = `https://github.com/${build.repo}`;
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
@@ -136,6 +138,15 @@
       default: return null;
     }
   });
+  let logCopied = $state(false);
+  function copyLog(button: HTMLElement): void {
+    const view = button.ownerDocument.defaultView ?? window;
+    const header = [`mumh5 ${build.version}${build.commit ? ` ${build.commit.slice(0, 7)}` : ''}`, view.navigator.userAgent, ''];
+    view.navigator.clipboard.writeText(connLog.text(header)).then(() => {
+      logCopied = true;
+      view.setTimeout(() => { logCopied = false; }, 1500);
+    }, () => {});
+  }
   const checkedAt = $derived(updates.lastCheck ? new Date(updates.lastCheck).toLocaleString() : '');
 
   // Narrow layout: the tab row has no scrollbar; the wheel and dragging move it sideways
@@ -198,13 +209,14 @@
     {#if desktop}
       <label for="s-share-route">Screen sharing connection</label>
       <select id="s-share-route" bind:value={s.screenShareRoute} onchange={() => store.saveSettings()}>
-        <option value="standard">Automatic (existing STUN and TURN settings)</option>
-        <option value="fallback" disabled={!desktop?.relaySupported}>Automatic, with mumpeer fallback</option>
-        <option value="relay-only" disabled={!desktop?.relaySupported}>Mumpeer only (hide my IP from the other person)</option>
+        <option value="automatic">Automatic (prefer mumpeer on the Mumble host)</option>
+        <option value="standard">Configured STUN and TURN only</option>
+        <option value="fallback">Direct first, with mumpeer fallback</option>
+        <option value="relay-only">Mumpeer only (hide my IP from the other person)</option>
         <option value="direct-only">Direct only</option>
         <option value="off">Off</option>
       </select>
-      <p class="help">{!desktop?.relaySupported ? "Mumpeer is not available in this Rust version. " : ""}Mumpeer uses a relay announced by your Mumble server’s bot. Both desktop users must enable it. The relay operator can see your IP address. Changing this setting ends active screen shares.</p>
+      <p class="help">When both desktop clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. The relay operator can see your IP address. Changing this setting ends active screen shares.</p>
     {/if}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
@@ -219,7 +231,7 @@
     <input id="s-relay" bind:value={s.relayServer} onchange={() => { s.relayServer = s.relayServer.trim(); store.saveSettings(); }}
       placeholder={isWeb ? 'this site (automatic)' : 'https://voice.example.com'} autocomplete="off" />
     <p class="help">The address of a mumh5 web version. When a direct connection is not possible (mobile data, strict company networks), the stream goes through that server instead, by itself. {isWeb ? 'Empty uses the site you are on.' : 'Its operator sees your IP address and carries the stream, but cannot watch it.'}</p>
-    <p class="help">Screen sharing connects you directly to the people watching. Across the internet both sides need a STUN server to find a route; it learns your IP address but never sees the stream. {isWeb ? 'By default the site you are on provides it.' : 'With none, no outside server is contacted and streams only work on the same network.'} Networks that block direct connections, like many mobile ones, need more than STUN.</p>
+    <p class="help">A direct connection shares your IP address with the other participant. STUN helps both sides find a direct route across the internet. The STUN server learns your IP address. {isWeb ? 'By default the site you are on provides it.' : 'Without STUN, direct connections generally work best on the same network.'} Networks that block direct connections, like many mobile ones, need more than STUN.</p>
   {:else if tab === 'sounds'}
     <SoundSettings />
   {:else if tab === 'appearance'}
@@ -236,7 +248,7 @@
       onchange={() => { s.chatHistoryHours = historyHours(s.chatHistoryHours); store.saveSettings(); }} />
     <p class="help">Default: 24 hours. Closing a private conversation hides it; Delete history removes its saved messages.</p>
     <h3>Files</h3>
-    <p class="help">Files go through the Mumble server to other Dream Cord users, about 12 MB a minute from each person who has the file on a server with default limits. Regular Mumble users see the name and the preview picture. Small pictures go inline for everyone.</p>
+    <p class="help">Files go through the Mumble server to other mumh5 users, about 12 MB a minute from each person who has the file on a server with default limits. Regular Mumble users see the name and the preview picture. Small pictures go inline for everyone.</p>
     <label for="s-auto">Download files by themselves up to</label>
     <select id="s-auto" value={String(s.autoDownload)} onchange={e => { s.autoDownload = Number(e.currentTarget.value); saveFiles(); }}>
       <option value="0">Never, only when clicked</option>
@@ -272,7 +284,7 @@
       <option value="thumbnail">Player card with thumbnail (loads the thumbnail from YouTube)</option>
     </select>
   {:else if tab === 'about'}
-    <p class="about">Dream Cord {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
+    <p class="about">mumh5 {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
     <p class="help">A Mumble client for desktop and browser, MIT licensed. Built by Kibi, with code, tests and documentation written using Claude in Claude Code.</p>
     <p class="links">
       <a href={repoUrl} target="_blank" rel="noopener noreferrer">Repository</a>
@@ -302,6 +314,19 @@
     <h3>Diagnostics</h3>
     <p class="help">Open the live debug log to investigate connection drops and keepalive failures.</p>
     <button class="btn" onclick={() => (debugOpen = true)}>Open debug log</button>
+    <h3>Connection log</h3>
+    <p class="help">Why connections ended and what the page and network did around it, kept in this browser only. Copy it when reporting a dropped connection.</p>
+    <div class="row kept">
+      <button class="btn" disabled={!connLog.entries.length} onclick={e => copyLog(e.currentTarget)}>{logCopied ? 'Copied' : 'Copy'}</button>
+      <button class="btn" disabled={!connLog.entries.length} onclick={() => connLog.clear()}>Clear</button>
+    </div>
+    <ol class="log" aria-label="Connection log">
+      {#each [...connLog.entries].reverse() as e (e.at + e.text)}
+        <li><time>{formatTime(e.at)}</time> {e.text}</li>
+      {:else}
+        <li class="none">Nothing yet.</li>
+      {/each}
+    </ol>
     <h3>Credits</h3>
     <p class="help">mumh5 is not affiliated with the Mumble project. Mumble is a trademark of its respective owners. Licenses are listed in full in the license notices.</p>
     <ul class="credits">
@@ -365,6 +390,9 @@
   textarea { resize: vertical; }
   .about { margin: 6px 0 0; font-size: 14px; }
   .links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; font-size: 14px; }
+  .log { list-style: none; margin: 10px 0 0; padding: 8px 10px; max-height: 240px; overflow: auto; border: 1px solid var(--line-strong); background: var(--bg-1); font: 12px/1.5 ui-monospace, monospace; display: flex; flex-direction: column; gap: 2px; }
+  .log time { color: var(--text-faint); margin-right: 6px; }
+  .log .none { color: var(--text-dim); }
   .credits { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
   .credits .lic { margin-left: 6px; font-size: 12px; color: var(--text-faint); }
   .credits .what { color: var(--text-dim); }

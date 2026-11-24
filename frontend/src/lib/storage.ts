@@ -6,7 +6,7 @@ interface SavedBridge {
   sync(key: string, local: string | null, merge: boolean): string | null;
   write(key: string, raw: string): boolean;
 }
-const bridge = () => (globalThis as unknown as { dreamCordNative?: { savedState?: SavedBridge } }).dreamCordNative?.savedState;
+const bridge = () => (globalThis as unknown as { mumh5Native?: { savedState?: SavedBridge } }).mumh5Native?.savedState;
 
 function read(key: string): string | null {
   let local: string | null = null;

@@ -11,13 +11,13 @@ consumers drop frames/samples instead of accumulating an unbounded backlog.
 
 ## Build and run
 
-Use the isolated Rust 1.100 toolchain (`source tools/env.sh`),, a C compiler, pkg-config, protoc, and development headers
+Use the isolated Rust 1.100 toolchain (`source tools/env.sh`), a C compiler, pkg-config, protoc, and development headers
 for OpenSSL, Opus and libvpx. On Debian/Ubuntu:
 
 ```sh
 sudo apt-get install build-essential pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev
-cargo build --locked --release -p dream-cord-cli
-./target/release/dream-cord-cli --server localhost --name helper --trust-new
+cargo build --locked --release -p mumh5-cli
+./target/release/mumh5-cli --server localhost --name helper --trust-new
 ```
 
 The binary uses the platform's OpenSSL, Opus and libvpx shared libraries; deploy
@@ -28,14 +28,14 @@ and have not been tested.
 For voice and text without WebRTC/libvpx, build with `--no-default-features`.
 Voice still uses native Opus. Video commands in that build return a clear error.
 
-Use `cargo run --release -p dream-cord-cli -- ...` during development. The CLI
-binary runs without the frontend or Tauri libraries. See `dream-cord-cli --help`
+Use `cargo run --release -p mumh5-cli -- ...` during development. The CLI
+binary runs without the frontend or Tauri libraries. See `mumh5-cli --help`
 for all flags.
 
 ## Identity, certificates and credentials
 
-The default profile is `$XDG_CONFIG_HOME/dream-cord-cli/PROFILE` or
-`~/.config/dream-cord-cli/PROFILE`, keyed by server, port and username. Use
+The default profile is `$XDG_CONFIG_HOME/mumh5-cli/PROFILE` or
+`~/.config/mumh5-cli/PROFILE`, keyed by server, port and username. Use
 `--state-dir PATH` to choose a persistent bot identity explicitly. The certificate
 and key are saved as private files, and the server's SHA-256 certificate is pinned
 before authentication. The CLI keeps its own `identity.json` and `known-servers.json`; the desktop uses
@@ -45,7 +45,7 @@ For an unknown server certificate, verify and supply
 `--server-fingerprint SHA256_HEX`, or explicitly opt into first-use trust with
 `--trust-new`. A changed saved pin is rejected even with first-use trust enabled;
 verify and supply the replacement fingerprint. Credentials are sent only after
-this check. Set the server password in `DREAM_CORD_PASSWORD`, or select another
+this check. Set the server password in `MUMH5_PASSWORD`, or select another
 variable using `--password-env NAME`. Repeat `--token TOKEN` for channel access
 tokens. Profile files contain keys/pins, not saved chat history.
 
@@ -98,7 +98,7 @@ automatically.
 
 ```sh
 ffmpeg -i speech.wav -f s16le -ar 48000 -ac 1 speech.s16le
-./target/release/dream-cord-cli --server localhost --name helper --trust-new \
+./target/release/mumh5-cli --server localhost --name helper --trust-new \
   --audio-in speech.s16le --audio-out received.s16le
 # After quitting:
 ffplay -f s16le -ar 48000 -ac 1 received.s16le
@@ -124,9 +124,9 @@ is independent of WebRTC video audio; shared WebRTC audio is not mixed into voic
 
 ```sh
 ffmpeg -i source.mp4 -vf scale=640:360 -r 15 -pix_fmt yuv420p -f rawvideo video.i420
-./target/release/dream-cord-cli --server localhost --name camera-bot --trust-new \
+./target/release/mumh5-cli --server localhost --name camera-bot --trust-new \
   --video-in video.i420 --width 640 --height 360 --fps 15
-./target/release/dream-cord-cli --server localhost --name viewer-bot --trust-new \
+./target/release/mumh5-cli --server localhost --name viewer-bot --trust-new \
   --video-out recordings --watch camera-bot --fps 15
 ```
 
@@ -158,10 +158,10 @@ built-in chat commands, and `--admin-user-ids ID,...` for privileged controls.
 ## Verification
 
 ```sh
-cargo test --locked -p dream-cord-core
-cargo test --locked -p dream-cord-core --no-default-features
-DREAM_CORD_TEST_HOST=127.0.0.1 DREAM_CORD_TEST_PORT=64750 \
-  cargo test --locked -p dream-cord-core --test live_server -- --nocapture
+cargo test --locked -p mumh5-core
+cargo test --locked -p mumh5-core --no-default-features
+MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 \
+  cargo test --locked -p mumh5-core --test live_server -- --nocapture
 ```
 
 The last command requires a disposable local Mumble server and checks channel

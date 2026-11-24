@@ -1,5 +1,5 @@
 [package]
-name = "dream-cord-cli"
+name = "mumh5-cli"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
@@ -7,10 +7,10 @@ license.workspace = true
 
 [features]
 default = ["video"]
-video = ["dream-cord-core/video"]
+video = ["mumh5-core/video"]
 
 [dependencies]
-dream-cord-core.workspace = true
+mumh5-core.workspace = true
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 serde_json.workspace = true

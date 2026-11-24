@@ -26,12 +26,41 @@ pub struct Transport {
 }
 impl Transport {
     pub async fn connect(host: &str, port: u16, identity: &Identity) -> Result<Self> {
+        Self::connect_to(host, port, identity, None, None).await
+    }
+    /// Connect to an already resolved/authorized address, optionally announcing the browser via PROXY v1.
+    pub async fn connect_to(
+        host: &str,
+        port: u16,
+        identity: &Identity,
+        address: Option<std::net::SocketAddr>,
+        proxy_client: Option<std::net::SocketAddr>,
+    ) -> Result<Self> {
         if host.is_empty() || host.len() > 253 || port == 0 {
             bail!("Invalid server address");
         }
-        let tcp = timeout(Duration::from_secs(20), TcpStream::connect((host, port))).await??;
+        let mut tcp = if let Some(address) = address {
+            timeout(Duration::from_secs(20), TcpStream::connect(address)).await??
+        } else {
+            timeout(Duration::from_secs(20), TcpStream::connect((host, port))).await??
+        };
         tcp.set_nodelay(true)?;
         let peer = tcp.peer_addr()?;
+        if let Some(client) = proxy_client {
+            let line = if client.is_ipv4() == peer.is_ipv4() {
+                format!(
+                    "PROXY {} {} {} {} {}\r\n",
+                    if client.is_ipv4() { "TCP4" } else { "TCP6" },
+                    client.ip(),
+                    peer.ip(),
+                    client.port(),
+                    peer.port()
+                )
+            } else {
+                "PROXY UNKNOWN\r\n".into()
+            };
+            timeout(Duration::from_secs(5), tcp.write_all(line.as_bytes())).await??;
+        }
         let ssl = identity::connector(identity)?.configure()?.into_ssl(host)?;
         let mut tls = SslStream::new(ssl, tcp)?;
         timeout(Duration::from_secs(20), Pin::new(&mut tls).connect()).await??;

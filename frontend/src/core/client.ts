@@ -5,7 +5,7 @@ import type { Transport } from './transport.ts';
 import { LinkMeter } from './link-quality.ts';
 import { labelNames, parseDisplayName } from './display-name.ts';
 
-export const CLIENT_RELEASE = 'Dream Cord 0.1.0';
+export const CLIENT_RELEASE = 'mumh5 0.1.0';
 const VERSION = { major: 1, minor: 5, patch: 0 };
 // Often enough for the connection wave to follow the link
 const PING_INTERVAL_MS = 5000;

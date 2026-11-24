@@ -119,12 +119,12 @@ export interface IdentitySummary {
 }
 
 declare global {
-  interface Window { dreamCordNative?: NativeApi }
+  interface Window { mumh5Native?: NativeApi }
 }
 
 // Desktop-only features (tray, UDP voice, public list, direct link previews) check `desktop`
-export const desktop: NativeApi | null = typeof window !== 'undefined' ? window.dreamCordNative ?? null : null;
-// The browser build (vite --mode web) talks to the web proxy instead
+export const desktop: NativeApi | null = typeof window !== 'undefined' ? window.mumh5Native ?? null : null;
+// The browser build talks to the Rust WebSocket gateway
 export const isWeb = !desktop;
 export const native: PlatformApi | null = desktop ?? (isWeb ? webApi : null);
 

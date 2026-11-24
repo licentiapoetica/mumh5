@@ -3,7 +3,7 @@ import { desktop, isWeb } from './native.ts';
 import { store } from './settings.svelte.ts';
 import { load, save } from './storage.ts';
 
-export const build = __DREAM_CORD_BUILD__;
+export const build = __MUMH5_BUILD__;
 
 // The build this page runs (web build only; written into index.html by the Bun build)
 const webBuild = isWeb ? document.querySelector<HTMLMetaElement>('meta[name="mumh5-build"]')?.content ?? '' : '';

@@ -9,7 +9,7 @@ to Mumble; neither runs Node.js, a browser, or a display server.
 Start the built-in bot:
 
 ```sh
-./target/release/dream-cord-cli --server localhost --name helper --trust-new --bot
+./target/release/mumh5-cli --server localhost --name helper --trust-new --bot
 ```
 
 Send `!help` or `!ping` from another Mumble client. Commands can arrive privately
@@ -32,9 +32,9 @@ Register your ordinary Mumble user on the server, send `!whoami`, then restart t
 bot with the reported **registered user ID**:
 
 ```sh
-./target/release/dream-cord-cli --server localhost --name helper --bot \
+./target/release/mumh5-cli --server localhost --name helper --bot \
   --admin-user-ids 12,34
-# Alternatively: DREAM_CORD_ADMIN_USER_IDS=12,34 ... --bot
+# Alternatively: MUMH5_ADMIN_USER_IDS=12,34 ... --bot
 ```
 
 Authorization uses registered IDs supplied by the server. Display names, session
@@ -55,23 +55,23 @@ automatically.
 Add the crate from a checkout:
 
 ```sh
-cargo add dream-cord-core --path ../dream-cord/crates/core
+cargo add mumh5-core --path ../mumh5/crates/core
 cargo add anyhow serde_json
 cargo add tokio --features macros,rt-multi-thread,signal,time
 ```
 
 Native build dependencies are listed in [CLI.md](CLI.md). Add
-`--no-default-features` when adding `dream-cord-core` if your bot needs only text and
+`--no-default-features` when adding `mumh5-core` if your bot needs only text and
 voice, without WebRTC/libvpx. A runnable library example is
 `crates/core/examples/chat_bot.rs` in the repository:
 
 ```sh
-DREAM_CORD_HOST=localhost DREAM_CORD_STATE_DIR=./helper-profile DREAM_CORD_TRUST_NEW=1 \
-  cargo run -p dream-cord-core --example chat_bot
+MUMH5_HOST=localhost MUMH5_STATE_DIR=./helper-profile MUMH5_TRUST_NEW=1 \
+  cargo run -p mumh5-core --example chat_bot
 ```
 
-The example accepts `DREAM_CORD_PORT`, `DREAM_CORD_PASSWORD`, `DREAM_CORD_SERVER_FINGERPRINT` and
-`DREAM_CORD_ADMIN_USER_IDS`. Use distinct profile directories for different bots/server
+The example accepts `MUMH5_PORT`, `MUMH5_PASSWORD`, `MUMH5_SERVER_FINGERPRINT` and
+`MUMH5_ADMIN_USER_IDS`. Use distinct profile directories for different bots/server
 profiles. It delegates chat control to the public `bot::handle()` helper, applies
 command pacing and calls `close()` on shutdown. `bot::handle()` returns `true`
 after an authorized shutdown command; the caller then closes the connection.
@@ -80,13 +80,13 @@ A minimal custom ping bot looks like this:
 
 ```rust,no_run
 use anyhow::Result;
-use dream_cord_core::{Client, Options, Target};
+use mumh5_core::{Client, Options, Target};
 
 #[tokio::main(worker_threads = 2)]
 async fn main() -> Result<()> {
     let mut options = Options::new("localhost", "my-helper", "./my-helper-profile");
     options.trust_new = true; // Or use a verified options.server_fingerprint.
-    options.password = std::env::var("DREAM_CORD_PASSWORD").ok();
+    options.password = std::env::var("MUMH5_PASSWORD").ok();
     let mut connection = Client::connect(options).await?;
     let client = connection.client.clone();
     loop {
@@ -142,7 +142,7 @@ Optional public fields are `port` (64738), `password`, `trust_new`,
 and identity behavior match the CLI. Keep a persistent CLI profile directory for each bot.
 
 ```rust,no_run
-# use dream_cord_core::{Client, Target};
+# use mumh5_core::{Client, Target};
 # async fn example(client: &Client) -> anyhow::Result<()> {
 client.send_text("Hello channel", None, None).await?;
 client.send_text("Private hello", Some(Target::Name("alice".into())), None).await?;
@@ -187,7 +187,7 @@ The outgoing input is `send_audio(Vec<i16>)`; incoming samples arrive on the
 `Connection::audio` receiver. Both use **48 kHz mono signed 16-bit PCM**.
 
 ```rust,no_run
-# use dream_cord_core::Connection;
+# use mumh5_core::Connection;
 # async fn example(mut connection: Connection) -> anyhow::Result<()> {
 connection.client.enable_audio(40000).await?;
 // Send 10 ms of silence; replace with your capture/TTS samples.
@@ -214,7 +214,7 @@ JSON/file/pipe PCM uses their little-endian byte representation.
 Start sharing, pace packed I420 frames, then stop sharing:
 
 ```rust,no_run
-# use dream_cord_core::{Client, video::frame_bytes};
+# use mumh5_core::{Client, video::frame_bytes};
 # use serde_json::json;
 # async fn example(client: &Client) -> anyhow::Result<()> {
 client.video_command(json!({"op":"share","width":320,"height":180,"fps":15,"kind":"camera"})).await?;
@@ -249,7 +249,7 @@ import subprocess
 import time
 
 process = subprocess.Popen(
-    ["./target/release/dream-cord-cli", "--server", "localhost",
+    ["./target/release/mumh5-cli", "--server", "localhost",
      "--name", "python-helper", "--trust-new"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
 )

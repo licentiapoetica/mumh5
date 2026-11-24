@@ -19,7 +19,7 @@
   function download() {
     const doc = output?.ownerDocument ?? document;
     const url = URL.createObjectURL(new Blob([debugLog.export(shown)], { type: 'text/plain' }));
-    const link = doc.createElement('a'); link.href = url; link.download = `dream-cord-debug-${new Date().toISOString().replaceAll(':', '-')}.txt`;
+    const link = doc.createElement('a'); link.href = url; link.download = `mumh5-debug-${new Date().toISOString().replaceAll(':', '-')}.txt`;
     doc.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 </script>

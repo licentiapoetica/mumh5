@@ -1,13 +1,13 @@
 [package]
-name = "dream-cord-web"
+name = "mumh5-web"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
 license.workspace = true
 
 [dependencies]
-dream-cord-platform.workspace = true
-dream-cord-core.workspace = true
+mumh5-platform.workspace = true
+mumh5-core.workspace = true
 anyhow.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs", "trace", "limit"] }

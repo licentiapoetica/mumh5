@@ -1,10 +1,10 @@
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use dream_cord_core::{
+use mumh5_core::{
     transport::Transport,
     udp_transport::{self, Command},
 };
-use dream_cord_platform::{
+use mumh5_platform::{
     certificates, network,
     profiles::{Profile, private_write},
 };
@@ -22,8 +22,14 @@ struct Wire {
     udp: mpsc::Sender<Command>,
     ack: mpsc::Sender<()>,
     cancel: CancellationToken,
+    identity: mumh5_core::identity::Identity,
+    events: Channel<Value>,
+    relays: Arc<tokio::sync::Mutex<HashMap<String, Arc<mumh5_platform::mumpeer::Link>>>>,
 }
 struct AppState {
+    tray_state: Arc<Mutex<Value>>,
+    attention: Arc<std::sync::atomic::AtomicBool>,
+    audio: mumh5_platform::pipewire::ShareAudio,
     profile: Arc<Mutex<Profile>>,
     wires: Arc<Mutex<HashMap<String, Wire>>>,
 }
@@ -50,6 +56,70 @@ async fn platform_call(
         app: tauri::AppHandle,
     ) -> Result<Value> {
         match action.as_str() {
+            #[cfg(mobile)]
+            "attention" | "showWindow" | "updateTray" => return Ok(Value::Null),
+            "shareInfo" => {
+                return Ok(
+                    json!({"portal":true,"audio":if cfg!(target_os="windows"){"loopback"}else if mumh5_platform::pipewire::ShareAudio::available().await{"pipewire"}else{"none"},"micLabel":mumh5_platform::pipewire::ShareAudio::label()}),
+                );
+            }
+            "shareAudioApps" => return Ok(json!(state.audio.apps().await?)),
+            "shareAudioStart" => {
+                state.audio.start(args["target"].clone()).await?;
+                return Ok(Value::Null);
+            }
+            "shareAudioStop" => {
+                state.audio.stop().await?;
+                return Ok(Value::Null);
+            }
+            "canPickColor" => return Ok(json!(mumh5_platform::color::available())),
+            "pickColor" => return Ok(json!(mumh5_platform::color::pick().await?)),
+            #[cfg(desktop)]
+            "saveImage" | "copyImage" => {
+                let data = if let Some(data) = args["data"].as_str() {
+                    STANDARD.decode(data)?
+                } else {
+                    network::fetch(string(&args, "url"), 20 * 1024 * 1024)
+                        .await?
+                        .1
+                };
+                if data.len() > 20 * 1024 * 1024 {
+                    bail!("Image is too large");
+                }
+                let copy = action == "copyImage";
+                return tokio::task::spawn_blocking(move || -> Result<Value> {
+                    if copy {
+                        use tauri_plugin_clipboard_manager::ClipboardExt;
+                        let mut reader = image::ImageReader::new(std::io::Cursor::new(&data))
+                            .with_guessed_format()?;
+                        let mut limits = image::Limits::default();
+                        limits.max_alloc = Some(128 * 1024 * 1024);
+                        limits.max_image_width = Some(8192);
+                        limits.max_image_height = Some(8192);
+                        reader.limits(limits);
+                        let image = reader.decode()?.into_rgba8();
+                        let (w, h) = image.dimensions();
+                        app.clipboard()
+                            .write_image(&tauri::image::Image::new_owned(image.into_raw(), w, h))?;
+                    } else {
+                        use tauri_plugin_dialog::DialogExt;
+                        let Some(path) = app
+                            .dialog()
+                            .file()
+                            .set_file_name("image.png")
+                            .blocking_save_file()
+                        else {
+                            return Ok(Value::Null);
+                        };
+                        let path = path
+                            .into_path()
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        private_write(&path, &data)?;
+                    }
+                    Ok(Value::Null)
+                })
+                .await?;
+            }
             "platformInfo" => {
                 return Ok(json!({"os":std::env::consts::OS,"osVersion":std::env::consts::ARCH}));
             }
@@ -63,6 +133,7 @@ async fn platform_call(
             }
             "linkPreview" => return network::link_preview(string(&args, "url")).await,
             "publicServers" => return network::public_servers(string(&args, "url")).await,
+            #[cfg(desktop)]
             "showWindow" => {
                 if let Some(w) = app.get_webview_window("main") {
                     w.show()?;
@@ -71,13 +142,23 @@ async fn platform_call(
                 }
                 return Ok(Value::Null);
             }
+            #[cfg(desktop)]
             "attention" => {
+                state
+                    .attention
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 if let Some(w) = app.get_webview_window("main") {
                     w.request_user_attention(Some(tauri::UserAttentionType::Informational))?;
                 }
                 return Ok(Value::Null);
             }
+            #[cfg(desktop)]
             "updateTray" => {
+                *state
+                    .tray_state
+                    .lock()
+                    .map_err(failure)
+                    .map_err(anyhow::Error::msg)? = args.clone();
                 if let Some(tray) = app.tray_by_id("main") {
                     tray.set_tooltip(Some(string(&args, "tooltip")))?;
                     if let Ok(data) =
@@ -115,13 +196,13 @@ async fn platform_call(
                 "identityExport" => {
                     use tauri_plugin_dialog::DialogExt;
                     let i = p.identity(Some(string(&args, "id")))?;
-                    let data = certificates::export(&i, string(&args, "password"), "Dream Cord")?;
+                    let data = certificates::export(&i, string(&args, "password"), "mumh5")?;
                     drop(p);
                     let Some(path) = app
                         .dialog()
                         .file()
                         .add_filter("Identity backup", &["p12"])
-                        .set_file_name("dream-cord-identity.p12")
+                        .set_file_name("mumh5-identity.p12")
                         .blocking_save_file()
                     else {
                         return Ok(Value::Null);
@@ -143,7 +224,7 @@ async fn platform_call(
                         let cert = openssl::x509::X509::from_der(
                             &STANDARD.decode(der.as_str().context("Invalid certificate")?)?,
                         )?;
-                        out.push(dream_cord_core::certificates::describe(&cert)?);
+                        out.push(mumh5_core::certificates::describe(&cert)?);
                     }
                     Ok(json!(out))
                 }
@@ -206,7 +287,7 @@ async fn platform_call(
                     .unwrap_or(Value::Null)),
                 "importMumble" => {
                     let path = find_mumble().context("Mumble certificate not found")?;
-                    let i = certificates::import(&std::fs::read(path)?, "")?;
+                    let i = certificates::import(&path, "")?;
                     p.add(string(&args, "name").into(), i)
                 }
                 _ => bail!("Unknown platform operation"),
@@ -216,15 +297,37 @@ async fn platform_call(
     }
     work(action, args, &state, app).await.map_err(failure)
 }
-fn find_mumble() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+fn find_mumble() -> Option<Vec<u8>> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)?;
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    let roaming = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("AppData/Roaming"));
+    for path in [
+        config.join("Mumble/Mumble/mumble_settings.json"),
+        home.join("Library/Application Support/Mumble/Mumble/mumble_settings.json"),
+        roaming.join("Mumble/Mumble/mumble_settings.json"),
+    ] {
+        if let Ok(data) = std::fs::read(path)
+            && let Ok(settings) = serde_json::from_slice::<Value>(&data)
+            && let Some(cert) = settings["certificate"].as_str()
+            && let Ok(data) = STANDARD.decode(cert)
+            && certificates::import(&data, "").is_ok()
+        {
+            return Some(data);
+        }
+    }
     [
         home.join(".config/Mumble/MumbleAutomaticCertificateBackup.p12"),
         home.join(".local/share/Mumble/MumbleAutomaticCertificateBackup.p12"),
         home.join(".local/share/mumble/MumbleAutomaticCertificateBackup.p12"),
     ]
     .into_iter()
-    .find(|p| p.is_file())
+    .find_map(|path| std::fs::read(path).ok())
 }
 #[tauri::command]
 async fn wire_open(
@@ -261,6 +364,9 @@ async fn wire_open(
                 udp,
                 ack,
                 cancel: cancel.clone(),
+                identity,
+                events: events.clone(),
+                relays: Default::default(),
             },
         );
     }
@@ -386,24 +492,105 @@ async fn wire_udp(
     tx.send(command).await.map_err(failure)?;
     Ok(Value::Null)
 }
+#[tauri::command]
+async fn wire_relay(
+    id: String,
+    action: String,
+    args: Value,
+    state: State<'_, AppState>,
+) -> std::result::Result<Value, String> {
+    async fn work(id: String, action: String, args: Value, state: &AppState) -> Result<Value> {
+        let (relays, identity, cancel, events) = {
+            let wires = state
+                .wires
+                .lock()
+                .map_err(failure)
+                .map_err(anyhow::Error::msg)?;
+            let w = wires.get(&id).context("Connection closed")?;
+            (
+                w.relays.clone(),
+                w.identity.clone(),
+                w.cancel.clone(),
+                w.events.clone(),
+            )
+        };
+        let rid = string(&args, "rid").to_owned();
+        if rid.is_empty() || rid.len() > 128 {
+            bail!("Invalid relay ID");
+        }
+        let mut relays = relays.lock().await;
+        match action.as_str() {
+            "open" => {
+                if relays.len() >= 16 || relays.contains_key(&rid) {
+                    bail!("Relay already exists or limit reached");
+                }
+                let r = rid.clone();
+                let link = mumh5_platform::mumpeer::Link::open(
+                    serde_json::from_value(args["endpoint"].clone())?,
+                    string(&args, "token").into(),
+                    identity,
+                    args["lowSide"].as_bool().unwrap_or(false),
+                    cancel,
+                    move |reason| {
+                        let _ = events.send(json!({"event":"relayClose","args":[r,reason]}));
+                    },
+                )
+                .await?;
+                relays.insert(rid, link);
+                Ok(Value::Null)
+            }
+            "turn" => {
+                let lane = args["lane"]
+                    .as_u64()
+                    .filter(|n| *n <= 255)
+                    .context("Invalid relay lane")? as u8;
+                relays.get(&rid).context("Relay closed")?.turn(lane).await
+            }
+            "closeLane" => {
+                if let Some(link) = relays.get(&rid) {
+                    let lane = args["lane"]
+                        .as_u64()
+                        .filter(|n| *n <= 255)
+                        .context("Invalid relay lane")? as u8;
+                    link.close_lane(lane).await;
+                }
+                Ok(Value::Null)
+            }
+            "close" => {
+                if let Some(link) = relays.remove(&rid) {
+                    link.cancel.cancel();
+                }
+                Ok(Value::Null)
+            }
+            _ => bail!("Unknown relay operation"),
+        }
+    }
+    work(id, action, args, &state).await.map_err(failure)
+}
 #[cfg(feature = "smoke-test")]
 #[tauri::command]
 fn smoke_report(report: Value, app: tauri::AppHandle) {
-    if let Some(path) = std::env::var_os("DREAM_CORD_SMOKE_REPORT") {
+    if let Some(path) = std::env::var_os("MUMH5_SMOKE_REPORT") {
         let _ = std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap());
         app.exit(if report["ok"] == true { 0 } else { 1 });
     }
 }
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(desktop)]
+    use tauri::Emitter;
+    #[cfg(desktop)]
     use tauri::{
-        Emitter,
         menu::{Menu, MenuItem},
         tray::TrayIconBuilder,
     };
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_voice::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
     #[cfg(feature = "smoke-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         platform_call,
@@ -412,6 +599,7 @@ pub fn run() {
         wire_ack,
         wire_close,
         wire_udp,
+        wire_relay,
         smoke_report
     ]);
     #[cfg(not(feature = "smoke-test"))]
@@ -421,66 +609,154 @@ pub fn run() {
         wire_send,
         wire_ack,
         wire_close,
-        wire_udp
+        wire_udp,
+        wire_relay
     ]);
     builder
         .setup(|app| {
-            let directory = std::env::var_os("DREAM_CORD_PROFILE")
+            let isolated = std::env::var_os("MUMH5_PROFILE").is_some();
+            let directory = std::env::var_os("MUMH5_PROFILE")
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             app.manage(AppState {
-                profile: Arc::new(Mutex::new(Profile::open(directory.clone())?)),
+                tray_state: Default::default(),
+                attention: Default::default(),
+                audio: Default::default(),
+                profile: Arc::new(Mutex::new(if isolated {
+                    Profile::open(directory.clone())?
+                } else {
+                    Profile::open_migrating(directory.clone())?
+                })),
                 wires: Arc::new(Mutex::new(HashMap::new())),
             });
-            let menu = Menu::with_items(
-                app,
-                &[
-                    &MenuItem::with_id(app, "show", "Show Dream Cord", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "mute", "Toggle mute", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "deaf", "Toggle deafen", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "disconnect", "Disconnect", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?,
-                ],
-            )?;
-            let tray = TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Dream Cord")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => app.exit(0),
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
+            #[cfg(desktop)]
+            let tray = {
+                let menu = Menu::with_items(
+                    app,
+                    &[
+                        &MenuItem::with_id(app, "show", "Show mumh5", true, None::<&str>)?,
+                        &MenuItem::with_id(app, "toggle-mute", "Toggle mute", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            app,
+                            "toggle-deafen",
+                            "Toggle deafen",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(app, "mode:vad", "Voice activity", true, None::<&str>)?,
+                        &MenuItem::with_id(app, "mode:ptt", "Push to talk", true, None::<&str>)?,
+                        &MenuItem::with_id(
+                            app,
+                            "mode:continuous",
+                            "Continuous transmission",
+                            true,
+                            None::<&str>,
+                        )?,
+                        &MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?,
+                        &MenuItem::with_id(app, "disconnect", "Disconnect", true, None::<&str>)?,
+                        &MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?,
+                    ],
+                )?;
+
+                TrayIconBuilder::with_id("main")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("mumh5")
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "quit" => app.exit(0),
+                        "show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        action => {
+                            let _ = app.emit("tray-action", action);
+                        }
+                    })
+                    .build(app)
+                    .is_ok()
+            };
+            #[cfg(desktop)]
+            {
+                let handle = app.handle().clone();
+                let state = app.state::<AppState>();
+                let attention = state.attention.clone();
+                let icons = state.tray_state.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut timer = tokio::time::interval(std::time::Duration::from_millis(600));
+                    let mut lit = false;
+                    let mut blinking = false;
+                    loop {
+                        timer.tick().await;
+                        let alert = attention.load(std::sync::atomic::Ordering::Relaxed);
+                        if !alert && !blinking {
+                            continue;
+                        }
+                        blinking = alert;
+                        lit = alert && !lit;
+                        let icon = icons.lock().ok().and_then(|v| {
+                            v[if lit { "alertIcon" } else { "icon" }]
+                                .as_str()
+                                .map(str::to_owned)
+                        });
+                        if let (Some(tray), Some(icon)) = (handle.tray_by_id("main"), icon)
+                            && let Ok(bytes) =
+                                STANDARD.decode(icon.split(',').next_back().unwrap_or(""))
+                            && let Ok(image) = tauri::image::Image::from_bytes(&bytes)
+                        {
+                            let _ = tray.set_icon(Some(image));
                         }
                     }
-                    action => {
-                        let _ = app.emit("tray-action", action);
-                    }
-                })
-                .build(app)
-                .is_ok();
+                });
+            }
             let handle = app.handle().clone();
+            let popup_app = app.handle().clone();
             let w = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("Dream Cord")
+            .title("mumh5")
             .inner_size(1280., 800.)
             .min_inner_size(680., 480.)
             .data_directory(directory.join("webview"))
             .on_page_load(|webview, payload| {
                 #[cfg(feature = "smoke-test")]
-                if std::env::var_os("DREAM_CORD_SMOKE_REPORT").is_some()
+                if std::env::var_os("MUMH5_SMOKE_REPORT").is_some()
                     && payload.event() == tauri::webview::PageLoadEvent::Finished
                 {
                     let _ = webview.eval(include_str!("../tests/smoke.js"));
                 }
                 #[cfg(not(feature = "smoke-test"))]
                 let _ = (webview, payload);
+            })
+            .on_new_window(move |url, features| {
+                #[cfg(mobile)]
+                {
+                    let _ = (&popup_app, url, features);
+                    tauri::webview::NewWindowResponse::Deny
+                }
+                #[cfg(desktop)]
+                {
+                    if url.as_str() != "about:blank" {
+                        return tauri::webview::NewWindowResponse::Deny;
+                    }
+                    let label = format!("popup-{}", uuid::Uuid::new_v4());
+                    match tauri::WebviewWindowBuilder::new(
+                        &popup_app,
+                        label,
+                        tauri::WebviewUrl::External(url),
+                    )
+                    .window_features(features)
+                    .title("mumh5")
+                    .build()
+                    {
+                        Ok(window) => tauri::webview::NewWindowResponse::Create { window },
+                        Err(_) => tauri::webview::NewWindowResponse::Deny,
+                    }
+                }
             })
             .on_permission_request(|webview, kind| {
                 use tauri::webview::{PermissionKind, PermissionResponse};
@@ -511,6 +787,7 @@ pub fn run() {
                 internal
             })
             .build()?;
+            #[cfg(desktop)]
             w.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event
                     && tray
@@ -522,12 +799,32 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|w, event| {
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            #[cfg(desktop)]
+            if matches!(event, tauri::WindowEvent::Focused(true)) {
+                w.app_handle()
+                    .state::<AppState>()
+                    .attention
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+            #[cfg(desktop)]
+            if w.label() == "main"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
                 && w.app_handle().tray_by_id("main").is_some()
             {
                 let _ = w.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("Dream Cord desktop failed");
+        .build(tauri::generate_context!())
+        .expect("mumh5 desktop failed")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                let state = app.state::<AppState>();
+                if let Ok(wires) = state.wires.lock() {
+                    for wire in wires.values() {
+                        wire.cancel.cancel();
+                    }
+                }
+                tauri::async_runtime::block_on(state.audio.stop()).ok();
+            }
+        });
 }
