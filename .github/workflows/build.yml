@@ -28,6 +28,42 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      # The browser build can fail on what type checking and the tests accept (a name exported twice)
+      - run: npm run build:web
+
+  # The Android shell around the hosted site. Its own packages are in android/, so the other jobs
+  # never install them. The APK is debug-signed; set the repository variable MUMH5_APP_URL to the
+  # address of the site the app should open, otherwise it opens a page saying none was given.
+  android:
+    name: Android app (debug build)
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MUMH5_APP_URL: ${{ vars.MUMH5_APP_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: android/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+        working-directory: android
+      - run: npx cap sync android
+        working-directory: android
+      - run: ./gradlew assembleDebug
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mumh5-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
 
   # Pull requests only get the type check and tests
   desktop:
