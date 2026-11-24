@@ -148,3 +148,16 @@ Playwright. Their replacements are `browser-smoke.ts`, `settings-smoke.ts` and
 run locally). Not yet replaced: the two-instance screen-share E2E, backgrounds,
 the theme creator, saved state and the sound E2E. Screen sharing between two
 Rust clients is covered by `live_server`'s native video test, not through the UI.
+
+## Performance comparisons
+
+`frontend/tools/perf/` holds the tools used to compare builds on one Linux machine:
+`load.ts` (N real Mumble clients, direct or through a gateway, some talking real Opus),
+`sample.ts` (CPU and PSS of a whole process tree), `http.ts` (static file visits),
+`webui.ts` (page load in Chromium) and `electron-connected.ts` (drives an Electron
+build of `main` to the connected state). The Tauri smoke build stays connected after
+its checks with `MUMH5_SMOKE_STAY=1`.
+
+Never let a measured app play to a real output: load a null sink
+(`pactl load-module module-null-sink sink_name=mumh5_perf_silent`), start the apps with
+`PULSE_SINK=mumh5_perf_silent`, and keep their streams there and muted while bots talk.

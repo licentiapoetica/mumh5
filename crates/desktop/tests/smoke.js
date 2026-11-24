@@ -54,6 +54,6 @@
   composer.textContent = 'mumh5 desktop integration message'; composer.dispatchEvent(new Event('input', { bubbles: true })); composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   await wait(() => document.querySelector('.msg')?.textContent?.includes('mumh5 desktop integration message') || [...document.querySelectorAll('.msg')].some(e => e.textContent.includes('mumh5 desktop integration message')), 'sent chat rendered');
   results.push('chat send and rendering');
-  await invoke('smoke_report', { report: { ok: true, results, wizardAlert, publicList, audioOutputs, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
+  await invoke('smoke_report', { report: { ok: true, results, wizardAlert, publicList, audioOutputs, webCodecs: { audioDecoder: typeof AudioDecoder !== 'undefined', audioEncoder: typeof AudioEncoder !== 'undefined', videoDecoder: typeof VideoDecoder !== 'undefined' }, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
  } catch (error) { await invoke('smoke_report', { report: { ok: false, results, udpEvents, error: String(error), text: document.body?.innerText } }); }
 })();

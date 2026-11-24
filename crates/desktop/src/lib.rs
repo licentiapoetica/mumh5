@@ -593,7 +593,10 @@ async fn wire_relay(
 fn smoke_report(report: Value, app: tauri::AppHandle) {
     if let Some(path) = std::env::var_os("MUMH5_SMOKE_REPORT") {
         let _ = std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap());
-        app.exit(if report["ok"] == true { 0 } else { 1 });
+        // MUMH5_SMOKE_STAY keeps the app connected after the checks (performance measurements)
+        if std::env::var_os("MUMH5_SMOKE_STAY").is_none() {
+            app.exit(if report["ok"] == true { 0 } else { 1 });
+        }
     }
 }
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
