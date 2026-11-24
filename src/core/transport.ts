@@ -1,3 +1,5 @@
+import type { LocalTurn, RelayEndpoint } from './mumpeer-signal.ts';
+
 // A reliable, ordered byte stream to a Mumble server (TLS in Electron, WebSocket proxy on the web).
 export interface Transport {
   send(bytes: Uint8Array): void;
@@ -6,6 +8,16 @@ export interface Transport {
   onClose: ((reason: string) => void) | null;
   // Encrypted UDP for voice, where the platform has it (desktop); absent on the web
   udp?: UdpChannel;
+}
+
+// What a transport offers for mumpeer: a link to the relay kept for this Mumble connection (by the
+// desktop app itself, or by the web proxy), and a TURN server for each of its two lanes.
+export interface RelayTransport {
+  relayOpen(rid: string, endpoint: RelayEndpoint, token: string, lowSide: boolean): Promise<void>;
+  relayTurn(rid: string, lane: number): Promise<LocalTurn>;
+  relayCloseLane(rid: string, lane: number): void;
+  relayClose(rid: string): void;
+  onRelayClose(fn: (rid: string, reason: string) => void): () => void;
 }
 
 // The server speaks first, and its Version can arrive before the client is attached (the

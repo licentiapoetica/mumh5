@@ -4,7 +4,7 @@ Protocol references from the original research note include `Mumcord/mumcord` at
 
 ## Enable the relay
 
-The desktop app discovers mumpeer on login. By default, when both participants use **Automatic**, a usable relay announced on the Mumble server’s own host is tried first. If it fails, the app retries with the regular ICE routes. Match the announced relay hostname to the address people use to connect to Mumble. The relay and Mumble can listen on different ports.
+The desktop app and the browser build (through its proxy, see below) discover mumpeer on login. By default, when both participants use **Automatic**, a usable relay announced on the Mumble server’s own host is tried first. If it fails, the app retries with the regular ICE routes. Match the announced relay hostname to the address people use to connect to Mumble. The relay and Mumble can listen on different ports.
 
 **Settings → Screen sharing → Screen sharing connection** also lets you choose direct-first mumpeer fallback or Mumpeer only. Those modes can use a relay announced on a separate host. Mumpeer only fails if either participant cannot use the relay. The relay operator can see connection addresses and timing. WebRTC encrypts the streams between participants.
 
@@ -54,7 +54,17 @@ QUIC is only needed for the UDP path. Node has no usable QUIC, but TCP alone is 
 4. Electron main connects over TLS 1.3, verifies ALPN and the pinned relay fingerprint, and binds with the exact client identity from the Mumble connection. After both endpoints bind, Electron starts a credentialed TURN listener on loopback for each active share direction. Its relay address and peer address are virtual. Each TURN allocation forwards media and ICE packets to its one permitted peer over the paired TLS link.
 5. The app closes the allocation when the share ends and closes the link when its last allocation is no longer needed. A TCP-only relay path can add latency on lossy links.
 
-The browser app uses the proxy's existing TURN service. Cameras use the existing WebRTC routes. Mumpeer's camera policy applies to broadcasts, and its pair API supports screen sharing. Mumcord screen-share interoperability would require its separate broadcast signaling, key exchange and media format.
+## Browser and Android app
+
+A browser cannot open TLS sockets or present a client certificate, so the web proxy keeps the link to the relay for it. It needs the proxy's relay on (`MUMH5_TURN`, on by default, and a STUN port); then `/api/config` says `mumpeer: true` and the app offers the same settings and the Server information section as the desktop app. The Android app is the web build and works the same way.
+
+1. After the Mumble connection is secure, the page sends `relay-open` (relay address, fingerprint, token) as a text frame on its WebSocket. The proxy binds with the certificate of that same connection and answers when the relay says ready.
+2. `relay-turn` returns a credential for one lane on the proxy's public relay (`<expiry>:lane-<id>`). That credential reaches only the virtual address of its lane, one allocation at a time, and never a normal relay. The page uses it as the only ICE server of the mumpeer route, over UDP or TCP like the proxy's other relay credentials.
+3. `relay-lane-close` and `relay-close` end a lane or the link; the proxy also ends all links when the WebSocket closes and reports a link that ends with `relay-closed`. At most nine links per connection.
+
+Where the proxy may dial: the relay's TLS port has to be one the operator lists (`MUMH5_MUMPEER_PORTS`, default 443), since browsers name the port and an unlisted private server must not become a port scanner. The relay has to be on the same host as the Mumble server being used. Only a proxy that allows any server (`MUMH5_ALLOW_ANY`) also takes a relay on another host, and then never one that resolves to a private address, as for Mumble servers. On a proxy with a fixed server list, "Direct first, with mumpeer fallback" and "Mumpeer only" therefore work only for relays on the server's own host.
+
+The proxy operator carries the traffic between the browser and the relay link and can see the connection addresses; WebRTC still encrypts the streams between the two participants. The relay sees the proxy's address, not the browser's. Cameras use the existing WebRTC routes. Mumpeer's camera policy applies to broadcasts, and its pair API supports screen sharing. Mumcord screen-share interoperability would require its separate broadcast signaling, key exchange and media format.
 
 ## Test with stock Mumble and upstream services
 

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import dgram from 'node:dgram';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
-import { startTurn, turnCredential, build, parse, xorAddress, unxorAddress, type TurnOptions } from '../server/turn.ts';
+import { startTurn, turnCredential, build, parse, xorAddress, unxorAddress, LaneRegistry, type TurnOptions, type VirtualTurnPeer } from '../server/turn.ts';
 
 const SECRET = 'test-secret';
 const options = (over: Partial<TurnOptions> = {}): TurnOptions => ({
@@ -56,14 +56,14 @@ async function connect(port: number, transport: 'udp' | 'tcp') {
 }
 
 // Allocate: asked for credentials first, then granted
-async function allocate(c: Awaited<ReturnType<typeof connect>>, secret = SECRET) {
+async function allocate(c: Awaited<ReturnType<typeof connect>>, secret = SECRET, user?: string) {
   const transport: [number, Uint8Array] = [0x0019, Uint8Array.from([17, 0, 0, 0])];
   c.send(build(0x0003, header(), [transport]));
   const challenge = parse(await c.next())!;
   assert.equal(challenge.type, 0x0113);
   assert.equal(code(challenge), 401);
   const realm = attr(challenge, 0x0014)!, nonce = attr(challenge, 0x0015)!;
-  const username = String(Math.floor(Date.now() / 1000) + 600);
+  const username = user ?? String(Math.floor(Date.now() / 1000) + 600);
   const key = createHash('md5').update(`${username}:mumh5:${turnCredential(secret, username)}`).digest();
   const auth: [number, Uint8Array][] = [[0x0006, text(username)], [0x0014, realm], [0x0015, nonce]];
   const h = header();
@@ -259,4 +259,119 @@ test('virtual TURN advertises its allocated address and forwards only to the pai
     turn.close();
   }
   assert.equal(receive, undefined);
+});
+
+// ─── Mumpeer lanes on the public relay ────────────────────────────────────────
+
+const laneUser = (id = 'ab'.repeat(16)) => `${Math.floor(Date.now() / 1000) + 600}:lane-${id}`;
+function fakePeer(high = false): VirtualTurnPeer & { sent: string[]; push(text: string): void; listening(): boolean } {
+  let receive: ((data: Uint8Array) => void) | undefined;
+  const sent: string[] = [];
+  const low = { ip: '192.0.2.1', port: 40000 }, other = { ip: '192.0.2.2', port: 40001 };
+  return {
+    local: high ? other : low, remote: high ? low : other,
+    send: bytes => sent.push(new TextDecoder().decode(bytes)),
+    receive: fn => { receive = fn; return () => { receive = undefined; }; },
+    sent, push: t => receive?.(text(t)), listening: () => !!receive
+  };
+}
+
+test('a lane credential reaches its virtual address and nothing else', async () => {
+  const lanes = new LaneRegistry();
+  const peer = fakePeer();
+  const user = laneUser();
+  lanes.register(user, peer);
+  const turn = await startTurn(options({ lanes }), SECRET);
+  const client = await connect(turn.port, 'tcp');
+  try {
+    const { relay, auth, key } = await allocate(client, SECRET, user);
+    assert.deepEqual(relay, peer.local);
+    const address = (h: Uint8Array, ip: string, port: number): [number, Uint8Array] => [0x0012, xorAddress(ip, port, h)!];
+    // A real address is refused even though peerAllowed would say yes
+    let h = header();
+    client.send(build(0x0008, h, [address(h, '127.0.0.1', 9), ...auth], key));
+    assert.equal(code(parse(await client.next())!), 403);
+    h = header();
+    client.send(build(0x0008, h, [address(h, peer.remote.ip, peer.remote.port), ...auth], key));
+    assert.equal(parse(await client.next())?.type, 0x0108);
+    h = header();
+    client.send(build(0x0016, h, [address(h, peer.remote.ip, peer.remote.port), [0x0013, text('to the link')]]));
+    h = header();
+    client.send(build(0x0008, h, [address(h, peer.remote.ip, peer.remote.port), ...auth], key));
+    assert.equal(parse(await client.next())?.type, 0x0108);
+    assert.deepEqual(peer.sent, ['to the link']);
+    peer.push('from the link');
+    const indication = parse(await client.next())!;
+    assert.equal(new TextDecoder().decode(attr(indication, 0x0013)), 'from the link');
+  } finally {
+    client.close();
+    turn.close();
+  }
+});
+
+// The relayed address is the side's own: on the high side it is .2, and its permission goes to .1
+test('the high side of a pair is told its own relayed address, over a lane and on desktop', async () => {
+  for (const viaLane of [true, false]) {
+    const peer = fakePeer(true);
+    const lanes = new LaneRegistry();
+    const user = laneUser();
+    if (viaLane) lanes.register(user, peer);
+    const turn = viaLane ? await startTurn(options({ lanes }), SECRET) : await startTurn(options(), SECRET, peer);
+    const client = await connect(turn.port, 'tcp');
+    try {
+      const { relay, auth, key } = await allocate(client, SECRET, viaLane ? user : undefined);
+      assert.deepEqual(relay, peer.local);
+      const h = header();
+      client.send(build(0x0008, h, [[0x0012, xorAddress(peer.remote.ip, peer.remote.port, h)!], ...auth], key));
+      assert.equal(parse(await client.next())?.type, 0x0108);
+    } finally {
+      client.close();
+      turn.close();
+    }
+  }
+});
+
+test('a lane credential without a registered lane gets nothing, not a normal relay', async () => {
+  for (const lanes of [undefined, new LaneRegistry()]) {
+    const turn = await startTurn(options({ lanes }), SECRET);
+    const client = await connect(turn.port, 'udp');
+    try {
+      const { answer } = await allocate(client, SECRET, laneUser());
+      assert.equal(code(answer), 401);
+    } finally {
+      client.close();
+      turn.close();
+    }
+  }
+});
+
+test('a lane has one allocation at a time and removing it ends that allocation', async () => {
+  const lanes = new LaneRegistry();
+  const peer = fakePeer();
+  const user = laneUser();
+  const unregister = lanes.register(user, peer);
+  const turn = await startTurn(options({ lanes }), SECRET);
+  const first = await connect(turn.port, 'tcp'), second = await connect(turn.port, 'tcp');
+  try {
+    const one = await allocate(first, SECRET, user);
+    assert.equal(one.answer.type, 0x0103);
+    assert.equal(code((await allocate(second, SECRET, user)).answer), 437);
+    // Freeing the first allocation hands the lane over
+    let h = header();
+    first.send(build(0x0004, h, [[0x000d, Uint8Array.from([0, 0, 0, 0])], ...one.auth], one.key));
+    assert.equal(parse(await first.next())!.type, 0x0104);
+    assert.equal(peer.listening(), false);
+    const two = await allocate(second, SECRET, user);
+    assert.equal(two.answer.type, 0x0103);
+    assert.equal(peer.listening(), true);
+    unregister();
+    assert.equal(peer.listening(), false);
+    h = header();
+    second.send(build(0x0008, h, [[0x0012, xorAddress(peer.remote.ip, peer.remote.port, h)!], ...two.auth], two.key));
+    assert.equal(code(parse(await second.next())!), 437);
+  } finally {
+    first.close();
+    second.close();
+    turn.close();
+  }
 });

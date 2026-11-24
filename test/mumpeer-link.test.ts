@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import tls from 'node:tls';
 import { test } from 'node:test';
 import { generateIdentity } from '../electron/identity.ts';
-import { MumpeerLink } from '../electron/mumpeer.ts';
+import { MumpeerLink, loopbackLanes } from '../electron/mumpeer.ts';
 
 test('mumpeer sends no bind credential to a mismatched certificate or ALPN', async t => {
   const serverIdentity = generateIdentity('Relay');
@@ -21,7 +21,7 @@ test('mumpeer sends no bind credential to a mismatched certificate or ALPN', asy
     await listening;
     const address = server.address();
     assert.ok(address && typeof address === 'object');
-    const link = new MumpeerLink({ host: '127.0.0.1', tcp: address.port, fp: pin }, 'A'.repeat(43), client.certPem, client.keyPem, () => {});
+    const link = new MumpeerLink({ host: '127.0.0.1', tcp: address.port, fp: pin }, 'A'.repeat(43), client.certPem, client.keyPem, () => {}, { lanes: loopbackLanes });
     await assert.rejects(link.ready, /certificate or protocol did not match/);
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     assert.equal(bytes, 0);

@@ -2,9 +2,11 @@
 // real Mumble server and are skipped unless MUMBLE_TEST_HOST is set (see server.test.ts).
 import { test } from 'node:test';
 import net from 'node:net';
+import tls from 'node:tls';
 import dgram from 'node:dgram';
 import assert from 'node:assert/strict';
 import { proxyLine } from '../electron/tls-transport.ts';
+import { generateIdentity } from '../electron/identity.ts';
 import { stunResponse } from '../server/proxy.ts';
 import { configFromEnv } from '../server/proxy.ts';
 import { startProxy, defaults, parseServers, isPrivateAddress, type ProxyConfig } from '../server/proxy.ts';
@@ -85,7 +87,7 @@ test('refuses to start without allowed servers', async () => {
 
 test('config lists the allowed servers', async () => {
   await withProxy({ servers: parseServers('voice.example.org=Friends') }, async base => {
-    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], default: null, any: false, stun: null, turn: false, audioPackLimits: defaults.audioPackLimits });
+    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], default: null, any: false, stun: null, turn: false, mumpeer: false, audioPackLimits: defaults.audioPackLimits });
   });
 });
 
@@ -265,6 +267,30 @@ test('a listed server on a private address is reachable when any server is allow
     });
   } finally {
     local.close();
+  }
+});
+
+test('a mumpeer relay on a private IP address is refused when any server is allowed', async () => {
+  // Stands in for the Mumble server: the TLS handshake is all the proxy needs before relay requests
+  const server = generateIdentity('mumble');
+  const mumble = tls.createServer({ cert: server.certPem, key: server.keyPem }, s => s.on('error', () => {}));
+  await new Promise<void>(resolve => mumble.listen(0, '127.0.0.1', resolve));
+  const port = (mumble.address() as net.AddressInfo).port;
+  try {
+    await withProxy({ allowAny: true, servers: parseServers(`127.0.0.1:${port}`), stunPort: 0, stunBind: '127.0.0.1' }, async base => {
+      const t = new WebSocketTransport(wsUrl(base), { host: '127.0.0.1', port }, await identity(base, 'a'));
+      await t.secure;
+      try {
+        // IP literals never reach the DNS guard, so they need their own check
+        for (const host of ['10.0.0.5', 'fd00::1']) {
+          await assert.rejects(t.relayOpen('0123456789abcdef', { host, tcp: 443, fp: 'ab'.repeat(32) }, 'A'.repeat(43), true), /private addresses/, host);
+        }
+      } finally {
+        t.close();
+      }
+    });
+  } finally {
+    mumble.close();
   }
 });
 

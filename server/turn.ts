@@ -40,6 +40,8 @@ export interface TurnOptions {
   maxPerAddress: number;
   // Peers the relay may talk to; keeps it from being used to reach private networks
   peerAllowed: (ip: string) => boolean;
+  // Virtual lanes (mumpeer links the proxy keeps for browsers); without it lane credentials get nothing
+  lanes?: LaneRegistry;
   // One line per relay event, for finding out why someone cannot connect
   log?: (line: string) => void;
 }
@@ -158,6 +160,41 @@ export interface VirtualTurnPeer {
   receive(fn: (data: Uint8Array) => void): () => void;
 }
 
+// A mumpeer lane is reached with its own credential, `<expiry>:lane-<32 hex>`. Such a username only
+// ever gets its virtual address, never a normal relay, and one allocation at a time.
+export const isLaneUser = (user: string): boolean => /^\d+:lane-[0-9a-f]{32}$/.test(user);
+
+export class LaneRegistry {
+  private lanes = new Map<string, { peer: VirtualTurnPeer; free: (() => void) | null }>();
+
+  // Makes the lane available to whoever holds its credential; the returned function closes it
+  register(username: string, peer: VirtualTurnPeer): () => void {
+    const entry = { peer, free: null as (() => void) | null };
+    this.lanes.set(username, entry);
+    return () => {
+      if (this.lanes.get(username) !== entry) return;
+      this.lanes.delete(username);
+      entry.free?.();
+    };
+  }
+
+  has(username: string): boolean { return this.lanes.has(username); }
+  busy(username: string): boolean { return !!this.lanes.get(username)?.free; }
+
+  // Takes the lane for one allocation; `free` closes that allocation when the lane goes away
+  claim(username: string, free: () => void): VirtualTurnPeer | null {
+    const entry = this.lanes.get(username);
+    if (!entry || entry.free) return null;
+    entry.free = free;
+    return entry.peer;
+  }
+
+  release(username: string, free: () => void): void {
+    const entry = this.lanes.get(username);
+    if (entry?.free === free) entry.free = null;
+  }
+}
+
 interface Client { key: string; ip: string; port: number; send(bytes: Uint8Array): void; local: string | null; closed?(): boolean }
 interface Allocation {
   client: Client;
@@ -168,6 +205,8 @@ interface Allocation {
   channels: Map<number, { ip: string; port: number; expires: number }>;
   byPeer: Map<string, number>;
   expires: number;
+  // Set when this allocation reaches a paired transport instead of the network
+  virtual?: VirtualTurnPeer;
 }
 
 export async function startTurn(opts: TurnOptions, secret: string, virtual?: VirtualTurnPeer): Promise<{ port: number; close(): void }> {
@@ -215,7 +254,7 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
   }
 
   // Checks the credentials of a request; answers with the right error and returns null otherwise
-  function authenticate(m: Stun, client: Client): Buffer | null {
+  function authenticate(m: Stun, client: Client): { key: Buffer; user: string } | null {
     const get = (t: number) => m.attrs.find(a => a.type === t);
     const fail = (code: number, reason: string) => {
       client.send(build(m.type | 0x110, m.header, [[A.ERROR_CODE, errorCode(code, reason)], [A.REALM, text(REALM)], [A.NONCE, text(nonce())]]));
@@ -236,7 +275,7 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
     new DataView(signed.buffer).setUint16(2, integrity.offset + 24 - 20);
     const expected = createHmac('sha1', key).update(signed).digest();
     if (!timingSafeEqual(expected, integrity.value)) return fail(401, 'Unauthorized');
-    return key;
+    return { key, user };
   }
 
   // Two clients of this relay reach each other at its announced address. Behind a 1:1 NAT that
@@ -244,8 +283,9 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
   // traffic stays on loopback and is presented as coming from the announced address.
   const loopback = (ip: string) => ip === '127.0.0.1' || ip === '::1';
   function toPeer(a: Allocation, data: Uint8Array, ip: string, port: number): void {
-    if (virtual) {
-      if (ip === virtual.remote.ip && port === virtual.remote.port) virtual.send(data);
+    const v = a.virtual;
+    if (v) {
+      if (ip === v.remote.ip && port === v.remote.port) v.send(data);
     } else {
       a.socket!.send(data, port, ip === a.relayIp ? (net.isIPv4(ip) ? '127.0.0.1' : '::1') : ip);
     }
@@ -298,8 +338,9 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
       return;
     }
     if (![ALLOCATE, REFRESH, CREATE_PERMISSION, CHANNEL_BIND].includes(m.type)) return;
-    const key = authenticate(m, client);
-    if (!key) return;
+    const auth = authenticate(m, client);
+    if (!auth) return;
+    const { key, user } = auth;
     const ok = (attrs: [number, Uint8Array][] = []) => client.send(build(m.type | 0x100, m.header, attrs, key));
     const error = (code: number, reason: string) => {
       opts.log?.(`relay: ${client.key} refused, ${code} ${reason}`);
@@ -312,25 +353,45 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
       const family: 4 | 6 = get(A.REQUESTED_ADDRESS_FAMILY)?.value[0] === 2 ? 6 : 4;
       const mine = [...allocations.values()].filter(a => a.client.ip === client.ip).length;
       if (allocations.size >= opts.maxAllocations || mine >= opts.maxPerAddress) return error(486, 'Allocation Quota Reached');
-      const relayIp = virtual ? (family === 4 ? virtual.local.ip : null) : relayAddress(family, client.local);
+      // A lane credential reaches its lane or nothing: it never falls back to a normal relay
+      const lane = !virtual && isLaneUser(user);
+      if (lane && !opts.lanes?.has(user)) return error(401, 'Unauthorized');
+      if (lane && opts.lanes!.busy(user)) return error(437, 'Allocation Mismatch');
+      const fixed = virtual;
+      // Virtual addresses are IPv4; the real one (either side of the pair) is known once the lane is claimed
+      const relayIp = (fixed || lane) ? (family === 4 ? '192.0.2.1' : null) : relayAddress(family, client.local);
       if (!relayIp) return error(508, 'Insufficient Capacity');
-      const socket = virtual ? null : await bindRelay(family);
-      if (!virtual && !socket) return error(508, 'Insufficient Capacity');
+      const socket = (fixed || lane) ? null : await bindRelay(family);
+      if (!fixed && !lane && !socket) return error(508, 'Insufficient Capacity');
       if (closed || client.closed?.() || allocations.has(client.key)) {
         socket?.close();
         return error(437, 'Allocation Mismatch');
       }
-      const relayPort = virtual?.local.port ?? socket!.address().port;
-      const a: Allocation = {
-        client, socket, relayIp, permissions: new Map(), channels: new Map(), byPeer: new Map(), expires: now() + LIFETIME,
-        closeRelay: () => socket?.close()
+      let a!: Allocation;
+      let v = fixed;
+      let release = () => {};
+      if (lane) {
+        // Removing the lane frees this allocation too
+        const freeThis = () => free(a);
+        const claimed = opts.lanes!.claim(user, freeThis);
+        if (!claimed) return error(437, 'Allocation Mismatch');
+        v = claimed;
+        release = () => opts.lanes!.release(user, freeThis);
+      }
+      const relayPort = v?.local.port ?? socket!.address().port;
+      a = {
+        client, socket, relayIp: v ? v.local.ip : relayIp, permissions: new Map(), channels: new Map(), byPeer: new Map(), expires: now() + LIFETIME,
+        closeRelay: () => socket?.close(), virtual: v
       };
-      if (virtual) a.closeRelay = virtual.receive(data => fromPeer(a, data, virtual.remote.ip, virtual.remote.port));
+      if (v) {
+        const off = v.receive(data => fromPeer(a, data, v.remote.ip, v.remote.port));
+        a.closeRelay = () => { off(); release(); };
+      }
       socket?.on('message', (data, from) => fromPeer(a, data, from.address, from.port));
       allocations.set(client.key, a);
-      opts.log?.(`relay: ${client.key} got ${relayIp}:${relayPort} (${allocations.size} in use)`);
+      opts.log?.(`relay: ${client.key} got ${a.relayIp}:${relayPort} (${allocations.size} in use)`);
       return ok([
-        [A.XOR_RELAYED_ADDRESS, xorAddress(relayIp, relayPort, m.header)!],
+        [A.XOR_RELAYED_ADDRESS, xorAddress(a.relayIp, relayPort, m.header)!],
         [A.LIFETIME, u32(LIFETIME)],
         [A.XOR_MAPPED_ADDRESS, xorAddress(client.ip, client.port, m.header)!]
       ]);
@@ -347,7 +408,8 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
     const peers = m.attrs.filter(a => a.type === A.XOR_PEER_ADDRESS).map(a => unxorAddress(a.value, m.header));
     if (!peers.length || peers.some(p => !p)) return error(400, 'Bad Request');
     // Other clients of this relay are reached at its own address
-    if (peers.some(p => virtual ? p!.ip !== virtual.remote.ip : p!.ip !== existing.relayIp && !opts.peerAllowed(p!.ip))) return error(403, 'Forbidden');
+    const vp = existing.virtual;
+    if (peers.some(p => vp ? p!.ip !== vp.remote.ip : p!.ip !== existing.relayIp && !opts.peerAllowed(p!.ip))) return error(403, 'Forbidden');
 
     if (m.type === CREATE_PERMISSION) {
       for (const p of peers) existing.permissions.set(p!.ip, now() + PERMISSION);
@@ -357,7 +419,7 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
     const number = get(A.CHANNEL_NUMBER);
     const channel = number ? new DataView(number.value.buffer, number.value.byteOffset).getUint16(0) : 0;
     const peer = peers[0]!;
-    if (virtual && peer.port !== virtual.remote.port) return error(403, 'Forbidden');
+    if (vp && peer.port !== vp.remote.port) return error(403, 'Forbidden');
     const peerKey = `${peer.ip}:${peer.port}`;
     if (channel < 0x4000 || channel > 0x7ffe) return error(400, 'Bad Request');
     const boundTo = existing.channels.get(channel), boundAs = existing.byPeer.get(peerKey);
