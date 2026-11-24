@@ -1,4 +1,4 @@
-import { pickLanguage, translate, type Catalog, type LanguageId, type Params } from '../core/i18n.ts';
+import { pickLanguage, translate, translatePlural, type Catalog, type LanguageId, type Params } from '../core/i18n.ts';
 import { store } from './settings.svelte.ts';
 import { de } from '../locales/de.ts';
 
@@ -14,6 +14,12 @@ export function currentLanguage(): LanguageId {
 /** Translate an English text. Reads the setting, so views update when the language changes. */
 export function t(key: string, params?: Params): string {
   return translate(catalogs[currentLanguage()], key, params);
+}
+
+/** t() for counts: tn('{n} seconds', '{n} second', n). {n} is filled in. */
+export function tn(other: string, one: string, n: number, params?: Params): string {
+  const lang = currentLanguage();
+  return translatePlural(catalogs[lang], lang, other, one, n, params);
 }
 
 /** Keeps the page's lang attribute in step; call once from an effect root. */

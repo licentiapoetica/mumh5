@@ -29,3 +29,15 @@ export function pickLanguage(preferred: readonly string[]): LanguageId {
   }
   return 'en';
 }
+
+/**
+ * Plural form. `other` is the English text for any count but 1, `one` for 1. A catalog gives its
+ * language's forms as `<other>#<category>` (Intl.PluralRules categories: zero, one, two, few, many),
+ * with the plain `<other>` entry as the fallback form.
+ */
+export function translatePlural(catalog: Catalog | undefined, lang: string, other: string, one: string, n: number, params?: Params): string {
+  const merged = { n, ...params };
+  if (!catalog) return format(n === 1 ? one : other, merged);
+  const category = new Intl.PluralRules(lang).select(n);
+  return format(catalog[`${other}#${category}`] ?? catalog[other] ?? (n === 1 ? one : other), merged);
+}

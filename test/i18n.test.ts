@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { format, translate, pickLanguage } from '../src/core/i18n.ts';
+import { format, translate, translatePlural, pickLanguage } from '../src/core/i18n.ts';
 import { de } from '../src/locales/de.ts';
 
 test('falls back to the English key', () => {
@@ -23,4 +23,12 @@ test('picks the first preferred language with a catalog', () => {
 test('translations keep their placeholders', () => {
   const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
   for (const [k, v] of Object.entries(de)) assert.equal(holes(v), holes(k), k);
+});
+
+test('plural forms', () => {
+  const cat = { '{n} files': '{n} Dateien', '{n} files#one': '{n} Datei' };
+  assert.equal(translatePlural(cat, 'de', '{n} files', '{n} file', 1), '1 Datei');
+  assert.equal(translatePlural(cat, 'de', '{n} files', '{n} file', 3), '3 Dateien');
+  assert.equal(translatePlural(undefined, 'en', '{n} files', '{n} file', 1), '1 file');
+  assert.equal(translatePlural(undefined, 'en', '{n} files', '{n} file', 0), '0 files');
 });

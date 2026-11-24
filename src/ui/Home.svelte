@@ -1,7 +1,7 @@
 <script lang="ts">
   import Background from './Background.svelte';
   import Icon from './Icon.svelte';
-  import { t } from '../lib/i18n.svelte.ts';
+  import { t, tn } from '../lib/i18n.svelte.ts';
   import ServerButton from './ServerButton.svelte';
   import UserBar from './UserBar.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
@@ -72,7 +72,7 @@
     {/if}
 
     {#if session.reconnectDelay != null}
-      <p role="status">{session.reconnectDelay === 1 ? t('Retrying in 1 second.') : t('Retrying in {n} seconds.', { n: session.reconnectDelay })}</p>
+      <p role="status">{tn('Retrying in {n} seconds.', 'Retrying in {n} second.', session.reconnectDelay)}</p>
       <button class="btn" onclick={() => session.cancelReconnect()}>{t('Cancel auto-reconnect')}</button>
     {/if}
 
