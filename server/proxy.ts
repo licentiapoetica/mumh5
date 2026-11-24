@@ -382,6 +382,8 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
         if (!sameHost && !config.allowAny) throw new Error('This proxy only allows a relay on the Mumble server host');
         if (!config.mumpeerPorts.includes(endpoint.tcp)) throw new Error('This proxy does not allow that relay port');
         const guard = sameHost ? t.guard : !config.allowPrivate;
+        // The guard below is a DNS lookup, which Node skips for IP literals
+        if (guard && net.isIP(endpoint.host) && isPrivateAddress(endpoint.host)) throw new Error('This proxy does not connect to private addresses');
         const rid: string = msg.rid;
         const host: LaneHost = async peer => {
           const username = `${Math.floor(Date.now() / 1000) + CREDENTIAL_TTL}:lane-${randomBytes(16).toString('hex')}`;

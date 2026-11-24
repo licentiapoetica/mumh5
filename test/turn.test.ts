@@ -264,11 +264,12 @@ test('virtual TURN advertises its allocated address and forwards only to the pai
 // ─── Mumpeer lanes on the public relay ────────────────────────────────────────
 
 const laneUser = (id = 'ab'.repeat(16)) => `${Math.floor(Date.now() / 1000) + 600}:lane-${id}`;
-function fakePeer(): VirtualTurnPeer & { sent: string[]; push(text: string): void; listening(): boolean } {
+function fakePeer(high = false): VirtualTurnPeer & { sent: string[]; push(text: string): void; listening(): boolean } {
   let receive: ((data: Uint8Array) => void) | undefined;
   const sent: string[] = [];
+  const low = { ip: '192.0.2.1', port: 40000 }, other = { ip: '192.0.2.2', port: 40001 };
   return {
-    local: { ip: '192.0.2.1', port: 40000 }, remote: { ip: '192.0.2.2', port: 40000 },
+    local: high ? other : low, remote: high ? low : other,
     send: bytes => sent.push(new TextDecoder().decode(bytes)),
     receive: fn => { receive = fn; return () => { receive = undefined; }; },
     sent, push: t => receive?.(text(t)), listening: () => !!receive
@@ -305,6 +306,28 @@ test('a lane credential reaches its virtual address and nothing else', async () 
   } finally {
     client.close();
     turn.close();
+  }
+});
+
+// The relayed address is the side's own: on the high side it is .2, and its permission goes to .1
+test('the high side of a pair is told its own relayed address, over a lane and on desktop', async () => {
+  for (const viaLane of [true, false]) {
+    const peer = fakePeer(true);
+    const lanes = new LaneRegistry();
+    const user = laneUser();
+    if (viaLane) lanes.register(user, peer);
+    const turn = viaLane ? await startTurn(options({ lanes }), SECRET) : await startTurn(options(), SECRET, peer);
+    const client = await connect(turn.port, 'tcp');
+    try {
+      const { relay, auth, key } = await allocate(client, SECRET, viaLane ? user : undefined);
+      assert.deepEqual(relay, peer.local);
+      const h = header();
+      client.send(build(0x0008, h, [[0x0012, xorAddress(peer.remote.ip, peer.remote.port, h)!], ...auth], key));
+      assert.equal(parse(await client.next())?.type, 0x0108);
+    } finally {
+      client.close();
+      turn.close();
+    }
   }
 });
 

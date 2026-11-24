@@ -358,7 +358,7 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
       if (lane && !opts.lanes?.has(user)) return error(401, 'Unauthorized');
       if (lane && opts.lanes!.busy(user)) return error(437, 'Allocation Mismatch');
       const fixed = virtual;
-      // Virtual addresses are IPv4; the real one is known once the lane is claimed
+      // Virtual addresses are IPv4; the real one (either side of the pair) is known once the lane is claimed
       const relayIp = (fixed || lane) ? (family === 4 ? '192.0.2.1' : null) : relayAddress(family, client.local);
       if (!relayIp) return error(508, 'Insufficient Capacity');
       const socket = (fixed || lane) ? null : await bindRelay(family);
@@ -389,9 +389,9 @@ export async function startTurn(opts: TurnOptions, secret: string, virtual?: Vir
       }
       socket?.on('message', (data, from) => fromPeer(a, data, from.address, from.port));
       allocations.set(client.key, a);
-      opts.log?.(`relay: ${client.key} got ${relayIp}:${relayPort} (${allocations.size} in use)`);
+      opts.log?.(`relay: ${client.key} got ${a.relayIp}:${relayPort} (${allocations.size} in use)`);
       return ok([
-        [A.XOR_RELAYED_ADDRESS, xorAddress(relayIp, relayPort, m.header)!],
+        [A.XOR_RELAYED_ADDRESS, xorAddress(a.relayIp, relayPort, m.header)!],
         [A.LIFETIME, u32(LIFETIME)],
         [A.XOR_MAPPED_ADDRESS, xorAddress(client.ip, client.port, m.header)!]
       ]);
