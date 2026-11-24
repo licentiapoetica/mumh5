@@ -31,6 +31,15 @@ const result = await Bun.build({
       const source = Bun.resolveSync(path, dirname(args.importer));
       return { path: source, namespace: args.path.includes('worker&') ? 'worker-url' : 'asset-url' };
     });
+    // Fonts as files beside the CSS, not inlined as base64 (Bun's default), so the browser
+    // fetches only the subsets that unicode-range selects for the text on screen
+    build.onResolve({ filter: /\.woff2?$/ }, async args => {
+      const source = resolve(dirname(args.importer), args.path);
+      const data = await Bun.file(source).arrayBuffer();
+      const name = `${basename(source).replace(/\.woff2?$/, '')}-${new Bun.CryptoHasher('sha256').update(data).digest('hex').slice(0, 16)}${source.slice(source.lastIndexOf('.'))}`;
+      await Bun.write(`${out}/assets/${name}`, data);
+      return { path: `./${name}`, external: true };
+    });
     build.onLoad({ filter: /.*/, namespace: 'asset-url' }, async args => {
       const name = `${Bun.hash(url(args.path)).toString(16)}-${basename(args.path)}`;
       await Bun.write(`${out}/assets/${name}`, Bun.file(args.path));
@@ -52,10 +61,21 @@ const result = await Bun.build({
 if (!result.success) throw new AggregateError(result.logs, 'Frontend build failed');
 const componentCss = [...css.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, code]) => code).join('\n');
 const componentName = `components-${new Bun.CryptoHasher('sha256').update(componentCss).digest('hex').slice(0, 16)}.css`;
-await Bun.write(`${out}/${componentName}`, componentCss);
+await Bun.write(`${out}/assets/${componentName}`, componentCss);
 const entry = result.outputs.find(o => o.kind === 'entry-point' && o.path.endsWith('.js'));
 if (!entry) throw new Error('Missing browser entry point');
-const styles = [componentName, ...result.outputs.filter(o => o.path.endsWith('.css')).map(o => url(relative(out, o.path)))];
+const styles = [`assets/${componentName}`, ...result.outputs.filter(o => o.path.endsWith('.css')).map(o => url(relative(out, o.path)))];
+// main.ts imports boot.ts only after the platform starts; preload it and the chunks both import
+// statically, so they load in parallel with the entry instead of one after another
+const chunkImports = async (path: string) => Array.from((await Bun.file(path).text()).matchAll(/(?:from|import)\s*"\.\/([^"]+\.js)"/g), m => `${dirname(path)}/${m[1]}`);
+const boot = result.outputs.find(o => o.kind === 'chunk' && basename(o.path).startsWith('boot-'));
+if (!boot) throw new Error('Missing boot chunk');
+const preload = new Set<string>();
+for (const queue = [...await chunkImports(entry.path), boot.path]; queue.length;) {
+ const path = queue.pop()!;
+ if (!preload.has(path)) { preload.add(path); queue.push(...await chunkImports(path)); }
+}
+const preloads = [...preload].map(path => url(relative(out, path))).sort();
 for await (const path of new Bun.Glob('**/*').scan({ cwd: `${root}public`, onlyFiles: true })) await Bun.write(`${out}/${path}`, Bun.file(`${root}public/${path}`));
 for (const notice of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) await Bun.write(`${out}/${notice}`, Bun.file(`${root}../${notice}`));
 const hash = new Bun.CryptoHasher('sha256');
@@ -65,7 +85,7 @@ const buildId = hash.digest('hex');
 await Bun.write(`${out}/version.json`, JSON.stringify({ build: buildId, ...info }));
 for (const icon of ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) await Bun.write(`${out}/${icon}`, Bun.file(`${root}../build/web/${icon}`));
 await Bun.write(`${out}/manifest.webmanifest`, JSON.stringify({ name: 'mumh5', short_name: 'mumh5', start_url: './', scope: './', display: 'standalone', background_color: '#171821', theme_color: '#171821', icons: [{ src: './icon-192.png', sizes: '192x192', type: 'image/png' }, { src: './icon-512.png', sizes: '512x512', type: 'image/png' }, { src: './icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }] }));
-await Bun.write(`${out}/index.html`, `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171821"><meta name="mumh5-build" content="${buildId}"><link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="./icon-192.png"><title>mumh5</title><link rel="icon" href="./favicon.svg">${styles.map(path => `<link rel="stylesheet" href="./${path}">`).join('')}</head><body><div id="app"></div><script type="module" src="./${url(relative(out, entry.path))}"></script></body></html>`);
+await Bun.write(`${out}/index.html`, `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171821"><meta name="mumh5-build" content="${buildId}"><link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="./icon-192.png"><title>mumh5</title><link rel="icon" href="./favicon.svg">${styles.map(path => `<link rel="stylesheet" href="./${path}">`).join('')}${preloads.map(path => `<link rel="modulepreload" href="./${path}">`).join('')}</head><body><div id="app"></div><script type="module" src="./${url(relative(out, entry.path))}"></script></body></html>`);
 console.log(`Built mumh5 (${result.outputs.length} bundles) with Bun.`);
 
 const files: string[] = [];
