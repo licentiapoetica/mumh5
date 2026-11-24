@@ -9,12 +9,18 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+import android.os.Build;
 
-@CapacitorPlugin(name = "Voice")
+@CapacitorPlugin(name = "Voice", permissions = {
+    @Permission(strings = { Manifest.permission.POST_NOTIFICATIONS }, alias = "notifications")
+})
 public class VoicePlugin extends Plugin {
     @PluginMethod
     public void start(PluginCall call) {
@@ -23,6 +29,23 @@ public class VoicePlugin extends Plugin {
             call.reject("no microphone permission");
             return;
         }
+        // Without it the service still runs, but its notification is hidden. Ask once.
+        SharedPreferences prefs = getContext().getSharedPreferences("voice", 0);
+        if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED
+            && !prefs.getBoolean("askedNotifications", false)) {
+            prefs.edit().putBoolean("askedNotifications", true).apply();
+            requestPermissionForAlias("notifications", call, "startAfterNotifications");
+            return;
+        }
+        startService(call);
+    }
+
+    @PermissionCallback
+    private void startAfterNotifications(PluginCall call) {
+        startService(call);
+    }
+
+    private void startService(PluginCall call) {
         Intent i = new Intent(getContext(), VoiceService.class);
         i.putExtra("text", call.getString("text", "In voice"));
         try {
