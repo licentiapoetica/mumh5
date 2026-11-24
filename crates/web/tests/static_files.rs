@@ -2,7 +2,7 @@
 //! Needs no Mumble server.
 use anyhow::{Context, Result};
 use std::{process::Stdio, time::Duration, time::Instant};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[tokio::test]
 async fn static_files_are_cached_by_path_and_answer_without_delay() -> Result<()> {
@@ -52,6 +52,23 @@ async fn static_files_are_cached_by_path_and_answer_without_delay() -> Result<()
     ] {
         let res = client.get(format!("{base}{path}")).send().await?;
         assert_eq!(cache(&res), "no-cache", "{path}");
+    }
+
+    // Raw paths fetch clients would normalize; `//` once took the Node proxy down (#117)
+    let addr = base.trim_start_matches("http://");
+    for path in ["//", "//x/../..", "/\\\\"] {
+        let mut tcp = tokio::net::TcpStream::connect(addr).await?;
+        tcp.write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .await?;
+        let mut answer = String::new();
+        tcp.read_to_string(&mut answer).await?;
+        let status = answer.split(' ').nth(1).unwrap_or("");
+        assert!(
+            matches!(status.as_bytes().first(), Some(b'2'..=b'4')),
+            "{path}: {status}"
+        );
     }
 
     // One pooled connection; with Nagle on, each response after the first waited ~40 ms.
