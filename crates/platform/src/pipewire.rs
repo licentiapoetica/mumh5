@@ -20,7 +20,7 @@ fn props(v: &Value) -> &Value {
 fn number(v: &Value) -> Option<u64> {
     v.as_u64().or_else(|| v.as_str()?.parse().ok())
 }
-fn own_pids() -> HashSet<u64> {
+pub(crate) fn own_pids() -> HashSet<u64> {
     let mut all = HashSet::new();
     let mut todo = vec![std::process::id() as u64];
     while let Some(pid) = todo.pop() {

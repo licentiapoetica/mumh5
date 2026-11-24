@@ -148,6 +148,9 @@ class VoiceEngine {
     window.addEventListener('pointerdown', wake, { passive: true });
     window.addEventListener('keydown', wake, { passive: true });
     navigator.mediaDevices?.addEventListener('devicechange', () => this.refreshDevices());
+    // A chosen output also applies to sounds played before voice starts (native switching moves
+    // every stream of this app)
+    if (desktop?.setAudioOutput && this.settings.outputDevice && this.settings.outputDevice !== 'default') void this.applyOutputDevice();
   }
 
   save(): void {
@@ -190,8 +193,22 @@ class VoiceEngine {
     const map = (kind: MediaDeviceKind) => all.filter(d => d.kind === kind && d.deviceId !== 'communications')
       .map(d => ({ id: d.deviceId, label: d.label || (d.deviceId === 'default' ? 'System default' : 'Unnamed device') }));
     this.inputDevices = map('audioinput');
-    this.outputDevices = map('audiooutput');
+    this.outputsRead = true;
+    const outputs = map('audiooutput');
+    // WebKitGTK lists no outputs (only the default); the desktop app asks the sound server instead
+    if (outputs.filter(d => d.id !== 'default').length === 0 && desktop?.audioOutputs) {
+      const native = await desktop.audioOutputs().catch(() => null);
+      if (native?.length) {
+        this.nativeOutput = true;
+        this.outputDevices = [{ id: 'default', label: 'System default' }, ...native];
+        return;
+      }
+    }
+    this.outputDevices = outputs;
   }
+  // Outputs come from the sound server and are switched there (Linux desktop app)
+  private nativeOutput = false;
+  private outputsRead = false;
 
   // ─── Screen wake lock ───────────────────────────────────────────────────────
 
@@ -520,6 +537,16 @@ class VoiceEngine {
   }
 
   private async applyOutputDevice(): Promise<void> {
+    // Whether outputs are switched natively is known once the list was read
+    if (!this.outputsRead && desktop?.audioOutputs) await this.refreshDevices().catch(() => {});
+    if (this.nativeOutput && desktop?.setAudioOutput) {
+      try {
+        await desktop.setAudioOutput(this.settings.outputDevice || 'default');
+      } catch (e) {
+        this.error = `Output device unavailable: ${(e as Error).message}`;
+      }
+      return;
+    }
     const device = this.settings.outputDevice === 'default' ? '' : this.settings.outputDevice;
     const el = this.outputEl as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
     if (el?.setSinkId) await el.setSinkId(device).catch(() => {});

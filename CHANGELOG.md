@@ -11,6 +11,8 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 - The Android app bundles the interface and runs voice natively instead of opening a hosted site.
 - Settings is one button beside Home, outside the audio toolbar.
 
+- Linux desktop: output devices are listed and switched through the sound server (PulseAudio or PipeWire with `pactl`), since the WebView lists no outputs of its own. Every sound of the app follows the choice.
+
 ### Removed
 
 - The Rooms interface (`ui2`) and the interface selector. Saved settings that chose Rooms open the regular layout.

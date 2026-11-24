@@ -100,6 +100,7 @@ export async function initializePlatform(): Promise<void> {
   screenSources: async () => ({ sources: [{ id: 'portal', name: 'Choose with system picker', thumbnail: '' }], chosen: false }),
   pickScreenSource() {}, shareInfo: () => call('shareInfo'), shareAudioApps: () => call('shareAudioApps'),
   shareAudioStart: target => call('shareAudioStart', { target }), shareAudioStop: () => call('shareAudioStop'),
+  audioOutputs: () => call('audioOutputs'), setAudioOutput: id => call('setAudioOutput', { id }),
   canPickColor: () => call('canPickColor'), pickColor: () => call('pickColor'),
   async open(id, host, port, identityId) {
    active.add(id);

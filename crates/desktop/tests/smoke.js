@@ -42,11 +42,18 @@
   await wait(() => document.body.innerText.includes('Root') && !document.querySelector('#connect'), 'server sync over native TLS');
   results.push('native TLS connection and rendered channel tree');
   await wait(() => udp, 'encrypted native UDP probe'); stopUdp(); results.push('native encrypted UDP voice lane');
+  // Output devices (Linux): named outputs from the sound server, and switching to one and back
+  let audioOutputs = null;
+  if (api.audioOutputs) {
+   audioOutputs = await api.audioOutputs();
+   const other = (audioOutputs ?? [])[0];
+   if (other) { await api.setAudioOutput(other.id); await new Promise(r => setTimeout(r, 3000)); await api.setAudioOutput('default'); await new Promise(r => setTimeout(r, 1500)); }
+  }
   if (!document.querySelector('[contenteditable=true]')) await wait(() => [...document.querySelectorAll('button')].find(e => /^(Chat|Text)$/.test(e.textContent.trim())), 'chat navigation').then(e => e.click());
   const composer = await wait(() => document.querySelector('[contenteditable=true]'), 'chat composer');
   composer.textContent = 'mumh5 desktop integration message'; composer.dispatchEvent(new Event('input', { bubbles: true })); composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   await wait(() => document.querySelector('.msg')?.textContent?.includes('mumh5 desktop integration message') || [...document.querySelectorAll('.msg')].some(e => e.textContent.includes('mumh5 desktop integration message')), 'sent chat rendered');
   results.push('chat send and rendering');
-  await invoke('smoke_report', { report: { ok: true, results, wizardAlert, publicList, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
+  await invoke('smoke_report', { report: { ok: true, results, wizardAlert, publicList, audioOutputs, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
  } catch (error) { await invoke('smoke_report', { report: { ok: false, results, udpEvents, error: String(error), text: document.body?.innerText } }); }
 })();

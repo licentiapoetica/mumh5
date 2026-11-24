@@ -69,6 +69,10 @@ export interface NativeApi extends PlatformApi {
   // Linux: route one program, or everything but this app, into a virtual microphone named micLabel
   shareAudioStart(target: { kind: 'all' } | { kind: 'app'; name: string }): Promise<void>;
   shareAudioStop(): Promise<void>;
+  // Named audio outputs where the WebView lists none (Linux WebKitGTK): null when the sound server
+  // cannot be asked. setAudioOutput moves this app's playback there ('default' for the system's).
+  audioOutputs?(): Promise<{ id: string; label: string }[] | null>;
+  setAudioOutput?(id: string): Promise<void>;
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;
   close(connId: string): void;

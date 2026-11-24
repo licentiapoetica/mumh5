@@ -30,6 +30,7 @@ struct AppState {
     tray_state: Arc<Mutex<Value>>,
     attention: Arc<std::sync::atomic::AtomicBool>,
     audio: mumh5_platform::pipewire::ShareAudio,
+    output: mumh5_platform::audio_output::OutputRouter,
     profile: Arc<Mutex<Profile>>,
     wires: Arc<Mutex<HashMap<String, Wire>>>,
 }
@@ -67,6 +68,19 @@ async fn platform_call(
                 return Ok(
                     json!({"portal":true,"audio":if cfg!(target_os="windows"){"loopback"}else if mumh5_platform::pipewire::ShareAudio::available().await{"pipewire"}else{"none"},"micLabel":mumh5_platform::pipewire::ShareAudio::label()}),
                 );
+            }
+            "audioOutputs" => {
+                return Ok(json!(
+                    mumh5_platform::audio_output::OutputRouter::devices().await
+                ));
+            }
+            "setAudioOutput" => {
+                let id = string(&args, "id");
+                state
+                    .output
+                    .set((!id.is_empty() && id != "default").then(|| id.to_owned()))
+                    .await?;
+                return Ok(Value::Null);
             }
             "shareAudioApps" => return Ok(json!(state.audio.apps().await?)),
             "shareAudioStart" => {
@@ -629,6 +643,7 @@ pub fn run() {
                 tray_state: Default::default(),
                 attention: Default::default(),
                 audio: Default::default(),
+                output: Default::default(),
                 profile: Arc::new(Mutex::new(if isolated {
                     Profile::open(directory.clone())?
                 } else {
