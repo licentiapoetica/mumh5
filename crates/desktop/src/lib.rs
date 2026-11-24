@@ -590,9 +590,23 @@ async fn wire_relay(
 }
 #[cfg(feature = "smoke-test")]
 #[tauri::command]
+fn smoke_windows(app: tauri::AppHandle) -> Vec<String> {
+    let mut labels: Vec<String> = app.webview_windows().into_keys().collect();
+    labels.sort();
+    labels
+}
+#[cfg(feature = "smoke-test")]
+#[tauri::command]
 fn smoke_report(report: Value, app: tauri::AppHandle) {
     if let Some(path) = std::env::var_os("MUMH5_SMOKE_REPORT") {
         let _ = std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap());
+        // MUMH5_SMOKE_EXTRA: a script file run after the checks, to drive further UI steps in tests
+        if let Some(extra) = std::env::var_os("MUMH5_SMOKE_EXTRA")
+            && let Ok(script) = std::fs::read_to_string(extra)
+            && let Some(w) = app.get_webview_window("main")
+        {
+            let _ = w.eval(script);
+        }
         // MUMH5_SMOKE_STAY keeps the app connected after the checks (performance measurements)
         if std::env::var_os("MUMH5_SMOKE_STAY").is_none() {
             app.exit(if report["ok"] == true { 0 } else { 1 });
@@ -624,7 +638,8 @@ pub fn run() {
         wire_close,
         wire_udp,
         wire_relay,
-        smoke_report
+        smoke_report,
+        smoke_windows
     ]);
     #[cfg(not(feature = "smoke-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -766,6 +781,7 @@ pub fn run() {
                 #[cfg(desktop)]
                 {
                     if url.as_str() != "about:blank" {
+                        eprintln!("mumh5: refused a window for {url}");
                         return tauri::webview::NewWindowResponse::Deny;
                     }
                     let label = format!("popup-{}", uuid::Uuid::new_v4());
@@ -778,8 +794,27 @@ pub fn run() {
                     .title("mumh5")
                     .build()
                     {
-                        Ok(window) => tauri::webview::NewWindowResponse::Create { window },
-                        Err(_) => tauri::webview::NewWindowResponse::Deny,
+                        Ok(window) => {
+                            // window.close() from the page: wry answers by destroying only the WebKit
+                            // view, which also drops later "close" handlers, and the empty native
+                            // window stays. Close the window when its view is destroyed.
+                            #[cfg(target_os = "linux")]
+                            {
+                                let closing = window.clone();
+                                let _ = window.with_webview(move |view| {
+                                    use webkit2gtk::glib::prelude::ObjectExt;
+                                    view.inner().connect_local("destroy", false, move |_| {
+                                        let _ = closing.destroy();
+                                        None
+                                    });
+                                });
+                            }
+                            tauri::webview::NewWindowResponse::Create { window }
+                        }
+                        Err(e) => {
+                            eprintln!("mumh5: could not open a window for the page: {e}");
+                            tauri::webview::NewWindowResponse::Deny
+                        }
                     }
                 }
             })
@@ -811,6 +846,16 @@ pub fn run() {
                 internal
             })
             .build()?;
+            // Settings and the theme creator open as windows of their own from the app's script, also
+            // outside a click handler (WebKitGTK otherwise blocks window.open without a user gesture).
+            // Only the app's own code runs here, and on_new_window allows only blank windows.
+            #[cfg(target_os = "linux")]
+            let _ = w.with_webview(|view| {
+                use webkit2gtk::{SettingsExt, WebViewExt};
+                if let Some(settings) = view.inner().settings() {
+                    settings.set_javascript_can_open_windows_automatically(true);
+                }
+            });
             #[cfg(desktop)]
             w.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event

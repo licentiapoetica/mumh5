@@ -9,6 +9,8 @@ type Tab = typeof ui.settingsTab;
 // runs on this page's state, so every change shows in the app at once and nothing needs syncing.
 class SettingsWindowStore {
   isOpen = $state(false);
+  // False once a window could not be opened (a pop-up blocker); Settings then shows in the app
+  canOpen = $state(true);
   // Whether the person last used that window: a question from Settings is asked where they are
   private usedLast = false;
   promptHere = $derived(!!ui.prompt && this.isOpen && this.usedLast);
@@ -26,7 +28,10 @@ class SettingsWindowStore {
       return true;
     }
     const w = window.open('', 'mumh5-settings', 'popup,width=920,height=820');
-    if (!w) return false;
+    if (!w) {
+      this.canOpen = false;
+      return false;
+    }
     const doc = w.document;
     doc.head.replaceChildren();
     doc.title = 'Settings';
