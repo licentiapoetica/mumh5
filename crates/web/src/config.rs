@@ -56,6 +56,9 @@ pub struct Config {
     pub max_connections: usize,
     pub max_per_address: usize,
     pub audio_limits: serde_json::Value,
+    /// TLS ports the gateway dials for a mumpeer relay. Browsers name the port, so without this
+    /// list a listed private server would make the gateway a port scanner of its own host.
+    pub mumpeer_ports: Vec<u16>,
     pub debug: bool,
 }
 impl Config {
@@ -121,6 +124,14 @@ impl Config {
             max_per_address: count("MUMH5_MAX_PER_ADDRESS", 8)?,
             audio_limits: serde_json::json!({"file":count("MUMH5_MAX_AUDIO_FILE_MB",4)?.checked_mul(1048576).context("Audio file limit overflow")?,"pack":count("MUMH5_MAX_AUDIO_PACK_MB",32)?.checked_mul(1048576).context("Audio pack limit overflow")?,"unpacked":count("MUMH5_MAX_AUDIO_UNPACKED_MB",64)?.checked_mul(1048576).context("Audio unpacked limit overflow")?}),
             debug: on("MUMH5_DEBUG"),
+            mumpeer_ports: match env("MUMH5_MUMPEER_PORTS") {
+                Some(raw) => raw
+                    .split(',')
+                    .filter_map(|p| p.trim().parse::<u16>().ok())
+                    .filter(|p| *p > 0)
+                    .collect(),
+                None => vec![443],
+            },
         })
     }
     pub fn listed(&self, host: &str, port: u16) -> bool {
@@ -191,5 +202,8 @@ mod tests {
         assert!(!c.allow_private);
         assert!(c.turn.unwrap().relay);
         assert!(Config::from(|k| (k == "MUMH5_MAX_AUDIO_FILE_MB").then(|| "0".into())).is_err());
+        assert_eq!(c.mumpeer_ports, [443]);
+        let ports = Config::from(|k| (k == "MUMH5_MUMPEER_PORTS").then(|| "8443, x,0,443".into()));
+        assert_eq!(ports.unwrap().mumpeer_ports, [8443, 443]);
     }
 }

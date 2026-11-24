@@ -9,6 +9,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.webkit.WebView
+import androidx.appcompat.app.AppCompatActivity
 import app.tauri.PermissionState
 import app.tauri.annotation.Command
 import app.tauri.annotation.Permission
@@ -53,7 +54,7 @@ class VoicePlugin(private val host: Activity) : Plugin(host) {
  private fun keepVisible() {
   page?.post { if (VoiceService.instance != null) { page?.onResume(); page?.resumeTimers(); page?.dispatchWindowVisibilityChanged(View.VISIBLE) } }
  }
- override fun onPause() { keepVisible(); page?.postDelayed({ keepVisible() }, 150) }
- override fun onStop() { keepVisible(); page?.postDelayed({ keepVisible() }, 150) }
- override fun onResume() { keepVisible() }
+ override fun onPause(activity: AppCompatActivity) { keepVisible(); page?.postDelayed({ keepVisible() }, 150) }
+ override fun onStop(activity: AppCompatActivity) { keepVisible(); page?.postDelayed({ keepVisible() }, 150) }
+ override fun onResume(activity: AppCompatActivity) { keepVisible() }
 }

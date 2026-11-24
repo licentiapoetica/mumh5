@@ -1,4 +1,5 @@
 mod config;
+mod relay;
 // Browser frontend and Mumble WebSocket gateway, implemented entirely in Rust.
 use anyhow::{Context, Result};
 use axum::extract::{ConnectInfo, Extension};
@@ -47,7 +48,7 @@ struct Options {
     assets: Option<PathBuf>,
 }
 struct App {
-    config: config::Config,
+    config: Arc<config::Config>,
     turn: Option<TurnServer>,
     crypto: Arc<Semaphore>,
     connections: Arc<Semaphore>,
@@ -194,8 +195,15 @@ fn reqwest_url(s: &str) -> Option<String> {
 }
 async fn config(State(app): State<Shared>) -> Json<Value> {
     Json(
-        json!({"servers":app.config.servers,"default":app.config.default,"any":app.config.allow_any,"stun":app.turn.as_ref().map(|t|t.port),"turn":app.turn.is_some()&&app.config.turn.as_ref().is_some_and(|o|o.relay),"audioPackLimits":app.config.audio_limits}),
+        json!({"servers":app.config.servers,"default":app.config.default,"any":app.config.allow_any,"stun":app.turn.as_ref().map(|t|t.port),"turn":app.turn.is_some()&&app.config.turn.as_ref().is_some_and(|o|o.relay),"mumpeer":mumpeer_issuer(&app).is_some(),"audioPackLimits":app.config.audio_limits}),
     )
+}
+/// The gateway keeps mumpeer links for browsers when its relay is on and relay ports are listed.
+fn mumpeer_issuer(app: &App) -> Option<mumh5_platform::turn::LaneIssuer> {
+    if app.config.mumpeer_ports.is_empty() || !app.config.turn.as_ref().is_some_and(|o| o.relay) {
+        return None;
+    }
+    app.turn.as_ref()?.lane_issuer()
 }
 async fn relay(State(app): State<Shared>) -> Response {
     let Some(turn) = &app.turn else {
@@ -285,18 +293,93 @@ async fn connect(
         })
 }
 async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<()> {
-    let result=async{
-  let Some(Ok(Message::Text(hello)))=tokio::time::timeout(Duration::from_secs(10),ws.recv()).await? else{anyhow::bail!("Expected connection handshake");};
-  if hello.len()>128*1024{anyhow::bail!("Handshake too large");}let hello:Value=serde_json::from_str(&hello)?;let(host,port)=target(&hello)?;
-  let resolved=app.config.address(host,port).await?;
-  let identity=Identity{cert_pem:text(&hello,"certPem").into(),key_pem:text(&hello,"keyPem").into()};
-  let mut transport=Transport::connect_to(host,port,&identity,Some(resolved),app.config.send_proxy.then_some(address)).await?;
-  ws.send(Message::Text(json!({"type":"secure","info":transport.secure}).to_string().into())).await?;
-  loop{tokio::select!{
-   frame=ws.recv()=>match frame{Some(Ok(Message::Binary(b)))=>transport.send.send(b.to_vec()).await?,Some(Ok(Message::Ping(p)))=>ws.send(Message::Pong(p)).await?,Some(Ok(Message::Pong(_)))=>{},Some(Ok(Message::Close(_)))|None=>break,Some(Err(e))=>return Err(e.into()),_=>anyhow::bail!("Expected binary Mumble frames")},
-   data=transport.receive.recv()=>match data{Some(Ok(b))=>ws.send(Message::Binary(b.into())).await?,Some(Err(e))=>return Err(e),None=>break}
-  }}anyhow::Ok(())
- }.await;
+    let (events, mut replies) = tokio::sync::mpsc::channel::<Value>(64);
+    let mut relays: Option<Arc<relay::Relays>> = None;
+    let result = async {
+        let Some(Ok(Message::Text(hello))) =
+            tokio::time::timeout(Duration::from_secs(10), ws.recv()).await?
+        else {
+            anyhow::bail!("Expected connection handshake");
+        };
+        if hello.len() > 128 * 1024 {
+            anyhow::bail!("Handshake too large");
+        }
+        let hello: Value = serde_json::from_str(&hello)?;
+        let (host, port) = target(&hello)?;
+        let resolved = app.config.address(host, port).await?;
+        let identity = Identity {
+            cert_pem: text(&hello, "certPem").into(),
+            key_pem: text(&hello, "keyPem").into(),
+        };
+        let mut transport = Transport::connect_to(
+            host,
+            port,
+            &identity,
+            Some(resolved),
+            app.config.send_proxy.then_some(address),
+        )
+        .await?;
+        ws.send(Message::Text(
+            json!({"type":"secure","info":transport.secure})
+                .to_string()
+                .into(),
+        ))
+        .await?;
+        // Once the connection is secure its identity may open mumpeer links.
+        relays = mumpeer_issuer(&app).map(|issuer| {
+            relay::Relays::new(
+                app.config.clone(),
+                issuer,
+                relay::Target {
+                    host: host.to_owned(),
+                    guard: !app.config.allow_private && !app.config.listed(host, port),
+                    identity,
+                },
+                events.clone(),
+            )
+        });
+        loop {
+            tokio::select! {
+                frame = ws.recv() => match frame {
+                    Some(Ok(Message::Binary(b))) => transport.send.send(b.to_vec()).await?,
+                    Some(Ok(Message::Text(t))) => {
+                        // Text frames after the handshake are mumpeer requests; others are ignored.
+                        let Ok(msg) = serde_json::from_str::<Value>(&t) else { continue };
+                        if !msg["type"].as_str().is_some_and(|t| t.starts_with("relay-")) {
+                            continue;
+                        }
+                        match &relays {
+                            Some(relays) => {
+                                tokio::spawn(relays.clone().handle(msg));
+                            }
+                            None => {
+                                if let Some(n) = msg["n"].as_u64() {
+                                    let fail = json!({"type":"relay-fail","n":n,"reason":"Mumpeer is unavailable on this proxy"});
+                                    ws.send(Message::Text(fail.to_string().into())).await?;
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Ping(p))) => ws.send(Message::Pong(p)).await?,
+                    Some(Ok(Message::Pong(_))) => {}
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(e)) => return Err(e.into()),
+                },
+                reply = replies.recv() => if let Some(reply) = reply {
+                    ws.send(Message::Text(reply.to_string().into())).await?;
+                },
+                data = transport.receive.recv() => match data {
+                    Some(Ok(b)) => ws.send(Message::Binary(b.into())).await?,
+                    Some(Err(e)) => return Err(e),
+                    None => break,
+                },
+            }
+        }
+        anyhow::Ok(())
+    }
+    .await;
+    // Links end with the connection, before the close frame, and say nothing themselves.
+    drop(relays);
     let reason = result
         .as_ref()
         .err()
@@ -347,7 +430,7 @@ async fn main() -> Result<()> {
         connections: Arc::new(Semaphore::new(cfg.max_connections)),
         addresses: Default::default(),
         rates: Default::default(),
-        config: cfg,
+        config: Arc::new(cfg),
         turn,
     });
     let api = Router::new()

@@ -39,6 +39,7 @@ jobs:
           trap 'docker rm -f mumh5-ci' EXIT
           timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
           MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-core --test live_server -- --nocapture
+          MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-web --test mumpeer_gateway -- --nocapture
   desktop:
     needs: check
     strategy:

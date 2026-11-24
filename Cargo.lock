@@ -3406,13 +3406,18 @@ dependencies = [
  "mumh5-core",
  "mumh5-platform",
  "openssl",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-openssl",
+ "tokio-tungstenite",
  "tokio-util",
  "tower-http",
+ "turn",
  "url",
  "uuid",
+ "webrtc-util",
 ]
 
 [[package]]

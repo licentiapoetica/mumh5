@@ -42,5 +42,7 @@ startAndroidControls();
 connLog.start();
 
 if (isWeb && 'serviceWorker' in navigator) {
- window.addEventListener('load', () => { void navigator.serviceWorker.register(new URL('./sw.js', document.baseURI)).catch(error => debugLog.record('warn', 'app', 'Offline support could not start', { error: String(error) })); });
+ const register = () => { void navigator.serviceWorker.register(new URL('./sw.js', document.baseURI)).catch(error => debugLog.record('warn', 'app', 'Offline support could not start', { error: String(error) })); };
+ // This module is imported after the platform starts, usually after `load` has already fired
+ if (document.readyState === 'complete') register(); else window.addEventListener('load', register, { once: true });
 }

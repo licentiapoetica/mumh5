@@ -74,12 +74,131 @@ impl Default for Options {
         }
     }
 }
+/// A mumpeer lane on the public relay is reached with its own credential,
+/// `<expiry>:lane-<32 hex>`. Such a username only ever gets its virtual address, never a
+/// normal relay, and one allocation at a time.
+pub fn is_lane_user(user: &str) -> bool {
+    user.split_once(":lane-").is_some_and(|(expiry, id)| {
+        !expiry.is_empty()
+            && expiry.bytes().all(|b| b.is_ascii_digit())
+            && id.len() == 32
+            && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+struct LaneEntry {
+    bridge: VirtualBridge,
+    busy: Option<(u64, CancellationToken)>,
+}
+/// Virtual lanes (mumpeer links the gateway keeps for browsers) served by the public relay.
+#[derive(Default)]
+pub struct LaneRegistry {
+    lanes: StdMutex<HashMap<String, LaneEntry>>,
+    next: std::sync::atomic::AtomicU64,
+}
+/// Keeps a lane registered; dropping it removes the lane and ends its allocation.
+pub struct LaneHandle {
+    registry: Arc<LaneRegistry>,
+    username: String,
+}
+impl Drop for LaneHandle {
+    fn drop(&mut self) {
+        if let Ok(mut lanes) = self.registry.lanes.lock()
+            && let Some(entry) = lanes.remove(&self.username)
+            && let Some((_, cancel)) = entry.busy
+        {
+            cancel.cancel();
+        }
+    }
+}
+/// One allocation's hold on a lane; dropping it frees the lane for the next allocation.
+struct LaneClaim {
+    registry: Arc<LaneRegistry>,
+    username: String,
+    id: u64,
+}
+impl Drop for LaneClaim {
+    fn drop(&mut self) {
+        if let Ok(mut lanes) = self.registry.lanes.lock()
+            && let Some(entry) = lanes.get_mut(&self.username)
+            && entry.busy.as_ref().is_some_and(|(id, _)| *id == self.id)
+        {
+            entry.busy = None;
+        }
+    }
+}
+impl LaneRegistry {
+    pub fn register(self: &Arc<Self>, username: String, bridge: VirtualBridge) -> LaneHandle {
+        if let Ok(mut lanes) = self.lanes.lock() {
+            lanes.insert(username.clone(), LaneEntry { bridge, busy: None });
+        }
+        LaneHandle {
+            registry: self.clone(),
+            username,
+        }
+    }
+    pub fn has(&self, username: &str) -> bool {
+        self.lanes.lock().is_ok_and(|l| l.contains_key(username))
+    }
+    fn claim(
+        self: &Arc<Self>,
+        username: &str,
+    ) -> Option<(VirtualBridge, CancellationToken, LaneClaim)> {
+        let mut lanes = self.lanes.lock().ok()?;
+        let entry = lanes.get_mut(username)?;
+        if entry.busy.is_some() {
+            return None;
+        }
+        let id = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let cancel = entry.bridge.cancel.child_token();
+        entry.busy = Some((id, cancel.clone()));
+        Some((
+            entry.bridge.clone(),
+            cancel,
+            LaneClaim {
+                registry: self.clone(),
+                username: username.to_owned(),
+                id,
+            },
+        ))
+    }
+}
+/// Hands out lane credentials on a running public relay.
+#[derive(Clone)]
+pub struct LaneIssuer {
+    pub registry: Arc<LaneRegistry>,
+    pub port: u16,
+    secret: String,
+}
+impl LaneIssuer {
+    /// A fresh lane credential: `(username, credential)`, valid for twelve hours.
+    pub fn credentials(&self) -> Result<(String, String)> {
+        let expiry = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs()
+            + 12 * 3600;
+        let username = format!("{expiry}:lane-{}", uuid::Uuid::new_v4().simple());
+        let credential = hmac_password(&self.secret, &username)?;
+        Ok((username, credential))
+    }
+}
+fn hmac_password(secret: &str, user: &str) -> Result<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
+    let key = PKey::hmac(secret.as_bytes())?;
+    let mut signer = Signer::new(MessageDigest::sha1(), &key)?;
+    signer.update(user.as_bytes())?;
+    Ok(STANDARD.encode(signer.sign_to_vec()?))
+}
+type Users = Arc<StdMutex<HashMap<SocketAddr, String>>>;
 struct Credentials {
     secret: String,
     relay: bool,
+    lanes: Option<Arc<LaneRegistry>>,
+    /// The user each client 5-tuple last authenticated as; allocation reads it to pick a lane.
+    users: Users,
 }
 impl AuthHandler for Credentials {
-    fn auth_handle(&self, user: &str, realm: &str, _src: SocketAddr) -> TurnResult<Vec<u8>> {
+    fn auth_handle(&self, user: &str, realm: &str, src: SocketAddr) -> TurnResult<Vec<u8>> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| turn::Error::Other(e.to_string()))?
@@ -92,20 +211,15 @@ impl AuthHandler for Credentials {
         if !self.relay || expiry <= now || expiry > now + 12 * 3600 + 60 {
             return Err(turn::Error::Other("Expired TURN credentials".into()));
         }
-        use base64::{Engine, engine::general_purpose::STANDARD};
-        use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
-        let key =
-            PKey::hmac(self.secret.as_bytes()).map_err(|e| turn::Error::Other(e.to_string()))?;
-        let mut signer = Signer::new(MessageDigest::sha1(), &key)
-            .map_err(|e| turn::Error::Other(e.to_string()))?;
-        signer
-            .update(user.as_bytes())
-            .map_err(|e| turn::Error::Other(e.to_string()))?;
-        let password = STANDARD.encode(
-            signer
-                .sign_to_vec()
-                .map_err(|e| turn::Error::Other(e.to_string()))?,
-        );
+        // Without its registered lane a lane credential gets nothing at all.
+        if is_lane_user(user) && !self.lanes.as_ref().is_some_and(|l| l.has(user)) {
+            return Err(turn::Error::Other("Unknown mumpeer lane".into()));
+        }
+        let password =
+            hmac_password(&self.secret, user).map_err(|e| turn::Error::Other(e.to_string()))?;
+        if let Ok(mut users) = self.users.lock() {
+            users.insert(src, user.to_owned());
+        }
         Ok(generate_auth_key(user, realm, &password))
     }
 }
@@ -170,6 +284,7 @@ struct RelayConn {
     allow_private: bool,
     cancel: CancellationToken,
     lease: StdMutex<Option<Lease>>,
+    claim: StdMutex<Option<LaneClaim>>,
 }
 #[async_trait]
 impl Conn for RelayConn {
@@ -222,6 +337,9 @@ impl Conn for RelayConn {
         if let Ok(mut lease) = self.lease.lock() {
             lease.take();
         }
+        if let Ok(mut claim) = self.claim.lock() {
+            claim.take();
+        }
         Ok(())
     }
     fn as_any(&self) -> &(dyn Any + Send + Sync) {
@@ -231,9 +349,40 @@ impl Conn for RelayConn {
 struct Generator {
     opts: Options,
     quota: Arc<Quota>,
-    client: IpAddr,
+    client: SocketAddr,
     local: IpAddr,
     virtual_bridge: Option<VirtualBridge>,
+    lanes: Option<Arc<LaneRegistry>>,
+    users: Users,
+}
+impl Generator {
+    fn lane_user(&self) -> Option<String> {
+        if self.virtual_bridge.is_some() {
+            return None;
+        }
+        let users = self.users.lock().ok()?;
+        users.get(&self.client).filter(|u| is_lane_user(u)).cloned()
+    }
+}
+fn virtual_conn(
+    bridge: &VirtualBridge,
+    cancel: CancellationToken,
+    lease: Lease,
+    claim: Option<LaneClaim>,
+) -> RelayConn {
+    RelayConn {
+        kind: RelayKind::Virtual {
+            tx: bridge.outgoing.clone(),
+            rx: Mutex::new(bridge.incoming.subscribe()),
+            remote: bridge.remote,
+        },
+        local: bridge.local,
+        public: bridge.local.ip(),
+        allow_private: false,
+        cancel,
+        lease: StdMutex::new(Some(lease)),
+        claim: StdMutex::new(claim),
+    }
 }
 #[async_trait]
 impl RelayAddressGenerator for Generator {
@@ -241,6 +390,9 @@ impl RelayAddressGenerator for Generator {
         Ok(())
     }
     fn supports_family(&self, v4: bool) -> bool {
+        if self.lane_user().is_some() {
+            return v4;
+        }
         self.virtual_bridge
             .as_ref()
             .map(|v| v.local.is_ipv4() == v4)
@@ -251,24 +403,26 @@ impl RelayAddressGenerator for Generator {
         v4: bool,
         requested: u16,
     ) -> TurnResult<(Arc<dyn Conn + Send + Sync>, SocketAddr)> {
-        let lease = self.quota.reserve(self.client, &self.opts)?;
+        if let Some(user) = self.lane_user() {
+            // A lane credential reaches its lane or nothing: never a normal relay.
+            if !v4 {
+                return Err(turn::Error::Other("Mumpeer relay requires IPv4".into()));
+            }
+            let (bridge, cancel, claim) = self
+                .lanes
+                .as_ref()
+                .and_then(|l| l.claim(&user))
+                .ok_or_else(|| turn::Error::Other("Mumpeer lane busy or closed".into()))?;
+            let lease = self.quota.reserve(self.client.ip(), &self.opts)?;
+            let conn = virtual_conn(&bridge, cancel, lease, Some(claim));
+            return Ok((Arc::new(conn), bridge.local));
+        }
+        let lease = self.quota.reserve(self.client.ip(), &self.opts)?;
         if let Some(bridge) = &self.virtual_bridge {
             if !v4 {
                 return Err(turn::Error::Other("Mumpeer relay requires IPv4".into()));
             }
-            let rx = bridge.incoming.subscribe();
-            let conn = RelayConn {
-                kind: RelayKind::Virtual {
-                    tx: bridge.outgoing.clone(),
-                    rx: Mutex::new(rx),
-                    remote: bridge.remote,
-                },
-                local: bridge.local,
-                public: bridge.local.ip(),
-                allow_private: false,
-                cancel: bridge.cancel.child_token(),
-                lease: StdMutex::new(Some(lease)),
-            };
+            let conn = virtual_conn(bridge, bridge.cancel.child_token(), lease, None);
             return Ok((Arc::new(conn), bridge.local));
         }
         let bind: IpAddr = if v4 {
@@ -307,6 +461,7 @@ impl RelayAddressGenerator for Generator {
             allow_private: self.opts.allow_private,
             cancel: CancellationToken::new(),
             lease: StdMutex::new(Some(lease)),
+            claim: StdMutex::new(None),
         };
         Ok((Arc::new(conn), address))
     }
@@ -371,6 +526,8 @@ struct ContextState {
     auth: Arc<Credentials>,
     cancel: CancellationToken,
     virtual_bridge: Option<VirtualBridge>,
+    lanes: Option<Arc<LaneRegistry>>,
+    users: Users,
 }
 fn local_ip(peer: SocketAddr) -> Result<IpAddr> {
     let socket = std::net::UdpSocket::bind(if peer.is_ipv4() {
@@ -393,9 +550,11 @@ async fn serve_client(conn: Arc<PacketConn>, state: ContextState) -> Result<()> 
             relay_addr_generator: Box::new(Generator {
                 opts: state.opts.clone(),
                 quota: state.quota,
-                client: conn.peer.ip(),
+                client: conn.peer,
                 local,
                 virtual_bridge: state.virtual_bridge,
+                lanes: state.lanes,
+                users: state.users.clone(),
             }),
         }],
         realm: "mumh5".into(),
@@ -406,6 +565,9 @@ async fn serve_client(conn: Arc<PacketConn>, state: ContextState) -> Result<()> 
     .await?;
     tokio::select! {_=conn.cancel.cancelled()=>{},_=state.cancel.cancelled()=>{}}
     let _ = server.close().await;
+    if let Ok(mut users) = state.users.lock() {
+        users.remove(&conn.peer);
+    }
     Ok(())
 }
 async fn tcp_client(tcp: TcpStream, state: ContextState) -> Result<()> {
@@ -466,6 +628,7 @@ async fn tcp_client(tcp: TcpStream, state: ContextState) -> Result<()> {
 pub struct TurnServer {
     pub port: u16,
     secret: String,
+    lanes: Option<Arc<LaneRegistry>>,
     cancel: CancellationToken,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -476,15 +639,22 @@ impl TurnServer {
         }
         let secret = uuid::Uuid::new_v4().simple().to_string();
         let cancel = CancellationToken::new();
+        // Only a public relay (no fixed bridge) serves lanes of links kept for browsers.
+        let lanes = (bridge.is_none() && opts.relay).then(|| Arc::new(LaneRegistry::default()));
+        let users = Users::default();
         let state = ContextState {
             auth: Arc::new(Credentials {
                 secret: secret.clone(),
                 relay: opts.relay,
+                lanes: lanes.clone(),
+                users: users.clone(),
             }),
             opts: opts.clone(),
             quota: Arc::new(Quota::default()),
             cancel: cancel.clone(),
             virtual_bridge: bridge,
+            lanes: lanes.clone(),
+            users,
         };
         let mut tasks = vec![];
         let port;
@@ -523,8 +693,17 @@ if let Some((tx,_,at))=peers.get_mut(&addr){*at=tokio::time::Instant::now();let 
         Ok(Self {
             port,
             secret,
+            lanes,
             cancel,
             tasks,
+        })
+    }
+    /// Issues lane credentials on this relay, when it relays at all.
+    pub fn lane_issuer(&self) -> Option<LaneIssuer> {
+        Some(LaneIssuer {
+            registry: self.lanes.clone()?,
+            port: self.port,
+            secret: self.secret.clone(),
         })
     }
     pub fn credentials(&self) -> Result<(String, String)> {
@@ -639,12 +818,20 @@ mod integration_tests {
         }
     }
     async fn client(server: &TurnServer, tcp: bool) -> Result<Client> {
+        let (user, password) = server.credentials()?;
+        client_as(server, tcp, user, password).await
+    }
+    async fn client_as(
+        server: &TurnServer,
+        tcp: bool,
+        user: String,
+        password: String,
+    ) -> Result<Client> {
         let conn: Arc<dyn Conn + Send + Sync> = if tcp {
             Arc::new(TcpPackets::open(server.port).await?)
         } else {
             Arc::new(UdpSocket::bind("127.0.0.1:0").await?)
         };
-        let (user, password) = server.credentials()?;
         let address = format!("127.0.0.1:{}", server.port);
         let client = Client::new(ClientConfig {
             stun_serv_addr: address.clone(),
@@ -706,6 +893,97 @@ mod integration_tests {
  // Permissions are established by sending in both directions, as ICE connectivity checks do.
  ar.send_to(b"probe",high).await?;br.send_to(b"back",low).await?;ar.send_to(b"forward",high).await?;let mut bytes=[0;2048];let(n,from)=ar.recv_from(&mut bytes).await?;assert_eq!(&bytes[..n],b"back");assert_eq!(from,high);loop{let(n,from)=br.recv_from(&mut bytes).await?;assert_eq!(from,low);if &bytes[..n]==b"forward"{break;}}
  ar.close().await?;br.close().await?;a.close().await?;b.close().await?;cancel.cancel();pump.await?;left.close().await;right.close().await;anyhow::Ok(())}).await??;
+        Ok(())
+    }
+    #[test]
+    fn lane_usernames_are_recognised() {
+        assert!(is_lane_user(
+            "1800000000:lane-0123456789abcdef0123456789abcdef"
+        ));
+        for user in [
+            "1800000000",
+            "x:lane-0123456789abcdef0123456789abcdef",
+            "1:lane-0123",
+            "1:lane-0123456789ABCDEF0123456789ABCDEF",
+        ] {
+            assert!(!is_lane_user(user), "{user}");
+        }
+    }
+    #[tokio::test]
+    async fn public_relay_lanes_reach_only_their_virtual_address() -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            let mut server = TurnServer::start(
+                Options {
+                    bind: "127.0.0.1:0".parse()?,
+                    min_port: 0,
+                    max_port: 0,
+                    ..Default::default()
+                },
+                None,
+            )
+            .await?;
+            let issuer = server.lane_issuer().expect("relay serves lanes");
+            let (out_tx, mut out_rx) = mpsc::channel(64);
+            let (incoming, _) = broadcast::channel(64);
+            let cancel = CancellationToken::new();
+            let high: SocketAddr = "192.0.2.2:40001".parse()?;
+            let low: SocketAddr = "192.0.2.1:40001".parse()?;
+            let bridge = VirtualBridge {
+                local: high,
+                remote: low,
+                outgoing: out_tx,
+                incoming: incoming.clone(),
+                cancel: cancel.clone(),
+            };
+            // An unregistered lane credential is refused outright, never given a normal relay.
+            let (ghost, ghost_password) = issuer.credentials()?;
+            let refused = client_as(&server, false, ghost, ghost_password).await?;
+            assert!(refused.allocate().await.is_err());
+            refused.close().await?;
+            let (user, password) = issuer.credentials()?;
+            let handle = issuer.registry.register(user.clone(), bridge);
+            for tcp in [false, true] {
+                let client = client_as(&server, tcp, user.clone(), password.clone()).await?;
+                let relay = client.allocate().await?;
+                // The high side of the pair gets its own address, not the low placeholder.
+                assert_eq!(relay.local_addr()?, high);
+                relay.send_to(b"to-peer", low).await?;
+                assert_eq!(out_rx.recv().await.as_deref(), Some(&b"to-peer"[..]));
+                incoming.send(b"from-peer".to_vec())?;
+                let mut bytes = [0; 2048];
+                let (n, from) = relay.recv_from(&mut bytes).await?;
+                assert_eq!((&bytes[..n], from), (&b"from-peer"[..], low));
+                // One allocation at a time per lane.
+                let second = client_as(&server, true, user.clone(), password.clone()).await?;
+                assert!(second.allocate().await.is_err());
+                second.close().await?;
+                relay.close().await?;
+                client.close().await?;
+                // Freed for the next allocation once the first closes.
+                for _ in 0..50 {
+                    if issuer
+                        .registry
+                        .lanes
+                        .lock()
+                        .unwrap()
+                        .get(&user)
+                        .is_some_and(|e| e.busy.is_none())
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            }
+            drop(handle);
+            assert!(!issuer.registry.has(&user));
+            let late = client_as(&server, false, user, password).await?;
+            assert!(late.allocate().await.is_err());
+            late.close().await?;
+            cancel.cancel();
+            server.close().await;
+            anyhow::Ok(())
+        })
+        .await??;
         Ok(())
     }
 }

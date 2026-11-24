@@ -22,3 +22,10 @@ uuid.workspace = true
 
 openssl.workspace = true
 url = "2"
+
+[dev-dependencies]
+reqwest.workspace = true
+tokio-tungstenite = "0.29"
+tokio-openssl = "0.6"
+turn = "0.17.3"
+webrtc-util = "0.17.3"

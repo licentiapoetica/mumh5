@@ -1,6 +1,6 @@
 # Rust/Tauri migration checkpoint
 
-Updated: 2026-11-24. **Work is incomplete; keep PR #111 draft.**
+Updated: 2026-11-24 (checkpoint 2). **Work is incomplete; keep PR #111 draft.**
 
 - PR: https://github.com/licentiapoetica/mumh5/pull/111
 - Branch: `feature/dream-cord-rust-tauri` in `licentiapoetica/mumh5`.
@@ -39,57 +39,42 @@ Updated: 2026-11-24. **Work is incomplete; keep PR #111 draft.**
 - GitHub Actions syntax passed `actionlint 1.7.12 -shellcheck=`. This is not proof that platform packaging jobs pass.
 - Android Rust arm64 library compiled and linked using static OpenSSL/Opus; required shared libraries were Android system libraries only. APK packaging is not yet confirmed. Kotlin compilation reported an unused invalid `app.tauri.JSObject` import; it has been removed, and the Android build must be rerun.
 
+## Completed in checkpoint 2 (2026-11-24, second session)
+
+- **Upstream re-sync to `21498a3`** (main moved after the first checkpoint): three-way merged i18n + German (#109), hidden-tab microphone reopen (#97), and the frontend of browser mumpeer through the proxy (#104). Ported #104's backend to Rust: public-relay TURN lane credentials (`<expiry>:lane-<32 hex>`, one allocation per lane, unknown/removed lanes refused, never a normal relay) in `crates/platform/src/turn.rs`; gateway `relay-open/turn/lane-close/close` frames, `relay-closed`, `MUMH5_MUMPEER_PORTS` (default 443), 9 links + 20 opens/min per connection, same-host/allow-any/private-address policy and one generic failure message in `crates/web/src/relay.rs`; `/api/config` `mumpeer`. #110 (Capacitor Android shell opening a hosted site) is intentionally not carried over: the Tauri Android app bundles the UI and uses the native mumpeer path.
+- Kept the Settings-beside-Home change through the i18n merge (new `nav.settings` key replaces the toolbar's `userBar.configure`); dropped re-created `ui2/`.
+- **Fixed** two regressions found by the smokes: the service worker was never registered (boot module loads after `load`), so the PWA had no offline support; and after upstream stopped awaiting `syncInput()`, a stale microphone source/gain from the previous audio context was connected to the new one on reconnect (`voice.svelte.ts`).
+- Android: APK rebuilt successfully (`app-universal-debug.apk`, `org.mumh5.app`, arm64, microphone FGS type, only Android system shared libs). Lifecycle overrides moved to the non-deprecated `(activity)` variants; no Kotlin warnings left in our sources (only Gradle DSL deprecations in the plugin build script and Tauri-generated files).
+- PipeWire: upstream graph fixtures ported to Rust tests, plus WebView-child exclusion; `start` now waits for the virtual mic's ports and removes the node if linking/monitor startup fails.
+- Mumpeer: local pinned-TLS tests (bind/token, wrong pin and missing ALPN rejected before the token is sent, relay refusal, relay teardown, parent cancellation, lane reuse/reallocation, invalid endpoints) and a gateway end-to-end test (`crates/web/tests/mumpeer_gateway.rs`, added to CI's live step).
+- Tooling: `bun run themes` (`frontend/tools/gen-themes.ts`, output byte-identical apart from the header) and `bun run proto` (`frontend/tools/gen-proto.ts`, pinned `protobufjs-cli@2.7.1` via `bun x`, or `PBJS=` for a local pbjs; verified with the local copy). `scripts/build-deepfilter.sh` path checked; not rebuilt (needs `wasm-opt`, the wasm32 target and network).
+- Docs: restored `docs/mumpeer-relay.md` (Rust/Tauri wording, test commands) and `docs/translating.md`; README and Compose list `MUMH5_MUMPEER_PORTS`.
+- New `frontend/tools/pwa-smoke.ts`: theme/font styles, all precached assets (workers, worklets, PDF, WASM, audio), SW scope, build marker, offline reload, both at `/` and behind a `/mumh5/` path prefix. Smokes pin `locale: en-US` (the UI now follows the browser language).
+
+### Validation in checkpoint 2 (final tree)
+
+- `cargo fmt --all --check`, `cargo test --locked --workspace`, strict `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked -p mumh5-core --no-default-features`: all pass.
+- Live (disposable Mumble on 64750): core `live_server` 2/2, gateway `mumpeer_gateway` 1/1.
+- Frontend: svelte-check 0 errors/0 warnings; 162 tests pass; production build OK; browser, settings and PWA/subpath smokes pass.
+- Tauri/WebKit smoke with a fresh profile: all 7 checks pass (run with `LANG=en_US.UTF-8`).
+
 ## Remaining work, in order
 
-1. **Complete Android APK validation.**
-   - Rerun `cargo tauri android build --ci --target aarch64 --apk --debug` from `crates/desktop`.
-   - JDK21, SDK36, NDK28.2.13676358, CMake, protoc, `aarch64-linux-android`; export both `NDK_HOME` and `ANDROID_NDK_ROOT`; native Tauri CLI must be on PATH because Gradle invokes `cargo tauri`.
-   - Fix any remaining Kotlin/Gradle errors; clean up mobile-only Rust warnings and update deprecated lifecycle overrides if useful.
-   - Check permissions, microphone/camera, foreground notification actions, muted microphone behavior, screen-off/background connection, leave/quit cleanup and battery exemption on an actual Android device. Compile success cannot validate these.
-   - Current pipeline publishes a debug/development APK. Do not claim a signed production release. Decide/preserve signing and release-keystore configuration if production Android packaging is required.
-
-2. **Finish strict verification on the final tree.**
-   - `cargo fmt --all --check`
-   - `cargo test --locked --workspace`
-   - `cargo clippy --locked --workspace --all-targets -- -D warnings`
-   - `cargo test --locked -p mumh5-core --no-default-features`
-   - Run native live-server tests with the disposable local Mumble server (audio/video/text and no input/output loopback).
-   - Rerun frontend check/build and browser/settings smoke after the final hashed CSS change. Check global theme/fonts styles load, PWA offline/reload/update behavior, worker/PDF/audio paths and subpath hosting.
-   - Run the Tauri smoke again if native behavior changes after this checkpoint; always use a fresh isolated profile.
-
-3. **Validate the full build/release pipeline on GitHub.**
-   - Push the checkpoint and inspect PR checks. Fix actual Linux/Windows/Android/Docker failures; workflow syntax validation alone is insufficient.
-   - Build/install Linux `.deb`, run AppImage (including static runtime check) and portable archive/user installer/uninstaller; verify native runtime dependencies and stable filenames.
-   - Verify Windows bootstrap under Git Bash, MSVC/vcpkg OpenSSL/Opus/libvpx, protoc discovery, NSIS/WebView installation and CLI runtime dependencies.
-   - Build/run Docker with the existing operator environment/Compose examples; check metadata in source archives without Git. Watch local disk space before doing a large Docker build.
-   - Exercise snapshot assembly with fixture artifacts: exactly one installer of each required type, CLI files excluded from the installer glob, optional Android asset, checksums and links. Verify release tag/main guards and permissions. Do not publish a real snapshot from this feature branch.
-   - Consider macOS CI if preserving the prior local `dist:mac` capability requires it; config/icons/Info.plist are supplied, but a macOS package has not been tested.
-   - Add browser and actual Tauri integration jobs to CI if practical; current CI includes native core/live tests but does not automate every local smoke script.
-
-4. **Close remaining feature-parity gaps.**
-   - Review `git diff efcfd1e origin/main -- src` and upstream native modules against the new implementation. Restored behavior is not yet a complete parity sign-off.
-   - Test mumpeer end-to-end with its real relay server, including TLS pin/ALPN rejection before sending the token, teardown/reconnect and lane reallocation. Add a local TLS backhaul test; current tests cover the virtual TURN adapter, not the complete pinned TLS link.
-   - Add/port upstream PipeWire graph fixtures to Rust tests; verify all/app capture, MONO/stereo, exclusion of this app and its WebView children, stale link removal and cleanup after start failure/quit. Hardware routing remains unverified.
-   - Verify portal color picker cancellation/success and desktop screen/camera capture across WebKitGTK/WebView2. Windows loopback is advertised but needs an actual system-audio test. Check WebView limitations explicitly before claiming full screen/audio feature parity.
-   - Manually verify popup Settings/theme editor state sharing, image copy/save format/file naming, native tray menu state/blinking and click-to-restore behavior. Preserve useful upstream tray behavior, not just menu action wiring.
-   - Review legacy profile migration beyond the copied native files: settings/themes/backgrounds/chat held only in the previous WebView's browser storage may require a separate migration/export path. Do not silently promise all legacy UI storage is migrated. Test damaged identity/state/sound settings and recoverable sound archive behavior.
-   - Validate public-server XML compatibility, native Mumble JSON certificate import, sound-pack limits/recovery and reverse-proxy/private-DNS policies against upstream tests. Review default IPv6 STUN behavior (current default binds IPv4) and add coverage if upstream IPv6 reachability is needed.
-
-5. **Finish generator/tooling migration and docs.**
-   - Restore theme and protobuf regeneration with Bun/native tools. The generated files are retained, but old `npm run themes/proto` tooling has not yet been replaced. Do not reintroduce Node execution or Electron packages.
-   - Check `scripts/build-deepfilter.sh` against its moved frontend vendor path; its path was updated but rebuild was not run.
-   - Review README/architecture/testing and third-party notices for final capabilities, static Android/Windows libraries, complete runtime dependencies and accurate platform validation claims.
-   - Check removed upstream developer docs for useful instructions worth retaining with new commands.
-
-6. **Finish the PR only after the above.**
-   - Fetch latest upstream main again and retain any additional features/fixes; do not discard new main changes.
-   - Update PR title/body around the final feature-preserving implementation and evidence, link this checklist while incomplete, and remove obsolete snapshot-only claims.
-   - Redeploy the requested local web UI from the final branch and report the URL. Existing Dream Cord server on 8080 has not been replaced by this checkpoint; migration tests use 18080.
-   - Mark PR ready only after required tests/builds pass and feature gaps are resolved. No main-branch merge/push without instruction.
+1. **Android on a real device.** Check permissions, microphone/camera, foreground notification actions, muted microphone, screen-off/background connection, leave/quit cleanup, battery exemption and native mumpeer. CI publishes a debug APK only; decide on release signing/keystore before claiming a production Android release.
+2. **Validate the full build/release pipeline on GitHub** (pushed with this checkpoint; inspect PR checks and fix real failures). Then: install the Linux `.deb`, run the AppImage and portable installer/uninstaller; Windows bootstrap/MSVC/vcpkg/NSIS/WebView2 and CLI runtime deps; Docker with the Compose examples (and source archives without Git); snapshot assembly with fixture artifacts (one installer per type, CLI excluded from installer glob, optional Android asset, checksums, tag/main guards). Do not publish a real snapshot from this branch. Consider macOS CI for `dist:mac` parity, and browser/Tauri smoke jobs in CI.
+3. **Remaining parity gaps.**
+   - Mumpeer against the real relay/bot (mumbot peer-with-relay) end to end; the local tests cover the protocol, not interop.
+   - PipeWire on real hardware (all/app capture, cleanup after quit); portal color picker cancel/success; screen/camera capture on WebKitGTK and WebView2; Windows system-audio loopback.
+   - Manual: popup Settings/theme editor state sharing, image copy/save formats/names, tray menu state/blinking/click-to-restore.
+   - Legacy profile migration beyond copied native files (settings/themes/backgrounds/chat in old WebView storage need an export/migration path; do not promise it). Damaged identity/state/sound settings and sound archive recovery.
+   - Public-server XML, native Mumble JSON certificate import, sound-pack limits/recovery and reverse-proxy/private-DNS policies against upstream tests; default IPv4-only STUN bind vs upstream `::`.
+   - The pre-#104 `git diff efcfd1e 19996b3 -- src` review is still not a full parity sign-off.
+4. **Docs/tooling leftovers.** Rebuild DeepFilterNet with `scripts/build-deepfilter.sh` once `wasm-opt`/wasm32 are available; review README/ARCHITECTURE/TESTING/THIRD_PARTY_NOTICES for final capabilities and static Android/Windows libraries; check other removed upstream docs (`development.md`, `features.md`, `installation.md`, `self-hosting.md`) for content worth keeping.
+5. **Finish the PR.** Fetch upstream main again before marking ready and merge anything new; update the PR body with evidence; mark ready only after CI and the gaps above. No main-branch merge/push without instruction.
 
 ## Local resumption details (this machine)
 
-- Worktree: `/tmp/mumh5-dream-cord`. The original `/home/fredf/projects/mumh5` remains on its original feature branch. Git metadata is shared/protected; Git mutations need the normal approval mechanism.
+- Checkpoint 2 worked directly in `/home/fredf/projects/mumh5` (now on this branch). `/tmp/mumh5-dream-cord` is a detached worktree used for the Android build (tmpfs). Git metadata is shared/protected; Git mutations need the normal approval mechanism.
 - Dream Cord source checkout: `/home/fredf/projects/dream-cord`; only its isolated toolchain/cache/target were reused, not source/main changes.
 - Reuse cache without bootstrapping another toolchain:
   ```sh
@@ -101,7 +86,7 @@ Updated: 2026-11-24. **Work is incomplete; keep PR #111 draft.**
   The frontend's ignored `node_modules` is a symlink to the existing Dream Cord dependency cache. Do not commit it.
 - Native tools: `/tmp/mumh5-tools/bin/cargo-tauri` 2.12.6 and `actionlint` 1.7.12. Portable CMake is `/tmp/mumh5-cmake/bin`. SDK is `/tmp/mumh5-android`; NDK is its `ndk/28.2.13676358`; JDK is `/usr/lib/jvm/java-21-openjdk`; `GRADLE_USER_HOME=/tmp/mumh5-gradle`.
 - Disposable container: `mumh5-rust-migration-test`, loopback TCP/UDP 64750. Do not stop other user containers.
-- Test gateway: `http://127.0.0.1:18080`, owned process running `target/debug/mumh5-web`, assets in the worktree, `MUMH5_STUN_PORT=0`. Existing user/Dream Cord UI on port8080 remains untouched.
+- Test gateway: `http://127.0.0.1:18080`, owned process running `target/debug/mumh5-web` from `/home/fredf/projects/mumh5` (assets `frontend/dist`), `MUMH5_STUN_PORT=0 MUMH5_SERVERS=127.0.0.1:64750`. Existing user/Dream Cord UI on port8080 remains untouched.
 - Owned virtual X display: `:193`; Tauri smoke already exited successfully. Report `/tmp/mumh5-tauri-smoke.json`, fresh profile `/tmp/mumh5-tauri-test-profile` (use a different fresh directory for another wizard test).
 - Logs: `/tmp/mumh5-ui-check.log`, `mumh5-ui-tests.log`, `mumh5-ui-build.log`, `mumh5-rust-tests.log`, `mumh5-platform-tests.log`, `mumh5-platform-tests-final.log`, `mumh5-clippy-final.log`, `mumh5-browser-smoke.log`, `mumh5-settings-smoke.log`, `mumh5-android-build.log`, `mumh5-tauri-run.log` (all under `/tmp`).
 - Last measured free space: root about6GB, `/tmp` about12GB. Prefer `/tmp` for additional release targets/large downloads and do not delete unrelated caches or user files.

@@ -1,7 +1,7 @@
 import { chromium, type Page } from 'playwright-core';
 const base = Bun.env.MUMH5_TEST_URL ?? 'http://127.0.0.1:18080';
 const browser = await chromium.launch({ executablePath: Bun.env.CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
+const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, permissions: ['clipboard-read', 'clipboard-write'] });
 context.setDefaultTimeout(10000);
 const errors: string[] = [];
 const require = (ok: unknown, message: string) => { if (!ok) throw new Error(message); };
@@ -25,7 +25,7 @@ try {
    constructor(url: string | URL, protocols?: string | string[]) { super(url, protocols); (window as unknown as { testSocket: WebSocket }).testSocket = this; }
   };
  });
- const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
+ const page = await context.newPage(); page.on('pageerror', e => errors.push(e.stack ?? e.message));
  await page.route('https://**/*', route => route.abort());
  await page.goto(base);
  await page.getByRole('button', { name: /Create a new identity/ }).click();

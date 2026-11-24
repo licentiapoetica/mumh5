@@ -4,7 +4,7 @@ import {
   decodeBot, decodePair, encodePair, requestId, requestPair, sameRelayHost,
   type BotMessage, type PairMessage, type RelayAnnouncement
 } from '../core/mumpeer-signal.ts';
-import { type TauriTransport } from './native.ts';
+import type { RelayTransport } from '../core/transport.ts';
 import type { Session } from './session.svelte.ts';
 import { store } from './settings.svelte.ts';
 
@@ -44,7 +44,7 @@ const failures: Record<string, string> = {
 
 export class MumpeerSession {
   private session: Session;
-  private transport: TauriTransport | null = null;
+  private transport: RelayTransport | null = null;
   private offClose: (() => void) | null = null;
   private announcements = $state.raw<Announcer[]>([]);
   private pairs = new Map<number, Pair>();
@@ -140,7 +140,7 @@ export class MumpeerSession {
 
   get canTrust(): boolean { return !!this.candidate && (this.changed || !this.hasPin); }
 
-  attach(transport: TauriTransport | null): void {
+  attach(transport: RelayTransport | null): void {
     this.close();
     this.transport = transport;
     this.offClose = transport?.onRelayClose((rid, reason) => {

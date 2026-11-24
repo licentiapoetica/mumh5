@@ -6,11 +6,11 @@ const unlisted = await fetch(`${base}/api/ping`, { method: 'POST', headers: { 'C
 if (unlisted.status !== 400) throw new Error('Gateway accepted an unlisted target');
 console.log('PASS gateway origin and target restrictions');
 const browser = await chromium.launch({ executablePath: Bun.env.CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 } });
 const errors: string[] = [];
 try {
  const page = await context.newPage();
- page.on('pageerror', e => errors.push(e.message));
+ page.on('pageerror', e => errors.push(e.stack ?? e.message));
  await page.route('https://**/*', route => route.abort());
  await page.goto(base);
  await page.getByRole('button', { name: /Create a new identity/ }).click();

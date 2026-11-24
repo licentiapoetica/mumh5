@@ -21,7 +21,7 @@ class VoiceService : Service() {
   getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "Voice", NotificationManager.IMPORTANCE_LOW))
   if (Build.VERSION.SDK_INT >= 29) startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(1, notification())
   if (wake == null) { wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mumh5:voice"); wake?.acquire() }
-  if (wifi == null) { val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF; wifi = getSystemService(WifiManager::class.java).createWifiLock(mode, "mumh5:voice"); wifi?.acquire() }
+  if (wifi == null) { val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else @Suppress("DEPRECATION") WifiManager.WIFI_MODE_FULL_HIGH_PERF; wifi = getSystemService(WifiManager::class.java).createWifiLock(mode, "mumh5:voice"); wifi?.acquire() }
   return START_NOT_STICKY
  }
  fun update(value: String, mute: Boolean, deaf: Boolean) { text = value; muted = mute; deafened = deaf; getSystemService(NotificationManager::class.java).notify(1, notification()) }

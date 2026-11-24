@@ -1,8 +1,8 @@
-import type { RelayEndpoint } from '../core/mumpeer-signal.ts';
-export interface LocalTurn { urls: string; username: string; credential: string }
-import { HeldData, type Transport, type ServerCertInfo, type CertDetails, type UdpChannel } from '../core/transport.ts';
+import type { LocalTurn, RelayEndpoint } from '../core/mumpeer-signal.ts';
+import { HeldData, type Transport, type ServerCertInfo, type CertDetails, type UdpChannel, type RelayTransport } from '../core/transport.ts';
 import type { LoadedSoundSettings, SoundSettings } from '../core/sound-events.ts';
-import { webApi, openWebTransport } from './web.svelte.ts';
+import { webApi, openWebTransport, proxyInfo } from './web.svelte.ts';
+import { WebSocketTransport } from '../core/ws-transport.ts';
 
 // What both the desktop app and the browser build (through the web proxy) provide
 export interface PlatformApi {
@@ -128,6 +128,15 @@ export const desktop: NativeApi | null = typeof window !== 'undefined' ? window.
 export const isWeb = !desktop;
 export const native: PlatformApi | null = desktop ?? (isWeb ? webApi : null);
 
+// The transport mumpeer can use: the desktop app's own, or the proxy's when it offers it
+export function relayTransport(transport: unknown): RelayTransport | null {
+  if (transport instanceof TauriTransport) return transport;
+  return transport instanceof WebSocketTransport && transport.relayAvailable ? transport : null;
+}
+
+// Whether this build can use mumpeer at all: the desktop app, or a browser whose proxy keeps the links
+export const mumpeerSupported = (): boolean => !!desktop || (isWeb && proxyInfo.mumpeer);
+
 // A connection to a Mumble server: TLS in the desktop app, the proxy's WebSocket in the browser
 export async function openTransport(host: string, port: number, identityId?: string): Promise<(Transport & { secure: Promise<ServerCertInfo> }) | null> {
   if (desktop) return new TauriTransport(desktop, host, port, identityId);
@@ -138,7 +147,7 @@ export async function openTransport(host: string, port: number, identityId?: str
 // Transport backed by a TLS socket in the Tauri main process.
 // `secure` resolves once the TLS handshake is done, before any Mumble data is sent,
 // so the caller can check the server certificate before sending a password.
-export class TauriTransport implements Transport {
+export class TauriTransport implements Transport, RelayTransport {
   onClose: ((reason: string) => void) | null = null;
   readonly secure: Promise<ServerCertInfo>;
   udp: UdpChannel;

@@ -13,7 +13,7 @@
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
-  import { native, desktop, isWeb } from '../lib/native.ts';
+  import { native, desktop, isWeb, mumpeerSupported } from '../lib/native.ts';
   import { previewMode } from '../lib/preview.ts';
   import { files } from '../lib/files.svelte.ts';
   import { formatBytes } from '../lib/html.ts';
@@ -22,6 +22,8 @@
   import { connLog } from '../lib/conn-log.svelte.ts';
   import { formatTime } from '../core/conn-log.ts';
   const repoUrl = `https://github.com/${build.repo}`;
+  import { t } from '../lib/i18n.svelte.ts';
+  import { LANGUAGES } from '../core/i18n.ts';
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
 
@@ -74,14 +76,14 @@
   let noteTimer: ReturnType<typeof setTimeout> | undefined;
   function saveNow() {
     commit();
-    note = 'Saved';
+    note = t('settings.saved');
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => (note = ''), 2000);
   }
   function popOut() {
     commit();
     if (onpopout?.(tab)) onclose();
-    else note = 'The new window was blocked. Allow pop-ups for this page.';
+    else note = t('settings.popupBlocked');
   }
   onDestroy(() => {
     clearTimeout(noteTimer);
@@ -91,17 +93,17 @@
   // How much the kept files take, once the tab is open
   $effect(() => { if (tab === 'files') files.measure(); });
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'voice', label: 'Voice' },
-    { id: 'video', label: 'Video' },
-    { id: 'sharing', label: 'Screen sharing' },
-    { id: 'sounds', label: 'Sounds' },
-    { id: 'appearance', label: 'Appearance' },
-    { id: 'accessibility', label: 'Accessibility' },
-    { id: 'files', label: 'Chat and files' },
-    ...(native ? [{ id: 'identities' as Tab, label: 'Identities' }] : []),
-    { id: 'about', label: 'About' }
-  ];
+  const tabs: { id: Tab; label: string }[] = $derived([
+    { id: 'voice', label: t('settings.tab.voice') },
+    { id: 'video', label: t('settings.tab.video') },
+    { id: 'sharing', label: t('settings.tab.sharing') },
+    { id: 'sounds', label: t('settings.tab.sounds') },
+    { id: 'appearance', label: t('settings.tab.appearance') },
+    { id: 'accessibility', label: t('settings.tab.accessibility') },
+    { id: 'files', label: t('settings.tab.files') },
+    ...(native ? [{ id: 'identities' as Tab, label: t('settings.tab.identities') }] : []),
+    { id: 'about', label: t('settings.tab.about') }
+  ]);
   // The reset at the bottom of each tab; Identities has none
   const reset = $derived.by((): { what: string; changed: boolean; note?: string; run: () => void } | null => {
     switch (tab) {
@@ -195,8 +197,8 @@
   {/snippet}
   <div class="layout">
   <div class="tabs" role="tablist" use:dragScroll>
-    {#each tabs as t (t.id)}
-      <button role="tab" aria-selected={tab === t.id} class:active={tab === t.id} onclick={() => open(t.id)}>{t.label}</button>
+    {#each tabs as item (item.id)}
+      <button role="tab" aria-selected={tab === item.id} class:active={tab === item.id} onclick={() => open(item.id)}>{item.label}</button>
     {/each}
   </div>
 
@@ -206,7 +208,7 @@
   {:else if tab === 'video'}
     <VideoSettings />
   {:else if tab === 'sharing'}
-    {#if desktop}
+    {#if mumpeerSupported()}
       <label for="s-share-route">Screen sharing connection</label>
       <select id="s-share-route" bind:value={s.screenShareRoute} onchange={() => store.saveSettings()}>
         <option value="automatic">Automatic (prefer mumpeer on the Mumble host)</option>
@@ -216,7 +218,7 @@
         <option value="direct-only">Direct only</option>
         <option value="off">Off</option>
       </select>
-      <p class="help">When both desktop clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. The relay operator can see your IP address. Changing this setting ends active screen shares.</p>
+      <p class="help">{isWeb ? t('settings.shareRouteHelpWeb') : t('settings.shareRouteHelp')}</p>
     {/if}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>
@@ -237,7 +239,13 @@
   {:else if tab === 'appearance'}
     <AppearanceSettings />
   {:else if tab === 'accessibility'}
-    <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> Show hints when the pointer rests on buttons and icons</label>
+    <label for="s-lang">{t('settings.language')}</label>
+    <select id="s-lang" bind:value={s.language} onchange={() => store.saveSettings()}>
+      <option value="auto">{t('settings.languageAuto')}</option>
+      {#each LANGUAGES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+    </select>
+    <p class="help">{t('settings.languageHelp')}</p>
+    <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> {t('settings.hints')}</label>
     <p class="help">Hints are the small labels that appear on hover. Screen readers get the names either way.</p>
   {:else if tab === 'files'}
     <h3>Chat history</h3>

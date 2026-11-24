@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { applyLanguage } from './lib/i18n.svelte.ts';
   import ServerRail from './ui/ServerRail.svelte';
   import Sidebar from './ui/Sidebar.svelte';
   import Chat from './ui/Chat.svelte';
@@ -192,6 +193,9 @@
     navOpen = false;
     if (!panelInline) ui.panelOpen = false;
   };
+
+  // Screen readers and spell check follow the interface language
+  $effect(() => applyLanguage());
 </script>
 
 <svelte:window bind:innerWidth={width} onclickcapture={e => { imageClick(e); codeCopy(e); }} />

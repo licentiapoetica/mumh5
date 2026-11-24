@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import { sessions } from '../lib/session.svelte.ts';
   import { ui } from '../lib/ui.svelte.ts';
+  import { t } from '../lib/i18n.svelte.ts';
   let { vertical = false }: { vertical?: boolean } = $props();
   const idle = $derived(sessions.active.status === 'idle');
   const home = $derived(idle || sessions.homeShown);
@@ -11,7 +12,7 @@
 <div class="app-navigation" class:vertical role="group" aria-label="App navigation">
   <button class:active={home} title={label} aria-label={label} aria-pressed={home} disabled={idle}
     onclick={() => (sessions.homeShown = !sessions.homeShown)}><Icon name="home" size={18} /></button>
-  <button title="Settings" aria-label="Settings" onclick={() => (ui.settingsOpen = true)}><Icon name="settings" size={18} /></button>
+  <button title={t('nav.settings')} aria-label={t('nav.settings')} onclick={() => (ui.settingsOpen = true)}><Icon name="settings" size={18} /></button>
 </div>
 
 <style>
