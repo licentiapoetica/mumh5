@@ -85,7 +85,7 @@ test('refuses to start without allowed servers', async () => {
 
 test('config lists the allowed servers', async () => {
   await withProxy({ servers: parseServers('voice.example.org=Friends') }, async base => {
-    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], default: null, any: false, stun: null, turn: false, audioPackLimits: defaults.audioPackLimits });
+    assert.deepEqual(await (await fetch(`${base}/api/config`)).json(), { servers: [{ host: 'voice.example.org', port: 64738, label: 'Friends' }], default: null, any: false, stun: null, turn: false, mumpeer: false, audioPackLimits: defaults.audioPackLimits });
   });
 });
 
