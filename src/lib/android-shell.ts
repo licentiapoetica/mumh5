@@ -3,7 +3,7 @@
 // Everywhere else these calls do nothing.
 import { connLog } from './conn-log.svelte.ts';
 
-interface VoiceBridge { start(o: { text: string }): Promise<unknown>; stop(): Promise<unknown> }
+interface VoiceBridge { start(o: { text: string }): Promise<{ batteryExempt?: boolean }>; stop(): Promise<unknown> }
 interface CapacitorGlobal { isNativePlatform?: () => boolean; Plugins?: { Voice?: VoiceBridge } }
 
 function bridge(): VoiceBridge | null {
@@ -12,7 +12,7 @@ function bridge(): VoiceBridge | null {
 }
 
 export function androidVoiceStart(text = 'In voice'): void {
-  bridge()?.start({ text }).then(() => connLog.add('android voice service started'),
+  bridge()?.start({ text }).then(r => connLog.add(`android voice service started, battery optimization ${r?.batteryExempt ? 'off' : 'on'}`),
     (e: unknown) => connLog.add(`android voice service failed: ${(e as Error)?.message ?? e}`));
 }
 
