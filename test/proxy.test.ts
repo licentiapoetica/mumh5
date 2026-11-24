@@ -185,6 +185,15 @@ test('static files are served without leaving the folder', async () => {
     assert.equal(ok.status, 200);
     assert.equal((await fetch(`${base}/..%2Fpackage.json`)).status, 404);
     assert.equal((await fetch(`${base}/%2e%2e/package.json`)).status, 404);
+    // Raw request paths fetch() would normalize; each one once took the process down
+    for (const path of ['//', '//x/../..', '/\\\\']) {
+      const status = await new Promise<string>((resolve, reject) => {
+        const sock = net.connect(Number(new URL(base).port), '127.0.0.1', () => sock.write(`GET ${path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`));
+        let text = ''; sock.on('data', d => { text += d; }); sock.on('end', () => resolve(text.split(' ')[1])); sock.on('error', reject);
+      });
+      assert.match(status, /^[2-4]\d\d$/, path);
+    }
+    assert.equal((await fetch(`${base}/proxy.test.ts`)).status, 200);
   });
 });
 

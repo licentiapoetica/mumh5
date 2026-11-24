@@ -312,8 +312,15 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
     res.end(req.method === 'HEAD' ? undefined : data);
   }
 
+  // Appended, not resolved: `new URL('//', base)` reads a host and throws, which crashed the process
+  const pathOf = (url = '/') => { try { return new URL(`http://x${url}`).pathname; } catch { return null; } };
+
   const server = http.createServer((req, res) => {
-    const pathname = new URL(req.url ?? '/', 'http://x').pathname;
+    const pathname = pathOf(req.url);
+    if (pathname === null) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify({ error: 'Bad request' }));
+    }
     const work = pathname.startsWith('/api/')
       ? api(req, pathname.slice(5)).then(result => {
           const data = Buffer.from(JSON.stringify(result));
@@ -337,7 +344,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
 
   server.on('upgrade', (req, socket, head) => {
     const refuse = (status: string) => { socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`); socket.destroy(); };
-    if (new URL(req.url ?? '/', 'http://x').pathname !== '/api/connect') return refuse('404 Not Found');
+    if (pathOf(req.url) !== '/api/connect') return refuse('404 Not Found');
     if (!originOk(req)) return refuse('403 Forbidden');
     const addr = addressOf(req);
     if (wss.clients.size >= config.maxConnections || (perAddress.get(addr) ?? 0) >= config.maxPerAddress) return refuse('503 Service Unavailable');
