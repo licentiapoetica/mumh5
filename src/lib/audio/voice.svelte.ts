@@ -601,24 +601,26 @@ class VoiceEngine {
       this.reopenInput();
     }
     if (this.transmitting && now - this.talkingSince > 2000 && now - this.lastSentAt > 2000) {
-      connLog.add('speech was not sent for 2 s, rebuilding the encoder');
       this.lastSentAt = now;
-      this.configureEncoder();
+      this.rebuildEncoder('speech was not sent for 2 s');
     }
   }
 
-  private lastRevive = 0;
+  private lastRebuild = 0;
 
-  // The encoder, made again if it was closed (reclaimed by the browser, or failed). At most once
-  // a second, so a codec that cannot start does not make a loop.
-  private encoderReady(): boolean {
-    const configured = () => this.encoder?.state === 'configured';
-    if (configured()) return true;
+  // The one way to make the encoder again (closed by the browser or failed, or sending nothing).
+  // At most once a second, so a codec that cannot start does not make a loop.
+  private rebuildEncoder(why: string): boolean {
     const now = performance.now();
-    if (!this.ctx || now - this.lastRevive < 1000) return false;
-    this.lastRevive = now;
+    if (!this.ctx || now - this.lastRebuild < 1000) return false;
+    this.lastRebuild = now;
+    connLog.add(`encoder rebuilt: ${why}`);
     try { this.configureEncoder(); } catch (e) { this.error = `Encoder: ${(e as Error).message}`; }
-    return configured();
+    return this.encoder?.state === 'configured';
+  }
+
+  private encoderReady(): boolean {
+    return this.encoder?.state === 'configured' || this.rebuildEncoder('encoder was closed');
   }
 
   private canTalk(): boolean {
@@ -735,7 +737,7 @@ class VoiceEngine {
       else {
         decoder = new AudioDecoder({
           output: data => this.onDecoded(session, data),
-          error: () => this.dropSession(session)
+          error: () => this.replaceDecoder(session, 'decoder failed')
         });
         decoder.configure({ codec: 'opus', sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
       }
@@ -745,7 +747,7 @@ class VoiceEngine {
     }
     // The browser took the decoder back (a tab in the background): start a new one
     if (d.decoder instanceof WasmDecoder === false && (d.decoder as AudioDecoder).state === 'closed') {
-      this.dropSession(p.session);
+      this.replaceDecoder(p.session, 'decoder was closed');
       return this.receive(raw);
     }
     if (d.lastFrame >= 0 && p.frame > d.lastFrame + 6 && p.frame - d.lastFrame < 500) this.stats.lost++;
@@ -760,7 +762,7 @@ class VoiceEngine {
         }
       } else {
         try { d.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: p.frame * 10000, data: p.opus })); }
-        catch { this.dropSession(p.session); }
+        catch { this.replaceDecoder(p.session, 'decoder failed'); }
       }
     }
     if (!this.talking[p.session]) this.talking[p.session] = true;
@@ -775,6 +777,18 @@ class VoiceEngine {
     data.close();
     this.stats.decoded++;
     this.playback?.port.postMessage({ session, pcm }, [pcm.buffer]);
+  }
+
+  private lastDecoderLog = 0;
+
+  // The one way to replace a closed or failing decoder: dropped here, made again on the next packet
+  private replaceDecoder(session: number, why: string): void {
+    const now = performance.now();
+    if (now - this.lastDecoderLog >= 1000) {
+      this.lastDecoderLog = now;
+      connLog.add(`${why}, replacing it`);
+    }
+    this.dropSession(session);
   }
 
   private dropSession(session: number): void {
