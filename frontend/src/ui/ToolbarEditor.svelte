@@ -90,7 +90,7 @@
         </span>
         {#if t}
           <label class="name">
-            <input type="checkbox" disabled={t.id === 'settings'} checked={!layout.hidden.includes(t.id)} aria-label="Show {t.label}"
+            <input type="checkbox" checked={!layout.hidden.includes(t.id)} aria-label="Show {t.label}"
               onchange={e => { commit(setToolHidden(layout, t.id as ToolId, !e.currentTarget.checked)); selected = i; }} />
             <Icon name={t.icon} size={15} />
             <span>{t.label}</span>

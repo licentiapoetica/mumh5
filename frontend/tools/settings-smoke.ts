@@ -7,7 +7,14 @@ const errors: string[] = [];
 const require = (ok: unknown, message: string) => { if (!ok) throw new Error(message); };
 async function oneSettings(page: Page) {
  const button = page.getByRole('button', { name: 'Settings', exact: true });
- for (let n = 0; n < 50; n++) { if (await button.count() === 1 && await button.isVisible()) return; await page.waitForTimeout(100); }
+ for (let n = 0; n < 50; n++) { if (await button.count() === 1 && await button.isVisible()) {
+   const navigation = page.getByRole('group', { name: 'App navigation', exact: true });
+   require(await navigation.count() === 1, 'Duplicate navigation controls');
+   require(await navigation.getByRole('button').count() === 2, 'Home and Settings must be adjacent');
+   require(await navigation.getByRole('button').last().getAttribute('aria-label') === 'Settings', 'Settings is not next to Home');
+   require(await page.locator('.me button[aria-label=Settings]').count() === 0, 'Settings remains in the audio toolbar');
+   return;
+  } await page.waitForTimeout(100); }
  throw new Error(`Expected one visible Settings button, got ${await button.count()}`);
 }
 try {
@@ -38,14 +45,30 @@ try {
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await oneSettings(page); await page.setViewportSize({ width: 390, height: 844 }); await oneSettings(page);
   await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole('button', { name: 'Hide server list', exact: true }).click(); await oneSettings(page);
+  await page.getByRole('button', { name: 'Show servers', exact: true }).click(); await oneSettings(page);
  }
- console.log('PASS one Settings button across layouts and sizes, with rail shown');
+ console.log('PASS Settings next to Home across layouts and sizes, with rail shown and hidden');
  await page.locator('section.home').getByRole('button', { name: 'Add a server', exact: true }).click();
  await page.getByLabel('Address', { exact: true }).fill('127.0.0.1'); await page.getByLabel('Port', { exact: true }).fill('64750');
  await page.getByLabel('Username', { exact: true }).fill('debug-smoke');
  await page.getByLabel('Password', { exact: false }).fill('private-password-sentinel');
  await page.getByRole('button', { name: 'Save and connect' }).click(); await page.getByText('Root', { exact: true }).first().waitFor();
  await oneSettings(page);
+ for (const name of ['Modern', 'Classic', 'Stacked']) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('radio', { name, exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click(); await oneSettings(page);
+  await page.getByRole('button', { name: 'Hide server list', exact: true }).click(); await oneSettings(page);
+  await page.getByRole('button', { name: 'Go to home screen', exact: true }).click(); await oneSettings(page);
+  await page.getByRole('button', { name: 'Back to server', exact: true }).click(); await oneSettings(page);
+  await page.setViewportSize({ width: 390, height: 844 }); await oneSettings(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole('button', { name: 'Show servers', exact: true }).click(); await oneSettings(page);
+ }
+ await page.screenshot({ path: `${new URL('../../', import.meta.url).pathname}.tooling/navigation-settings.png` });
+ console.log('PASS connected Home/Settings placement with rail hidden, home overlay, and phone layouts');
  async function openLog() {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'About', exact: true }).click();

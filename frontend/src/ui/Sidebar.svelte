@@ -1,6 +1,7 @@
 <script lang="ts">
   import Background from './Background.svelte';
   import Icon from './Icon.svelte';
+  import AppNavigation from './AppNavigation.svelte';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import Avatar from './Avatar.svelte';
   import ChannelNode from './ChannelNode.svelte';
@@ -21,8 +22,8 @@
   // fill: take the whole area (stacked layout, where the parent sizes it)
   // serverButton: the current server leads the header while the server list is hidden
   // chats: list private chats here; where the chat shows them as tabs it is off
-  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false, chats = true, showSettings = true }:
-    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean; chats?: boolean; showSettings?: boolean } = $props();
+  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false, chats = true, showNavigation = false }:
+    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean; chats?: boolean; showNavigation?: boolean } = $props();
 
   const MIN_W = 200, DEFAULT_W = 260;
   const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
@@ -91,6 +92,7 @@
       <button class="icon-btn" title="Disconnect" aria-label="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
     {/if}
   </header>
+  {#if showNavigation}<div class="navigation"><AppNavigation /></div>{/if}
 
   <!-- The background starts under the header with the connection wave -->
   <div class="tree-bg" data-background>
@@ -129,12 +131,13 @@
       <button class="btn" onclick={() => sessions.setVoice(sessions.active)}>Talk here</button>
     </div>
   {/if}
-  <UserBar toolbar={fill} {showSettings} />
+  <UserBar toolbar={fill} />
 </aside>
 
 <style>
   .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
   .sidebar.fill { width: 100%; height: 100%; }
+  .navigation { flex: none; display: flex; padding: 4px 12px; border-bottom: 1px solid var(--line); }
   header { position: relative; isolation: isolate; height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
   header.with-server { padding-left: 8px; }
   /* Reaches the server button, so no dead gap between the two */

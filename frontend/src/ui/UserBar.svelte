@@ -14,7 +14,7 @@
   // You and your buttons, under the channel list and on the start screen.
   // toolbar: the buttons in one row along the top (stacked layout, like the desktop client), you at the far end
   // inline: you and the buttons side by side in one row (the start screen, which is wide)
-  let { toolbar = false, inline = false, showSettings = true }: { toolbar?: boolean; inline?: boolean; showSettings?: boolean } = $props();
+  let { toolbar = false, inline = false }: { toolbar?: boolean; inline?: boolean } = $props();
 
   const self = $derived(session.self);
   // Without a connection the buttons show the remembered choice, applied at the next connect
@@ -39,7 +39,7 @@
   // The server button stays first: with the rail hidden it is the way back to it
   const serverButton = $derived(toolbar && store.settings.railHidden);
   const showsYou = $derived(toolbar && !!self);
-  const items = $derived(visibleToolbarItems(normalizeToolbar(store.settings.toolbar), serverButton, showsYou).filter(s => s.item !== 'settings' || showSettings));
+  const items = $derived(visibleToolbarItems(normalizeToolbar(store.settings.toolbar), serverButton, showsYou));
   // With only spacers after it, the name keeps the far corner
   const inCorner = (drawn: number) => items.slice(drawn + 1).every(s => s.item === 'sep');
 
@@ -116,10 +116,6 @@
       {:else if item === 'profile'}
         <button class="icon-btn" data-tool={index} title="Edit your profile" aria-label="Edit your profile" disabled={!self} onclick={() => (ui.profileEdit = true)}>
           <Icon name="message" size={18} />
-        </button>
-      {:else if item === 'settings'}
-        <button class="icon-btn" data-tool={index} title="Settings" aria-label="Settings" onclick={() => (ui.settingsOpen = true)}>
-          <Icon name="settings" size={18} />
         </button>
       {:else if item === 'tree'}
         <button class="icon-btn" data-tool={index} title={allOpen ? 'Collapse all channels' : 'Expand all channels'} aria-label={allOpen ? 'Collapse all channels' : 'Expand all channels'}

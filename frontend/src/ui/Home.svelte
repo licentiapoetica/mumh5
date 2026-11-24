@@ -1,6 +1,7 @@
 <script lang="ts">
   import Background from './Background.svelte';
   import Icon from './Icon.svelte';
+  import AppNavigation from './AppNavigation.svelte';
   import ServerButton from './ServerButton.svelte';
   import UserBar from './UserBar.svelte';
   import { session, sessions } from '../lib/session.svelte.ts';
@@ -11,7 +12,7 @@
 
   // The start screen while not connected: your saved servers with who is on them, ready to join.
   // top: your buttons along the top, where the stacked layout keeps them
-  let { onadd, onedit, onbrowse, top = false }: { onadd: () => void; onedit: (s: SavedServer) => void; onbrowse: () => void; top?: boolean } = $props();
+  let { onadd, onedit, onbrowse, top = false, showNavigation = false }: { onadd: () => void; onedit: (s: SavedServer) => void; onbrowse: () => void; top?: boolean; showNavigation?: boolean } = $props();
 
   const stateOf = (id: string) => sessions.byServer(id)?.status ?? 'idle';
 
@@ -38,7 +39,10 @@
   {#if top}<UserBar toolbar />{/if}
   <div class="scroll">
     <header>
-      {#if !top && store.settings.railHidden}<ServerButton />{/if}
+      {#if (!top && store.settings.railHidden) || showNavigation}<div class="navigation">
+        {#if !top && store.settings.railHidden}<ServerButton />{/if}
+        {#if showNavigation}<AppNavigation />{/if}
+      </div>{/if}
       <div class="title">
         <h1>Servers</h1>
         <p>{store.servers.length ? 'Pick one to connect.' : 'Add a Mumble server to get started.'}</p>
@@ -104,6 +108,7 @@
 <style>
   .home { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
   .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 32px clamp(16px, 4vw, 48px) 24px; }
+  .navigation { display: flex; gap: 8px; align-items: center; }
   header { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; max-width: 960px; }
   h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
   .title p { margin: 4px 0 0; color: var(--text-dim); }
