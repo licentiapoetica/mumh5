@@ -11,7 +11,8 @@ export interface PlatformApi {
   // People on a server without connecting (UDP ping; in the browser the proxy sends it, for its own servers)
   pingServer(host: string, port: number): Promise<PingResult | null>;
   identities: {
-    list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean }>;
+    // damaged: profile files the desktop app could not read and set aside (only while no identity exists)
+    list(): Promise<{ identities: IdentitySummary[]; setupDone: boolean; damaged?: string[]; directory?: string }>;
     create(name: string, email: string): Promise<IdentitySummary>;
     importP12(bytes: Uint8Array, password: string, name: string): Promise<IdentitySummary>;
     findMumble(): Promise<{ name: string } | null>;

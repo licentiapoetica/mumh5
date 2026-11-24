@@ -5,12 +5,17 @@ class Identities {
   list = $state<IdentitySummary[]>([]);
   setupDone = $state(true);
   loaded = $state(false);
+  // A damaged profile that was set aside: shown until an identity exists again
+  damaged = $state<string[]>([]);
+  directory = $state('');
 
   async refresh(): Promise<void> {
     if (!native) return;
     const r = await native.identities.list();
     this.list = r.identities;
     this.setupDone = r.setupDone;
+    this.damaged = r.damaged ?? [];
+    this.directory = r.directory ?? '';
     this.loaded = true;
   }
 

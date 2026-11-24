@@ -27,6 +27,9 @@
   let generation = 0;
   onDestroy(() => { alive = false; });
 
+  // Known issue: the official list answers HTTP 501 to the Rust client (the Electron app used
+  // Chromium's network stack). Said plainly instead of showing the raw status.
+  const refusedByPublist = $derived(/\b501\b/.test(error) && (() => { try { return new URL(store.settings.publicListUrl).host === 'publist.mumble.info'; } catch { return false; } })());
   const key = (s: PublicServer) => `${s.host}:${s.port}`;
   const CONTINENTS: Record<string, string> = { eu: 'Europe', na: 'North America', sa: 'South America', as: 'Asia', oc: 'Oceania', af: 'Africa', an: 'Antarctica' };
 
@@ -145,7 +148,11 @@
   {#if loading}
     <p class="dim">Loading the public server list...</p>
   {:else if error}
-    <p class="error">Could not load the list: {error}</p>
+    {#if refusedByPublist}
+      <p class="error" role="alert">The official list at publist.mumble.info does not answer this version of mumh5 yet: it refuses requests that do not come from a web browser. Use another list, or add a server by its address.</p>
+    {:else}
+      <p class="error">Could not load the list: {error}</p>
+    {/if}
     <div class="row"><button class="btn" onclick={load}>Try again</button><button class="btn" onclick={changeSource}>Use another list...</button></div>
   {:else}
     <table>

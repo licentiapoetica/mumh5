@@ -99,6 +99,9 @@
 
 <Modal {title} onclose={mode === 'setup' ? () => {} : onclose} width={560}>
   {#if step === 'welcome'}
+    {#if identities.damaged.length}
+      <p class="error" role="alert">Your saved profile could not be read, so your identities did not load. It was kept as <span class="mono">{identities.damaged.join(', ')}</span>{identities.directory ? ` in ${identities.directory}` : ''}. To keep your registrations, restore it or import a backup instead of creating a new identity.</p>
+    {/if}
     <p>Mumble recognizes you by a <strong>certificate</strong>, not by a password. Registered names, admin rights and friends lists on servers are tied to it, so it is worth setting up once and keeping a backup.</p>
     {#if isWeb}<p class="dim">In the browser the certificate is kept in this browser's storage and passed to the proxy at {location.host} when you connect, which presents it to the Mumble server.</p>{/if}
     <div class="choices">

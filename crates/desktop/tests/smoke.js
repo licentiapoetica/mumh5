@@ -2,7 +2,7 @@
 (async () => {
  const { invoke } = window.__TAURI_INTERNALS__;
  const results = []; const udpEvents = [];
- const wait = async (fn, label) => { const start = Date.now(); while (!fn()) { if (Date.now() - start > 15000) throw new Error(`Timed out: ${label}\n${document.body?.innerText}`); await new Promise(r => setTimeout(r, 80)); } return fn(); };
+ const wait = async (fn, label, ms = 15000) => { const start = Date.now(); while (!fn()) { if (Date.now() - start > ms) throw new Error(`Timed out: ${label}\n${document.body?.innerText}`); await new Promise(r => setTimeout(r, 80)); } return fn(); };
  const button = text => [...document.querySelectorAll('button')].find(e => e.textContent.trim() === text);
  const click = async text => (await wait(() => button(text), text)).click();
  const input = (selector, value) => { const el = document.querySelector(selector); if (!el) throw new Error(`Missing ${selector}`); el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -10,12 +10,22 @@
   await wait(() => window.mumh5Native && document.querySelector('[role=dialog]'), 'Tauri UI mounted');
   // No hardware access during tests. Normal builds use the WebView's own user-media API.
   if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = async () => { const ctx = new AudioContext(); return ctx.createMediaStreamDestination().stream; };
-  await wait(() => [...document.querySelectorAll('button')].find(e => e.textContent.includes('Create a new identity')), 'identity wizard').then(e => e.click());
+  const wizardButton = await wait(() => [...document.querySelectorAll('button')].find(e => e.textContent.includes('Create a new identity')), 'identity wizard');
+  // A notice the wizard shows (a damaged profile that was set aside), for the report
+  const wizardAlert = document.querySelector('[role=dialog] [role=alert]')?.textContent?.trim() ?? null;
+  wizardButton.click();
+  await wait(() => document.querySelector('#w-name'), 'identity name field');
   input('#w-name', 'desktop-smoke');
   await click('Create'); await click('Skip for now'); await click('Done');
   await wait(() => !document.querySelector('[role=dialog]'), 'wizard closes');
   if (getComputedStyle(document.querySelector('.app')).display !== 'flex') throw new Error('Component styles missing');
   results.push('styled Tauri window');
+  // The public list dialog: either servers or a plain explanation, never a raw error (reported, not required)
+  await click('Browse public servers');
+  const publicList = await wait(() => document.querySelector('[role=dialog] table tbody tr') ? 'servers listed' : document.querySelector('[role=dialog] .error')?.textContent?.trim(), 'public list answer', 40000);
+  document.querySelector('[role=dialog] [aria-label=Close], [role=dialog] .close')?.click();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait(() => !document.querySelector('[role=dialog]'), 'public list closes');
   const api = window.mumh5Native;
   const list = await api.identities.list();
   if (!list.setupDone || list.identities.length !== 1 || 'keyPem' in list.identities[0]) throw new Error('Identity API failed');
@@ -37,6 +47,6 @@
   composer.textContent = 'mumh5 desktop integration message'; composer.dispatchEvent(new Event('input', { bubbles: true })); composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   await wait(() => document.querySelector('.msg')?.textContent?.includes('mumh5 desktop integration message') || [...document.querySelectorAll('.msg')].some(e => e.textContent.includes('mumh5 desktop integration message')), 'sent chat rendered');
   results.push('chat send and rendering');
-  await invoke('smoke_report', { report: { ok: true, results, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
+  await invoke('smoke_report', { report: { ok: true, results, wizardAlert, publicList, title: document.title, media: { camera: !!navigator.mediaDevices?.getUserMedia, screen: !!navigator.mediaDevices?.getDisplayMedia } } });
  } catch (error) { await invoke('smoke_report', { report: { ok: false, results, udpEvents, error: String(error), text: document.body?.innerText } }); }
 })();

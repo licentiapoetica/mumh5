@@ -207,6 +207,9 @@ fn hmac_password(secret: &str, user: &str) -> Result<String> {
     Ok(STANDARD.encode(signer.sign_to_vec()?))
 }
 type Users = Arc<StdMutex<HashMap<SocketAddr, String>>>;
+/// Client 5-tuples that hold an allocation (past authentication and the quota). Only these keep
+/// their state for long and are never evicted to make room.
+type Allocated = Arc<StdMutex<std::collections::HashSet<SocketAddr>>>;
 struct Credentials {
     secret: String,
     relay: bool,
@@ -431,8 +434,14 @@ struct Generator {
     lanes: Option<Arc<LaneRegistry>>,
     users: Users,
     ports: Ports,
+    allocated: Allocated,
 }
 impl Generator {
+    fn mark_allocated(&self) {
+        if let Ok(mut a) = self.allocated.lock() {
+            a.insert(self.client);
+        }
+    }
     fn lane_user(&self) -> Option<String> {
         if self.virtual_bridge.is_some() {
             return None;
@@ -493,6 +502,7 @@ impl RelayAddressGenerator for Generator {
                 .ok_or_else(|| turn::Error::Other("Mumpeer lane busy or closed".into()))?;
             let lease = self.quota.reserve(self.client.ip(), &self.opts)?;
             let conn = virtual_conn(&bridge, cancel, lease, Some(claim));
+            self.mark_allocated();
             return Ok((Arc::new(conn), bridge.local));
         }
         let lease = self.quota.reserve(self.client.ip(), &self.opts)?;
@@ -501,6 +511,7 @@ impl RelayAddressGenerator for Generator {
                 return Err(turn::Error::Other("Mumpeer relay requires IPv4".into()));
             }
             let conn = virtual_conn(bridge, bridge.cancel.child_token(), lease, None);
+            self.mark_allocated();
             return Ok((Arc::new(conn), bridge.local));
         }
         let bind: IpAddr = if v4 {
@@ -545,6 +556,7 @@ impl RelayAddressGenerator for Generator {
         if let Ok(mut ports) = self.ports.lock() {
             ports.insert(address.port());
         }
+        self.mark_allocated();
         Ok((Arc::new(conn), address))
     }
 }
@@ -611,6 +623,7 @@ struct ContextState {
     lanes: Option<Arc<LaneRegistry>>,
     users: Users,
     ports: Ports,
+    allocated: Allocated,
 }
 fn local_ip(peer: SocketAddr) -> Result<IpAddr> {
     let socket = std::net::UdpSocket::bind(if peer.is_ipv4() {
@@ -639,6 +652,7 @@ async fn serve_client(conn: Arc<PacketConn>, state: ContextState) -> Result<()> 
                 lanes: state.lanes,
                 users: state.users.clone(),
                 ports: state.ports.clone(),
+                allocated: state.allocated.clone(),
             }),
         }],
         realm: "mumh5".into(),
@@ -651,6 +665,9 @@ async fn serve_client(conn: Arc<PacketConn>, state: ContextState) -> Result<()> 
     let _ = server.close().await;
     if let Ok(mut users) = state.users.lock() {
         users.remove(&conn.peer);
+    }
+    if let Ok(mut allocated) = state.allocated.lock() {
+        allocated.remove(&conn.peer);
     }
     Ok(())
 }
@@ -720,12 +737,46 @@ async fn tcp_client(tcp: TcpStream, state: ContextState) -> Result<()> {
 const UNAUTHENTICATED_IDLE: Duration = Duration::from_secs(30);
 /// Idle time after which an authenticated client is forgotten (allocations refresh well within it).
 const AUTHENTICATED_IDLE: Duration = Duration::from_secs(600);
+/// A client counts as established once it holds an allocation, not when it merely authenticated:
+/// one credential must not let a client pin table entries without passing the allocation quota.
 fn authenticated(state: &ContextState, peer: &SocketAddr) -> bool {
-    state.users.lock().is_ok_and(|u| u.contains_key(peer))
+    state.allocated.lock().is_ok_and(|a| a.contains(peer))
 }
 /// A STUN message (not ChannelData): first two bits zero and the magic cookie.
 fn looks_like_stun(p: &[u8]) -> bool {
     p.len() >= 20 && p[0] & 0xc0 == 0 && p[4..8] == [0x21, 0x12, 0xa4, 0x42]
+}
+#[derive(Debug, PartialEq)]
+enum Room {
+    Free,
+    Evict(SocketAddr),
+    Refuse,
+}
+/// Whether a new client address gets an entry. One address gets at most `per_ip` entries (as many
+/// as it may hold allocations, plus a little room) and the table at most `cap`. When either is
+/// full, the longest-idle entry without an allocation (of that address, or of anyone for the table)
+/// makes room; clients holding an allocation are never pushed out.
+fn make_room<V>(
+    peers: &HashMap<SocketAddr, (V, CancellationToken, tokio::time::Instant)>,
+    addr: SocketAddr,
+    cap: usize,
+    per_ip: usize,
+    established: impl Fn(&SocketAddr) -> bool,
+) -> Room {
+    let oldest = |same_ip: bool| {
+        peers
+            .iter()
+            .filter(|(a, _)| (!same_ip || a.ip() == addr.ip()) && !established(a))
+            .min_by_key(|(_, (_, _, at))| *at)
+            .map(|(a, _)| *a)
+    };
+    if peers.keys().filter(|a| a.ip() == addr.ip()).count() >= per_ip {
+        return oldest(true).map_or(Room::Refuse, Room::Evict);
+    }
+    if peers.len() >= cap {
+        return oldest(false).map_or(Room::Refuse, Room::Evict);
+    }
+    Room::Free
 }
 type Peer = (
     mpsc::Sender<Vec<u8>>,
@@ -759,18 +810,15 @@ async fn udp_loop(socket: Arc<UdpSocket>, state: ContextState, stop: Cancellatio
                     if !looks_like_stun(&buffer[..n]) {
                         continue;
                     }
-                    if peers.len() >= cap {
-                        // Full: make room by forgetting the longest-idle client that never
-                        // authenticated. Authenticated clients are never pushed out.
-                        let victim = peers
-                            .iter()
-                            .filter(|(a, _)| !authenticated(&state, a))
-                            .min_by_key(|(_, (_, _, at))| *at)
-                            .map(|(a, _)| *a);
-                        match victim.and_then(|v| peers.remove(&v)) {
-                            Some((_, c, _)) => c.cancel(),
-                            None => continue,
+                    let per_ip = state.opts.max_per_address.saturating_add(4);
+                    match make_room(&peers, addr, cap, per_ip, |a| authenticated(&state, a)) {
+                        Room::Free => {}
+                        Room::Evict(victim) => {
+                            if let Some((_, c, _)) = peers.remove(&victim) {
+                                c.cancel();
+                            }
                         }
+                        Room::Refuse => continue,
                     }
                     let (tx, rx) = mpsc::channel(64);
                     let c = stop.child_token();
@@ -844,6 +892,7 @@ impl TurnServer {
             lanes: lanes.clone(),
             users,
             ports: Ports::default(),
+            allocated: Allocated::default(),
         };
         let mut tasks = vec![];
         let port;
@@ -1250,5 +1299,42 @@ mod integration_tests {
         })
         .await??;
         Ok(())
+    }
+    #[test]
+    fn one_address_cannot_fill_the_client_table() {
+        let now = tokio::time::Instant::now();
+        let mut peers: HashMap<SocketAddr, ((), CancellationToken, tokio::time::Instant)> =
+            HashMap::new();
+        let at = |port: u16, ip: &str| SocketAddr::new(ip.parse().unwrap(), port);
+        for port in 1..=4 {
+            peers.insert(
+                at(port, "203.0.113.9"),
+                (
+                    (),
+                    CancellationToken::new(),
+                    now + Duration::from_secs(port as u64),
+                ),
+            );
+        }
+        let established = |a: &SocketAddr| a.port() == 1;
+        // The address is at its limit: its oldest entry without an allocation (port 2) goes.
+        assert_eq!(
+            make_room(&peers, at(5, "203.0.113.9"), 100, 4, established),
+            Room::Evict(at(2, "203.0.113.9"))
+        );
+        // Another address is unaffected.
+        assert_eq!(
+            make_room(&peers, at(1, "198.51.100.1"), 100, 4, established),
+            Room::Free
+        );
+        // A full table evicts anyone's oldest entry without an allocation, never an established one.
+        assert_eq!(
+            make_room(&peers, at(1, "198.51.100.1"), 4, 8, established),
+            Room::Evict(at(2, "203.0.113.9"))
+        );
+        assert_eq!(
+            make_room(&peers, at(1, "198.51.100.1"), 4, 8, |_| true),
+            Room::Refuse
+        );
     }
 }

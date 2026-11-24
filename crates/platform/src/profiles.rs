@@ -24,6 +24,10 @@ pub struct Profile {
     setup_done: bool,
     #[serde(default)]
     pub state: BTreeMap<String, String>,
+    /// Damaged profile files set aside in this directory. While no identity exists they are
+    /// reported to the UI and no identity is made up silently.
+    #[serde(skip)]
+    pub damaged: Vec<String>,
 }
 impl Profile {
     pub fn open(directory: PathBuf) -> Result<Self> {
@@ -57,6 +61,12 @@ impl Profile {
             Err(e) => return Err(e.into()),
         };
         p.directory = directory;
+        p.damaged = std::fs::read_dir(&p.directory)?
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("profile.json.damaged-"))
+            .collect();
+        p.damaged.sort();
         if fresh {
             let source = p.directory.clone();
             if has_legacy(&source) {
@@ -224,7 +234,7 @@ impl Profile {
     }
     pub fn list(&self) -> Result<Value> {
         Ok(
-            json!({"identities":self.identities.iter().map(|e|self.summary(e)).collect::<Result<Vec<_>>>()?,"setupDone":self.setup_done}),
+            json!({"identities":self.identities.iter().map(|e|self.summary(e)).collect::<Result<Vec<_>>>()?,"setupDone":self.setup_done,"damaged":if self.identities.is_empty(){self.damaged.clone()}else{vec![]},"directory":self.directory}),
         )
     }
     pub fn add(&mut self, name: String, identity: Identity) -> Result<Value> {
@@ -243,6 +253,13 @@ impl Profile {
         self.summary(self.identities.last().unwrap())
     }
     pub fn identity(&mut self, id: Option<&str>) -> Result<Identity> {
+        if self.identities.is_empty() && !self.damaged.is_empty() {
+            bail!(
+                "Your saved profile could not be read and was kept as {} in {}. Restore it or import a backup, or create a new identity, before connecting.",
+                self.damaged.join(", "),
+                self.directory.display()
+            );
+        }
         if self.identities.is_empty() {
             self.add(
                 "My identity".into(),
@@ -459,8 +476,26 @@ mod migration_tests {
         assert!(!dir.join("new/sounds/settings.json").exists());
         // A damaged profile.json no longer stops the app; it is kept beside the new one.
         std::fs::write(dir.join("new/profile.json"), b"{oops")?;
-        let reopened = Profile::open(dir.join("new"))?;
+        let mut reopened = Profile::open(dir.join("new"))?;
         assert!(reopened.identities.is_empty());
+        // No identity is made up silently: the UI is told, and connecting asks the user first.
+        assert_eq!(
+            reopened.list()?["damaged"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert!(
+            reopened
+                .identity(None)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("could not be read")
+        );
+        reopened.add("Fresh".into(), certificates::create("Fresh", "")?)?;
+        assert_eq!(
+            Profile::open(dir.join("new"))?.list()?["damaged"],
+            json!([])
+        );
         assert!(std::fs::read_dir(dir.join("new"))?.flatten().any(|e| {
             e.file_name()
                 .to_string_lossy()

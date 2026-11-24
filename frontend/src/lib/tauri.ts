@@ -4,7 +4,11 @@ const toBase64 = (bytes: Uint8Array) => { let s = ''; for (const b of bytes) s +
 const fromBase64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 export async function initializePlatform(): Promise<void> {
  if (!('__TAURI_INTERNALS__' in window)) return;
- const { invoke, Channel } = await import('@tauri-apps/api/core');
+ const core = await import('@tauri-apps/api/core');
+ const { Channel } = core;
+ // Tauri rejects with the command's error string; the app (as with Electron) expects Error objects.
+ const invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
+  core.invoke<T>(cmd, args).catch((e: unknown) => { throw e instanceof Error ? e : new Error(typeof e === 'string' ? e : JSON.stringify(e)); });
  const { listen } = await import('@tauri-apps/api/event');
  const { getCurrentWindow } = await import('@tauri-apps/api/window');
  const { openUrl } = await import('@tauri-apps/plugin-opener');

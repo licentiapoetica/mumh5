@@ -140,7 +140,7 @@ jobs:
     # Built on every run so macOS breakage shows up; not part of the snapshot, whose asset set
     # stays as it was. The package is unsigned and has not been tested on a Mac.
     needs: check
-    runs-on: macos-14
+    runs-on: macos-latest
     env:
       CARGO_BUILD_JOBS: 3
     steps:
@@ -154,7 +154,7 @@ jobs:
           path: |
             .tooling
             target
-          key: macos-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
+          key: macos-latest-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
       - run: ./tools/bootstrap.sh
       - name: Native Tauri bundle
         run: |
@@ -177,8 +177,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      # The runner's preinstalled SDK; setup-android@v3 asks for a removed 'tools' package.
+      - name: Android SDK packages
+        run: |
+          sdkmanager="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin | sort -V | tail -1)/sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null
+          "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
       - run: sudo apt-get update && sudo apt-get install -y cmake pkg-config protobuf-compiler libssl-dev libopus-dev
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
