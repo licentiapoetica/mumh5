@@ -1,3 +1,4 @@
+import { androidVoiceStart, androidVoiceStop } from '../android-shell.ts';
 import { WasmEncoder, WasmDecoder, type Opus } from './opus-wasm.ts';
 import { loadOpus } from './opus-load.ts';
 import captureUrl from './capture.worklet.ts?worker&url';
@@ -263,6 +264,7 @@ class VoiceEngine {
       ctx.resume().catch(() => {});
       this.levelTimer = setInterval(() => { this.level = this.levelRaw; this.watchdog(); }, 50);
       this.running = true;
+      androidVoiceStart();
       this.syncAwake();
       // Not awaited: voice works with the browser's filter until the model is ready
       this.syncDenoise();
@@ -293,6 +295,7 @@ class VoiceEngine {
     this.ctx = null;
     this.capture = this.playback = null;
     this.running = false;
+    androidVoiceStop();
     this.syncAwake();
     this.transmitting = false;
     this.talking = {};
