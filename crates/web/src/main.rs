@@ -10,10 +10,11 @@ use axum::{
         DefaultBodyLimit, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
+    serve::{Listener, ListenerExt},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
@@ -504,11 +505,18 @@ async fn main() -> Result<()> {
         .layer(middleware::from_fn_with_state(app.clone(), origin_guard));
     let assets = ServeDir::new(&assets_path)
         .not_found_service(ServeFile::new(assets_path.join("index.html")));
+    let static_files = Router::new()
+        .fallback_service(assets)
+        .layer(middleware::from_fn(cache_headers));
     let router = Router::new()
         .nest("/api", api)
-        .fallback_service(assets)
+        .fallback_service(static_files)
         .with_state(app);
-    let listener = tokio::net::TcpListener::bind(bind).await?;
+    // Without it, Nagle and delayed ACKs hold every later response on a keep-alive
+    // connection (and small WebSocket voice frames) for about 40 ms.
+    let listener = tokio::net::TcpListener::bind(bind).await?.tap_io(|tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
     println!("mumh5: http://{}", listener.local_addr()?);
     axum::serve(
         listener,
@@ -519,6 +527,26 @@ async fn main() -> Result<()> {
     })
     .await?;
     Ok(())
+}
+
+/// Only files under `assets/` carry a content hash in their name. The page, the service worker,
+/// `version.json`, the manifest and the icons keep theirs across deploys and must stay fresh.
+async fn cache_headers(req: Request, next: Next) -> Response {
+    let hashed = req.uri().path().starts_with("/assets/");
+    let mut res = next.run(req).await;
+    // A missing asset falls back to the page, which must never be kept
+    let page = res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|v| v.as_bytes().starts_with(b"text/html"));
+    let value = if hashed && !page && res.status().is_success() {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    res.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(value));
+    res
 }
 
 #[cfg(test)]
