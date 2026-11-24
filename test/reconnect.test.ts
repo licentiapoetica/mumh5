@@ -404,8 +404,9 @@ test('bulk move waits for server updates, retains refusals and permits retry', a
   assert.equal(s.movingUsers, false);
   assert.deepEqual(s.selectedUsers, []);
   assert.equal(s.selectingUsers, false);
+  assert.equal(s.userMove, null, 'a move without failures leaves no result behind');
   t.mock.timers.tick(15_000);
-  assert.equal(s.userMove!.people[0].status, 'moved', 'the previous timer cannot corrupt a retry');
+  assert.equal(s.userMove, null, 'the previous timer cannot bring a result back');
 });
 
 test('bulk move timeouts retain selection and unrelated denials are not attributed', async t => {
@@ -469,7 +470,8 @@ test('bulk move password submission resumes confirmation tracking', async t => {
   assert.equal(s.userMove!.people[0].status, 'pending');
   client.users.get(7)!.channelId = 4;
   client.emit('user', client.users.get(7)!, ['channelId'], 7, false);
-  assert.equal(s.userMove!.people[0].status, 'moved');
+  assert.equal(s.movingUsers, false);
+  assert.equal(s.userMove, null, 'confirmed, so the result is gone');
   assert.deepEqual(s.selectedUsers, []);
 });
 

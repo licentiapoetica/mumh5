@@ -1905,6 +1905,7 @@ try {
       if (bob.self?.channelId === lobby.id) return res();
       bob.on('user', u => { if (u.session === bob.session && u.channelId === lobby.id) res(); });
     }), 'bob moved');
+    await page.locator('.selection').waitFor({ state: 'detached' });
     bob.joinChannel(0);
     console.log('ok: drag and drop moves channels and people');
 
@@ -2049,8 +2050,7 @@ try {
       await mover('a').dragTo(page.locator('.channel', { hasText: 'Lobby' }).first());
       await allMoved(lobby.id);
       assert.equal(await page.locator('.sidebar .user[aria-pressed="true"]').count(), 0, 'a move clears the selection');
-      await page.locator('.selection [role="status"]').filter({ hasText: 'Moved 6 of 6' }).waitFor();
-      await page.locator('.selection').getByRole('button', { name: 'Done', exact: true }).click();
+      await page.locator('.selection').waitFor({ state: 'detached' });
       for (const suffix of ['a', 'b', 'c', 'd', 'e', 'f']) await mover(suffix).click({ modifiers: ['Control'] });
       await page.locator('.sidebar').getByLabel('Move selected people to').selectOption('0');
       assert.ok(movers.every(c => bob.users.get(c.session!)?.channelId === lobby.id), 'choosing a destination does not submit');
