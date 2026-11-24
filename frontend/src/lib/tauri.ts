@@ -2,13 +2,39 @@
 import type { NativeApi, ContextParams } from './native.ts';
 const toBase64 = (bytes: Uint8Array) => { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
 const fromBase64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const ACK_BYTES = 256 * 1024;
+/** Joins byte arrays; with `prefix` 2, each gets a u16 little-endian length first (UDP records). */
+export function concat(parts: Uint8Array[], prefix: 0 | 2): Uint8Array {
+ if (parts.length === 1 && !prefix) return parts[0];
+ const out = new Uint8Array(parts.reduce((n, p) => n + p.length + prefix, 0));
+ let at = 0;
+ for (const p of parts) {
+  if (prefix) { out[at] = p.length & 0xff; out[at + 1] = p.length >> 8; at += 2; }
+  out.set(p, at); at += p.length;
+ }
+ return out;
+}
+const textDecoder = new TextDecoder();
+/** Splits a channel message from the wire commands into its records (see wire_frames.rs). */
+export function readRecords(buffer: ArrayBuffer, on: (event: string, args: any[]) => void): void {
+ const view = new DataView(buffer);
+ for (let at = 0; at + 5 <= buffer.byteLength;) {
+  const kind = view.getUint8(at), length = view.getUint32(at + 1, true);
+  const payload = new Uint8Array(buffer, at + 5, length);
+  at += 5 + length;
+  if (kind === 0) on('data', [payload]);
+  // A datagram is small and may be kept or transferred; it must not pin or detach the batch
+  else if (kind === 1) on('udpVoice', [payload.slice()]);
+  else { const msg = JSON.parse(textDecoder.decode(payload)); on(msg.event, msg.args); }
+ }
+}
 export async function initializePlatform(): Promise<void> {
  if (!('__TAURI_INTERNALS__' in window)) return;
  const core = await import('@tauri-apps/api/core');
  const { Channel } = core;
  // Tauri rejects with the command's error string; the app (as with Electron) expects Error objects.
- const invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
-  core.invoke<T>(cmd, args).catch((e: unknown) => { throw e instanceof Error ? e : new Error(typeof e === 'string' ? e : JSON.stringify(e)); });
+ const invoke = <T = unknown>(cmd: string, args?: Record<string, unknown> | Uint8Array, options?: { headers: Record<string, string> }): Promise<T> =>
+  core.invoke<T>(cmd, args, options).catch((e: unknown) => { throw e instanceof Error ? e : new Error(typeof e === 'string' ? e : JSON.stringify(e)); });
  const { listen } = await import('@tauri-apps/api/event');
  const { getCurrentWindow } = await import('@tauri-apps/api/window');
  const { openUrl } = await import('@tauri-apps/plugin-opener');
@@ -16,14 +42,43 @@ export async function initializePlatform(): Promise<void> {
  const cache = await call<Record<string, string>>('bootstrap');
  const events = new Map<string, Set<(id: string, ...args: any[]) => void>>();
  const emit = (name: string, id: string, args: any[]) => { for (const f of events.get(name) ?? []) f(id, ...args); };
- const channels = new Map<string, InstanceType<typeof Channel<{ event: string; args: any[] }>>>();
- const pending = new Map<string, Promise<void>>();
+ const channels = new Map<string, InstanceType<typeof Channel<ArrayBuffer>>>();
  const active = new Set<string>();
- const udpPending = new Map<string, Promise<unknown>>();
- const udpCall = <T = unknown>(id: string, action: string, args: unknown): Promise<T> => {
-  const next = (udpPending.get(id) ?? Promise.resolve()).catch(() => {}).then(() => invoke<T>('wire_udp', { id, action, args }));
-  udpPending.set(id, next); return next;
+ // Outgoing bytes per connection: one request in flight, later sends join the next one, so a
+ // burst costs a few IPC round trips instead of one each, and order is kept.
+ const outgoing = new Map<string, Uint8Array[]>();
+ const raw = (cmd: string, id: string, body: Uint8Array) => invoke<void>(cmd, body, { headers: { 'mumh5-wire': id } });
+ const flushStream = async (id: string) => {
+  for (let queue = outgoing.get(id); queue?.length; queue = outgoing.get(id)) {
+   outgoing.set(id, []);
+   await raw('wire_send', id, concat(queue, 0));
+  }
+  outgoing.delete(id);
  };
+ // UDP keeps setup and nonce changes in order with the datagrams around them.
+ type UdpOp = { packet: Uint8Array } | { action: string; args: unknown; done: (v: unknown) => void; fail: (e: unknown) => void };
+ const udpQueues = new Map<string, UdpOp[]>();
+ const flushUdp = async (id: string) => {
+  for (let queue = udpQueues.get(id); queue?.length; queue = udpQueues.get(id)) {
+   const head = queue[0];
+   if ('action' in head) {
+    queue.shift();
+    await invoke('wire_udp', { id, action: head.action, args: head.args }).then(head.done, head.fail);
+    continue;
+   }
+   let n = 0; while (n < queue.length && 'packet' in queue[n]) n++;
+   const packets = queue.splice(0, n).map(op => (op as { packet: Uint8Array }).packet);
+   await raw('wire_udp_send', id, concat(packets, 2)).catch(e => console.error('Native operation failed:', e));
+  }
+  udpQueues.delete(id);
+ };
+ const udpEnqueue = (id: string, op: UdpOp) => {
+  const queue = udpQueues.get(id);
+  if (queue) { queue.push(op); return; }
+  udpQueues.set(id, [op]); void flushUdp(id);
+ };
+ const udpCall = <T = unknown>(id: string, action: string, args: unknown) => new Promise<T>((done, fail) => udpEnqueue(id, { action, args, done: done as (v: unknown) => void, fail }));
+ const forget = (id: string) => { active.delete(id); channels.delete(id); outgoing.delete(id); udpQueues.delete(id); };
  const report = (p: Promise<unknown>) => { void p.catch(e => console.error('Native operation failed:', e)); };
  const relayCall = <T = any>(id: string, action: string, args: unknown) => invoke<T>('wire_relay', { id, action, args });
  const api: NativeApi = {
@@ -104,27 +159,33 @@ export async function initializePlatform(): Promise<void> {
   canPickColor: () => call('canPickColor'), pickColor: () => call('pickColor'),
   async open(id, host, port, identityId) {
    active.add(id);
-   const channel = new Channel<{ event: string; args: any[] }>(); channels.set(id, channel);
-   channel.onmessage = msg => {
+   const channel = new Channel<ArrayBuffer>(); channels.set(id, channel);
+   let unacked = 0;
+   channel.onmessage = buffer => {
     if (!active.has(id)) return;
-    if (msg.event === 'data' || msg.event === 'udpVoice') msg.args[0] = new Uint8Array(msg.args[0]);
-    try { emit(msg.event, id, msg.args); } finally { if (msg.event === 'data') report(invoke('wire_ack', { id })); }
-    if (msg.event === 'close') { active.delete(id); channels.delete(id); pending.delete(id); udpPending.delete(id); }
+    try { readRecords(buffer, (event, args) => { if (active.has(id)) emit(event, id, args); if (event === 'close') forget(id); }); }
+    finally {
+     // The native side waits once a window of 1 MiB is unacknowledged (wire_frames.rs)
+     unacked += buffer.byteLength;
+     if (unacked >= ACK_BYTES && active.has(id)) { report(invoke('wire_ack', { id, bytes: unacked })); unacked = 0; }
+    }
    };
    try { await invoke('wire_open', { id, host, port, identityId: identityId ?? null, events: channel }); if (!active.has(id)) await invoke('wire_close', { id }); }
-   catch (e) { active.delete(id); channels.delete(id); emit('close', id, [String(e)]); throw e; }
+   catch (e) { forget(id); emit('close', id, [String(e)]); throw e; }
   },
   send(id, bytes) {
-   // Preserve write order even when multiple UI operations enqueue packets in one tick.
-   const next = (pending.get(id) ?? Promise.resolve()).then(() => invoke<void>('wire_send', { id, bytes: Array.from(bytes) }));
-   pending.set(id, next); void next.catch(e => { emit('close', id, [String(e)]); api.close(id); });
+   const queue = outgoing.get(id);
+   // Copied when held: the caller may reuse its buffer before the next request goes out
+   if (queue) { queue.push(bytes.slice()); return; }
+   outgoing.set(id, [bytes]);
+   void flushStream(id).catch(e => { if (active.has(id)) { emit('close', id, [String(e)]); api.close(id); } });
   },
-  close(id) { active.delete(id); channels.delete(id); pending.delete(id); udpPending.delete(id); emit('close', id, ['Connection closed']); report(invoke('wire_close', { id })); },
+  close(id) { forget(id); emit('close', id, ['Connection closed']); report(invoke('wire_close', { id })); },
   relayOpen: (id, rid, endpoint, token, lowSide) => relayCall(id, 'open', { rid, endpoint, token, lowSide }), relayTurn: (id, rid, lane) => relayCall(id, 'turn', { rid, lane }), relayCloseLane: (id, rid, lane) => report(relayCall(id, 'closeLane', { rid, lane })), relayClose: (id, rid) => report(relayCall(id, 'close', { rid })),
   on(name, fn) { const set = events.get(name) ?? new Set(); events.set(name, set); set.add(fn); return () => { set.delete(fn); }; },
   udpSetup: (id, key, cn, sn, protobuf) => report(udpCall(id, 'setup', { key: [...key], cn: [...cn], sn: [...sn], protobuf })),
   udpNonce: (id, sn) => report(udpCall(id, 'nonce', { sn: [...sn] })),
-  udpSend: (id, bytes) => report(udpCall(id, 'send', { bytes: [...bytes] })),
+  udpSend: (id, bytes) => udpEnqueue(id, { packet: bytes.slice() }),
   udpClientNonce: async id => { const n = await udpCall<number[] | null>(id, 'clientNonce', {}); return n ? new Uint8Array(n) : null; }
  };
  window.mumh5Native = api;
