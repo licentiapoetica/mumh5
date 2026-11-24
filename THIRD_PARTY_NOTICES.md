@@ -3,7 +3,7 @@
 ## Mumble protocol definitions
 
 `proto/Mumble.proto` and `proto/MumbleUDP.proto` are copied from the Mumble project
-(https://github.com/mumble-voip/mumble). `src/core/mumble-pb.js` and `src/core/mumble-udp-pb.js`
+(https://github.com/mumble-voip/mumble). `frontend/src/core/mumble-pb.js` and `frontend/src/core/mumble-udp-pb.js`
 are generated from them. They are covered by the following license:
 
 ```
@@ -37,26 +37,37 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## npm dependencies
+## Frontend dependencies
 
-Runtime and build dependencies (Electron, Svelte, protobufjs, node-forge, DOMPurify, highlight.js and
-others) are distributed under their own licenses, found in each package under `node_modules/`.
+The reused Svelte frontend is derived from mumh5 under the MIT license in LICENSE.
+Svelte, protobufjs, DOMPurify, highlight.js, fflate, the Tauri frontend API and other
+browser dependencies retain their licenses in each package installed by Bun. Bun
+is a development tool; it is not included in the desktop or CLI binaries.
+
+## Rust services and desktop shell
+
+The crates in `crates/` use dependencies pinned in `Cargo.lock`, including
+Tauri (MIT/Apache-2.0), webrtc-rs (MIT/Apache-2.0), Tokio (MIT), prost
+(Apache-2.0), and the Opus bindings (MIT). The CLI dynamically links system
+OpenSSL, libopus and, with video enabled, libvpx. The Tauri desktop links the
+platform WebView libraries. Their licenses are supplied by the system packages.
+The small libvpx adapter in `crates/core/native/video.c` is MIT project code.
 
 ## Standard notification voice pack
 
-`src/assets/default-audio-pack.zip` is the supplied `mumble-en-chatterbox-female.zip`:
+`frontend/src/assets/default-audio-pack.zip` is the supplied `mumble-en-chatterbox-female.zip`:
 134 locally generated Chatterbox Turbo female voice clips (mono, 24 kHz, 16-bit PCM WAV).
 The original `README.md` and `manifest.json` remain inside the archive, including the model
 revision, generation settings, reference voice provenance and audio hashes. Model watermarking
 remains enabled. ZIP import uses the MIT-licensed `fflate` package (license in
-`node_modules/fflate/LICENSE`).
+`frontend/node_modules/fflate/LICENSE`).
 
 ## Inter
 
 The Inter typeface (`@fontsource-variable/inter`), bundled with the app as its interface font.
 Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter). Licensed under the
 SIL Open Font License, Version 1.1; the full license is in
-`node_modules/@fontsource-variable/inter/LICENSE` and at https://openfontlicense.org.
+`frontend/node_modules/@fontsource-variable/inter/LICENSE` and at https://openfontlicense.org.
 
 ## @evan/opus and libopus
 
@@ -69,10 +80,10 @@ Erik de Castro Lopo.
 ## DeepFilterNet
 
 DeepFilterNet3 (https://github.com/Rikorose/DeepFilterNet), used for noise suppression. The engine
-(`vendor/deepfilternet/df.wasm`) is built from upstream's libDF by `scripts/build-deepfilter.sh`,
+(`frontend/vendor/deepfilternet/df.wasm`) is built from upstream's libDF by `scripts/build-deepfilter.sh`,
 and the model (`DeepFilterNet3_onnx.bin`) is upstream's `DeepFilterNet3_onnx.tar.gz`. Copyright (c) 2021 Hendrik Schröter.
 Licensed under the MIT license or the Apache License 2.0, at your option; the full texts are in
-`vendor/deepfilternet/`.
+`frontend/vendor/deepfilternet/`.
 
 
 ## PDF.js

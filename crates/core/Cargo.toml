@@ -1,0 +1,40 @@
+[package]
+name = "dream-cord-core"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license = "MIT"
+description = "Native headless Mumble client and bot library"
+build = "build.rs"
+
+[lib]
+name = "dream_cord_core"
+
+[features]
+default = ["video"]
+video = ["dep:webrtc"]
+
+[dependencies]
+anyhow = "1"
+aes = "0.8"
+base64 = "0.22"
+bytes = "1"
+flate2 = "1"
+hex = "0.4"
+openssl = "0.10"
+opus = "0.3"
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-openssl = "0.6"
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4"] }
+webrtc = { version = "0.17.3", optional = true }
+
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"
+prost-build = "0.14"
