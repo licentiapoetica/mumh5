@@ -9,6 +9,11 @@ use tokio::{
     time::{Duration, Instant, interval},
 };
 use tokio_util::sync::CancellationToken;
+/// What the lane reports. Voice stays bytes, so the desktop can hand it to the page without JSON.
+pub enum Event {
+    Voice(Vec<u8>),
+    Json(Value),
+}
 pub enum Command {
     Setup(Vec<u8>, Vec<u8>, Vec<u8>, bool),
     Nonce(Vec<u8>),
@@ -31,20 +36,20 @@ fn transient(e: &std::io::Error) -> bool {
 pub async fn run(
     peer: std::net::SocketAddr,
     commands: mpsc::Receiver<Command>,
-    events: mpsc::Sender<Value>,
+    events: mpsc::Sender<Event>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let result = lane(peer, commands, events.clone(), cancel).await;
     if let Err(e) = &result {
         eprintln!("mumh5: UDP voice lane ended: {e:#}");
-        let _ = events.try_send(json!({"event":"udpState","args":[false,0]}));
+        let _ = events.try_send(Event::Json(json!({"event":"udpState","args":[false,0]})));
     }
     result
 }
 async fn lane(
     peer: std::net::SocketAddr,
     mut commands: mpsc::Receiver<Command>,
-    events: mpsc::Sender<Value>,
+    events: mpsc::Sender<Event>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let socket = UdpSocket::bind(if peer.is_ipv4() {
@@ -75,13 +80,13 @@ async fn lane(
         _=ticker.tick(),if crypt.is_some()=>{
         let mut ping=vec![if protobuf{1}else{1<<5}];if protobuf{udp::Ping{timestamp:crate::client::now(),..Default::default()}.encode(&mut ping)?;}else{voice::write_varint(&mut ping,crate::client::now());}
         last_probe=Instant::now();let _=socket.send(&crypt.as_mut().unwrap().encode(&ping)).await;
-        let _=events.try_send(json!({"event":"udpState","args":[last_pong.is_some_and(|t|t.elapsed()<Duration::from_secs(8)),0]}));},
+        let _=events.try_send(Event::Json(json!({"event":"udpState","args":[last_pong.is_some_and(|t|t.elapsed()<Duration::from_secs(8)),0]})));},
         n=socket.recv(&mut buffer)=>{let n=match n{Ok(n)=>n,
         // An ICMP error for an earlier datagram (server restarting, NAT rebinding) is reported on
         // the next receive; the lane stays usable, as in the client's own UDP path.
         Err(e) if transient(&e)=>continue,Err(e)=>return Err(e.into())};if let Some(p)=crypt.as_mut().and_then(|c|c.decode(&buffer[..n])){failures=0;let is_ping=if protobuf{p.first()==Some(&1)}else{p.first().is_some_and(|b|b>>5==1)};
-        if is_ping{last_pong=Some(Instant::now());let _=events.try_send(json!({"event":"udpState","args":[true,last_probe.elapsed().as_secs_f64()*1000.0]}));}else{let _=events.try_send(json!({"event":"udpVoice","args":[p]}));}}
-        else if crypt.is_some(){failures+=1;if failures>8&&last_resync.elapsed()>Duration::from_secs(5){last_resync=Instant::now();let _=events.try_send(json!({"event":"udpResync","args":[]}));}}}
+        if is_ping{last_pong=Some(Instant::now());let _=events.try_send(Event::Json(json!({"event":"udpState","args":[true,last_probe.elapsed().as_secs_f64()*1000.0]})));}else{let _=events.try_send(Event::Voice(p));}}
+        else if crypt.is_some(){failures+=1;if failures>8&&last_resync.elapsed()>Duration::from_secs(5){last_resync=Instant::now();let _=events.try_send(Event::Json(json!({"event":"udpResync","args":[]})));}}}
         }
     }
     Ok(())

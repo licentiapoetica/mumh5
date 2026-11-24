@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
+mod wire_frames;
 use mumh5_core::{
     transport::Transport,
-    udp_transport::{self, Command},
+    udp_transport::{self, Command, Event},
 };
 use mumh5_platform::{
     certificates, network,
@@ -14,16 +15,19 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use tauri::{Manager, State, ipc::Channel};
+use tauri::{
+    Manager, State,
+    ipc::{Channel, InvokeBody, InvokeResponseBody, Request},
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 struct Wire {
     send: mpsc::Sender<Vec<u8>>,
     udp: mpsc::Sender<Command>,
-    ack: mpsc::Sender<()>,
+    window: Arc<wire_frames::Window>,
     cancel: CancellationToken,
     identity: mumh5_core::identity::Identity,
-    events: Channel<Value>,
+    events: Channel<InvokeResponseBody>,
     relays: Arc<tokio::sync::Mutex<HashMap<String, Arc<mumh5_platform::mumpeer::Link>>>>,
 }
 struct AppState {
@@ -354,7 +358,7 @@ async fn wire_open(
     host: String,
     port: u16,
     identity_id: Option<String>,
-    events: Channel<Value>,
+    events: Channel<InvokeResponseBody>,
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
     let identity = state
@@ -368,7 +372,7 @@ async fn wire_open(
         .map_err(failure)?;
     let (udp, udp_rx) = mpsc::channel(64);
     let (udp_tx, mut udp_events) = mpsc::channel(64);
-    let (ack, mut acks) = mpsc::channel(1);
+    let window = Arc::new(wire_frames::Window::default());
     let cancel = transport.cancel.clone();
     let peer = transport.peer;
     {
@@ -381,7 +385,7 @@ async fn wire_open(
             Wire {
                 send: transport.send.clone(),
                 udp,
-                ack,
+                window: window.clone(),
                 cancel: cancel.clone(),
                 identity,
                 events: events.clone(),
@@ -390,7 +394,8 @@ async fn wire_open(
         );
     }
     let secure = transport.secure.clone();
-    if let Err(e) = events.send(json!({"event":"secure","args":[secure]})) {
+    let hello = wire_frames::event(&json!({"event":"secure","args":[secure]}));
+    if let Err(e) = events.send(InvokeResponseBody::Raw(hello)) {
         cancel.cancel();
         state.wires.lock().map_err(failure)?.remove(&id);
         return Err(failure(e));
@@ -403,34 +408,97 @@ async fn wire_open(
     tokio::spawn(async move {
         let mut reason = "Connection closed".to_string();
         let mut udp_open = true;
-        loop {
+        let mut sent = 0u64;
+        'run: loop {
+            // Backpressure only: a page the WebView throttles while hidden may answer late, and
+            // the server (whose pings the page sends) decides when a silent client is gone.
             tokio::select! {
-             biased;
-             _=cancel.cancelled()=>break,
-             event=udp_events.recv(),if udp_open=>{if let Some(event)=event{if events.send(event).is_err(){break;}}else{udp_open=false;}},
-             data=transport.receive.recv()=>match data{
-              Some(Ok(data))=>{if events.send(json!({"event":"data","args":[data]})).is_err(){break;}
-               // Backpressure only: a page the WebView throttles while hidden may answer late, and
-               // the server (whose pings the page sends) decides when a silent client is gone.
-               tokio::select!{_ = cancel.cancelled()=>break,r=acks.recv()=>{if r.is_none(){reason="Frontend stopped receiving data".into();break;}}}
-              },Some(Err(e))=>{reason=format!("{e:#}");break;},None=>break
-             }
+                _ = cancel.cancelled() => break,
+                _ = window.wait(sent) => {}
+            }
+            let mut batch = Vec::new();
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => break,
+                event = udp_events.recv(), if udp_open => match event {
+                    Some(event) => push_udp(&mut batch, event),
+                    None => udp_open = false,
+                },
+                data = transport.receive.recv() => match data {
+                    Some(Ok(data)) => wire_frames::push(&mut batch, wire_frames::DATA, &data),
+                    Some(Err(e)) => { reason = format!("{e:#}"); break; }
+                    None => break,
+                },
+            }
+            // Whatever else is ready goes into the same message
+            let mut end = None;
+            while batch.len() < wire_frames::BATCH_BYTES {
+                if udp_open && let Ok(event) = udp_events.try_recv() {
+                    push_udp(&mut batch, event);
+                    continue;
+                }
+                match transport.receive.try_recv() {
+                    Ok(Ok(data)) => wire_frames::push(&mut batch, wire_frames::DATA, &data),
+                    Ok(Err(e)) => {
+                        end = Some(format!("{e:#}"));
+                        break;
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        end = Some(reason.clone());
+                        break;
+                    }
+                }
+            }
+            if batch.is_empty() {
+                continue;
+            }
+            sent += batch.len() as u64;
+            if events.send(InvokeResponseBody::Raw(batch)).is_err() {
+                break;
+            }
+            if let Some(end) = end {
+                reason = end;
+                break 'run;
             }
         }
         cancel.cancel();
-        let _ = events.send(json!({"event":"close","args":[reason]}));
+        let _ = events.send(InvokeResponseBody::Raw(wire_frames::event(
+            &json!({"event":"close","args":[reason]}),
+        )));
         if let Ok(mut w) = wires.lock() {
             w.remove(&id);
         }
     });
     Ok(())
 }
+fn push_udp(batch: &mut Vec<u8>, event: Event) {
+    match event {
+        Event::Voice(p) => wire_frames::push(batch, wire_frames::VOICE, &p),
+        Event::Json(v) => wire_frames::push_event(batch, &v),
+    }
+}
+/// The connection id of a raw-body wire command, from its header.
+fn wire_request(request: &Request<'_>) -> std::result::Result<(String, Vec<u8>), String> {
+    let id = request
+        .headers()
+        .get("mumh5-wire")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("Missing connection")?
+        .to_owned();
+    match request.body() {
+        InvokeBody::Raw(bytes) => Ok((id, bytes.clone())),
+        InvokeBody::Json(_) => Err("Expected raw bytes".into()),
+    }
+}
+/// Stream bytes to the server. The page sends one request at a time per connection, holding
+/// what comes in meanwhile for the next one, so order is kept without a round trip per frame.
 #[tauri::command]
 async fn wire_send(
-    id: String,
-    bytes: Vec<u8>,
+    request: Request<'_>,
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
+    let (id, bytes) = wire_request(&request)?;
     if bytes.len() > 8 * 1024 * 1024 {
         return Err("Frame too large".into());
     }
@@ -445,12 +513,33 @@ async fn wire_send(
         .clone();
     send.send(bytes).await.map_err(failure)
 }
+/// UDP datagrams, as `[length u16 LE][datagram]` records; one request per batch, like `wire_send`.
 #[tauri::command]
-fn wire_ack(id: String, state: State<'_, AppState>) {
+async fn wire_udp_send(
+    request: Request<'_>,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let (id, body) = wire_request(&request)?;
+    let tx = state
+        .wires
+        .lock()
+        .map_err(failure)?
+        .get(&id)
+        .context("Connection closed")
+        .map_err(failure)?
+        .udp
+        .clone();
+    for datagram in wire_frames::datagrams(&body).map_err(failure)? {
+        tx.send(Command::Send(datagram)).await.map_err(failure)?;
+    }
+    Ok(())
+}
+#[tauri::command]
+fn wire_ack(id: String, bytes: u64, state: State<'_, AppState>) {
     if let Ok(wires) = state.wires.lock()
         && let Some(w) = wires.get(&id)
     {
-        let _ = w.ack.try_send(());
+        w.window.ack(bytes);
     }
 }
 #[tauri::command]
@@ -500,7 +589,6 @@ async fn wire_udp(
             args["protobuf"].as_bool().unwrap_or(false),
         ),
         "nonce" => Command::Nonce(b("sn")?),
-        "send" => Command::Send(b("bytes")?),
         "clientNonce" => {
             let (txreply, rx) = tokio::sync::oneshot::channel();
             tx.send(Command::ClientNonce(txreply))
@@ -553,7 +641,9 @@ async fn wire_relay(
                     args["lowSide"].as_bool().unwrap_or(false),
                     cancel,
                     move |reason| {
-                        let _ = events.send(json!({"event":"relayClose","args":[r,reason]}));
+                        let _ = events.send(InvokeResponseBody::Raw(wire_frames::event(
+                            &json!({"event":"relayClose","args":[r,reason]}),
+                        )));
                     },
                 )
                 .await?;
@@ -644,6 +734,7 @@ pub fn run() {
         platform_call,
         wire_open,
         wire_send,
+        wire_udp_send,
         wire_ack,
         wire_close,
         wire_udp,
@@ -657,6 +748,7 @@ pub fn run() {
         platform_call,
         wire_open,
         wire_send,
+        wire_udp_send,
         wire_ack,
         wire_close,
         wire_udp,
