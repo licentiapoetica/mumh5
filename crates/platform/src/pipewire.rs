@@ -146,6 +146,23 @@ pub fn plan(
     }
     (wanted.into_iter().collect(), remove)
 }
+/// Virtual microphones left by an earlier mumh5 process that is gone (a crash; the node lingers).
+pub fn stale(objects: &[Value], alive: impl Fn(u64) -> bool) -> Vec<u64> {
+    objects
+        .iter()
+        .filter_map(|o| {
+            let name = props(o)["node.name"].as_str()?;
+            let pid = name
+                .strip_prefix("mumh5-share-audio-")?
+                .parse::<u64>()
+                .ok()?;
+            (!alive(pid)).then_some(o["id"].as_u64()?)
+        })
+        .collect()
+}
+fn process_alive(pid: u64) -> bool {
+    pid == std::process::id() as u64 || std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
 async fn run(cmd: &str, args: &[String]) -> Result<Vec<u8>> {
     let out = tokio::time::timeout(
         Duration::from_secs(5),
@@ -207,6 +224,11 @@ impl ShareAudio {
             bail!("Invalid audio target");
         }
         self.stop().await?;
+        if let Ok(objects) = dump().await {
+            for id in stale(&objects, process_alive) {
+                let _ = run("pw-cli", &["destroy".into(), id.to_string()]).await;
+            }
+        }
         let name = Self::name();
         let properties = format!(
             "{{ factory.name=support.null-audio-sink node.name={name} node.description=\"{}\" media.class=Audio/Source/Virtual object.linger=1 audio.position=[FL,FR] audio.rate=48000 audio.channels=2 }}",
@@ -413,6 +435,16 @@ mod tests {
     fn nothing_without_the_virtual_microphone() {
         let (add, remove) = plan(&graph()[5..], &json!({"kind": "all"}), &HashSet::new(), MIC);
         assert!(add.is_empty() && remove.is_empty());
+    }
+    #[test]
+    fn stale_microphones_of_gone_processes_are_found() {
+        let objects = vec![
+            node(1, json!({"node.name": "mumh5-share-audio-111"})),
+            node(2, json!({"node.name": "mumh5-share-audio-222"})),
+            node(3, json!({"node.name": "mumh5-share-audio"})),
+            node(4, json!({"node.name": "speakers"})),
+        ];
+        assert_eq!(stale(&objects, |pid| pid == 222), [1]);
     }
     #[test]
     fn own_process_tree_contains_this_process() {

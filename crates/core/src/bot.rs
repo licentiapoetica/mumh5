@@ -11,9 +11,11 @@ pub async fn handle(client: &Client, event: &Value, admins: &HashSet<u32>) -> Re
     let Some(actor) = event["actor"].as_u64().and_then(|n| u32::try_from(n).ok()) else {
         return Ok(false);
     };
-    let Some(text) = event["html"].as_str() else {
+    let Some(html) = event["html"].as_str() else {
         return Ok(false);
     };
+    // Mumble text is HTML: a channel named "A & B" arrives as "A &amp; B".
+    let text = plain(html);
     let text = text.trim();
     let (command, argument) = text
         .split_once(char::is_whitespace)
@@ -56,4 +58,71 @@ pub async fn handle(client: &Client, event: &Value, admins: &HashSet<u32>) -> Re
         .await
         .context("Sending bot reply")?;
     Ok(command == "!shutdown" && success)
+}
+
+/// The text of a Mumble HTML message: tags removed, `<br>` as a space, entities decoded.
+pub fn plain(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(start) = rest.find('<') {
+        text.push_str(&rest[..start]);
+        let Some(end) = rest[start..].find('>') else {
+            rest = "";
+            break;
+        };
+        let tag = rest[start + 1..start + end].trim().to_ascii_lowercase();
+        if tag.starts_with("br") || tag.starts_with("/p") {
+            text.push(' ');
+        }
+        rest = &rest[start + end + 1..];
+    }
+    text.push_str(rest);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let after = &rest[amp + 1..];
+        let decoded = after.find(';').filter(|n| *n <= 10).and_then(|n| {
+            let name = &after[..n];
+            let c = match name {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "nbsp" => Some(' '),
+                _ => name
+                    .strip_prefix("#x")
+                    .or_else(|| name.strip_prefix("#X"))
+                    .and_then(|h| u32::from_str_radix(h, 16).ok())
+                    .or_else(|| name.strip_prefix('#').and_then(|d| d.parse().ok()))
+                    .and_then(char::from_u32),
+            }?;
+            Some((c, n))
+        });
+        match decoded {
+            Some((c, n)) => {
+                out.push(c);
+                rest = &after[n + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain;
+    #[test]
+    fn commands_are_read_from_plain_text() {
+        assert_eq!(plain("!join /Music &amp; Talk"), "!join /Music & Talk");
+        assert_eq!(plain("!join <b>/Caf&#233;</b>"), "!join /Café");
+        assert_eq!(plain("!help<br/>"), "!help ");
+        assert_eq!(plain("a &unknown; &#x41; & b"), "a &unknown; A & b");
+    }
 }

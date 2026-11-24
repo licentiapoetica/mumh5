@@ -32,15 +32,60 @@ pub async fn ping(host: &str, port: u16) -> Result<Value> {
         json!({"ping":at.elapsed().as_secs_f64()*1000.0,"users":u(12),"maxUsers":u(16),"bandwidth":u(20),"version":format!("{}.{}.{}",version>>16,(version>>8)&255,version&255)}),
     )
 }
+/// Resolves names for link previews and refuses any that point into private networks, so a
+/// message (or a redirect it leads to) cannot make the app probe the user's local network.
+struct PublicResolver;
+impl reqwest::dns::Resolve for PublicResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async move {
+            let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((name.as_str(), 0))
+                .await?
+                .filter(|a| !crate::turn::private(a.ip()))
+                .collect();
+            if addrs.is_empty() {
+                return Err("Address is private or unknown".into());
+            }
+            let addrs: reqwest::dns::Addrs = Box::new(addrs.into_iter());
+            Ok(addrs)
+        })
+    }
+}
+/// Hosts given as IP literals skip DNS, so they are checked here (first URL and each redirect).
+fn public_url(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    matches!(url.scheme(), "http" | "https")
+        && match host.parse::<std::net::IpAddr>() {
+            Ok(ip) => !crate::turn::private(ip),
+            Err(_) => host != "localhost" && !host.ends_with(".localhost"),
+        }
+}
 pub async fn fetch(url: &str, max: usize) -> Result<(reqwest::Url, Vec<u8>)> {
     let url = reqwest::Url::parse(url)?;
     if !matches!(url.scheme(), "http" | "https") {
         bail!("Only HTTP(S) URLs are supported");
     }
+    if !public_url(&url) {
+        bail!("Private addresses are not fetched");
+    }
     let client = reqwest::Client::builder()
         .user_agent("mumh5/0.2")
         .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::limited(5))
+        .dns_resolver(std::sync::Arc::new(PublicResolver))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 {
+                attempt.error("Too many redirects")
+            } else if public_url(attempt.url()) {
+                attempt.follow()
+            } else {
+                attempt.error("Redirect to a private address")
+            }
+        }))
         .build()?;
     let response = client.get(url).send().await?.error_for_status()?;
     let url = response.url().clone();
@@ -126,4 +171,29 @@ pub async fn public_servers(url: &str) -> Result<Value> {
     let (_, bytes) = fetch(url, 4 * 1024 * 1024).await?;
     let list: ServerList = quick_xml::de::from_reader(bytes.as_slice())?;
     Ok(Value::Array(list.servers.into_iter().filter(|s|!s.ip.is_empty()).map(|s|json!({"name":s.name,"host":s.ip,"port":if s.port==0{64738}else{s.port},"url":s.url,"country":s.country,"countryCode":s.country_code,"continent":s.continent,"ca":s.ca=="1"})).collect()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn previews_never_reach_private_addresses() {
+        for url in [
+            "http://127.0.0.1:1/",
+            "http://[::1]/",
+            "http://10.0.0.1/",
+            "http://localhost/",
+            "http://a.localhost/",
+        ] {
+            assert!(fetch(url, 1024).await.is_err(), "{url}");
+        }
+        // A local server that redirects to loopback: the hop is refused.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        assert!(!public_url(
+            &reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap()
+        ));
+        assert!(public_url(
+            &reqwest::Url::parse("https://example.com/a").unwrap()
+        ));
+    }
 }

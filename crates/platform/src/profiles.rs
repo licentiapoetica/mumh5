@@ -33,24 +33,34 @@ impl Profile {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
         }
-        let fresh = !directory.join("profile.json").exists();
-        let mut p: Self = match std::fs::read(directory.join("profile.json")) {
-            Ok(v) => {
-                serde_json::from_slice(&v).context("Invalid profile.json; restore your backup")?
-            }
+        let file = directory.join("profile.json");
+        let mut fresh = !file.exists();
+        let mut p: Self = match std::fs::read(&file) {
+            Ok(v) => match serde_json::from_slice(&v) {
+                Ok(p) => p,
+                Err(e) => {
+                    // Never refuse to start: keep the damaged file for recovery and begin anew.
+                    let aside = directory.join(format!(
+                        "profile.json.damaged-{}",
+                        uuid::Uuid::new_v4().simple()
+                    ));
+                    std::fs::rename(&file, &aside)?;
+                    eprintln!(
+                        "mumh5: profile.json is damaged ({e}); kept as {} and starting a new profile",
+                        aside.display()
+                    );
+                    fresh = true;
+                    Self::default()
+                }
+            },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
             Err(e) => return Err(e.into()),
         };
         p.directory = directory;
         if fresh {
-            {
-                let source = p.directory.clone();
-                if source.join("identities.json").is_file()
-                    || source.join("saved-state.json").is_file()
-                    || source.join("identity.json").is_file()
-                {
-                    p.import_legacy(&source)?;
-                }
+            let source = p.directory.clone();
+            if has_legacy(&source) {
+                p.import_logged(&source);
             }
             if !p.identities.is_empty() || !p.state.is_empty() {
                 p.save()?;
@@ -63,107 +73,139 @@ impl Profile {
         let mut p = Self::open(directory)?;
         if fresh {
             for source in legacy_directories() {
-                if source != p.directory
-                    && (source.join("identities.json").is_file()
-                        || source.join("identity.json").is_file()
-                        || source.join("saved-state.json").is_file())
-                {
-                    p.import_legacy(&source)?;
+                if source != p.directory && has_legacy(&source) {
+                    p.import_logged(&source);
                 }
             }
+            // Written even when nothing could be imported, so a bad legacy file is read only once.
             p.save()?;
         }
         Ok(p)
     }
-    /// Copy the previous desktop profile without changing its files or identity IDs.
-    pub fn import_legacy(&mut self, source: &Path) -> Result<()> {
+    fn import_logged(&mut self, source: &Path) {
+        for problem in self.import_legacy(source) {
+            eprintln!("mumh5: legacy profile {}: {problem}", source.display());
+        }
+    }
+    /// Copy the previous desktop profile without changing its files or identity IDs. Damaged
+    /// pieces are skipped and reported; whatever is readable is still imported.
+    pub fn import_legacy(&mut self, source: &Path) -> Vec<String> {
+        let mut problems = vec![];
+        if let Err(e) = self.import_identities(source, &mut problems) {
+            problems.push(format!("identities skipped: {e:#}"));
+        }
+        // The previous app kept a backup of saved-state.json and read it when the file was damaged.
+        let state = [
+            source.join("saved-state.json"),
+            source.join("saved-state.json.bak"),
+        ]
+        .into_iter()
+        .filter(|f| f.is_file())
+        .find_map(|f| match read_saved_state(&f) {
+            Ok(values) => Some(values),
+            Err(e) => {
+                problems.push(format!("{} skipped: {e:#}", f.display()));
+                None
+            }
+        });
+        for (k, v) in state.unwrap_or_default() {
+            self.state.entry(k).or_insert(v);
+        }
+        if let Err(e) = self.import_sounds(source, &mut problems) {
+            problems.push(format!("sounds skipped: {e:#}"));
+        }
+        problems
+    }
+    fn import_identities(&mut self, source: &Path, problems: &mut Vec<String>) -> Result<()> {
         let path = source.join("identities.json");
-        let data = if path.is_file() {
-            Some(
-                serde_json::from_slice::<Value>(&std::fs::read(&path)?)
-                    .with_context(|| format!("Invalid identity store: {}", path.display()))?,
-            )
-        } else {
-            None
-        };
-        if let Some(data) = data {
-            for entry in data["identities"]
+        if path.is_file() {
+            let data = serde_json::from_slice::<Value>(&std::fs::read(&path)?)
+                .with_context(|| format!("Invalid identity store: {}", path.display()))?;
+            for (n, entry) in data["identities"]
                 .as_array()
                 .context("Invalid identity list")?
+                .iter()
+                .enumerate()
             {
-                let identity: Identity = serde_json::from_value(entry.clone())?;
-                certificates::fresh(&identity)?;
-                let id = entry["id"]
-                    .as_str()
-                    .context("Missing identity ID")?
-                    .to_owned();
-                if !self.identities.iter().any(|e| e.id == id) {
-                    self.identities.push(Entry {
-                        id,
-                        name: entry["name"].as_str().unwrap_or("My identity").into(),
-                        identity,
-                    });
+                let parsed = (|| -> Result<(String, Identity)> {
+                    let identity: Identity = serde_json::from_value(entry.clone())?;
+                    certificates::fresh(&identity)?;
+                    let id = entry["id"]
+                        .as_str()
+                        .context("Missing identity ID")?
+                        .to_owned();
+                    Ok((id, identity))
+                })();
+                match parsed {
+                    Ok((id, identity)) => {
+                        if !self.identities.iter().any(|e| e.id == id) {
+                            self.identities.push(Entry {
+                                id,
+                                name: entry["name"].as_str().unwrap_or("My identity").into(),
+                                identity,
+                            });
+                        }
+                    }
+                    Err(e) => problems.push(format!("identity {n} skipped: {e:#}")),
                 }
             }
             if self.default_id.is_none() {
-                self.default_id = data["defaultId"].as_str().map(str::to_owned);
+                self.default_id = data["defaultId"]
+                    .as_str()
+                    .filter(|d| self.identities.iter().any(|e| e.id == *d))
+                    .map(str::to_owned)
+                    .or_else(|| self.identities.first().map(|e| e.id.clone()));
             }
             self.setup_done |= data["setupDone"].as_bool().unwrap_or(false);
         } else if source.join("identity.json").is_file() && self.identities.is_empty() {
             let identity: Identity =
                 serde_json::from_slice(&std::fs::read(source.join("identity.json"))?)?;
+            certificates::fresh(&identity)?;
             self.add("My identity".into(), identity)?;
         }
-        let state = source.join("saved-state.json");
-        if state.is_file() {
-            let data: Value = serde_json::from_slice(&std::fs::read(state)?)?;
-            if let Some(values) = data["values"].as_object() {
-                for (k, v) in values {
-                    if let Some(raw) = v.as_str() {
-                        self.state.entry(k.clone()).or_insert_with(|| raw.into());
-                    }
-                }
-            }
-        }
+        Ok(())
+    }
+    fn import_sounds(&mut self, source: &Path, problems: &mut Vec<String>) -> Result<()> {
         let target = self.directory.join("sounds");
         std::fs::create_dir_all(&target)?;
         if source.join("sounds.json").is_file() && !target.join("settings.json").exists() {
-            private_write(
-                &target.join("settings.json"),
-                &std::fs::read(source.join("sounds.json"))?,
-            )?;
+            let raw = std::fs::read(source.join("sounds.json"))?;
+            if serde_json::from_slice::<Value>(&raw).is_ok() {
+                private_write(&target.join("settings.json"), &raw)?;
+            } else {
+                // The previous app rebuilt the list from the files on disk; so does this one.
+                problems.push("sounds.json is damaged; sound files are still copied".into());
+            }
         }
         use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         let mut files = Vec::new();
         let dir = source.join("sounds");
         if dir.is_dir() {
-            for entry in std::fs::read_dir(&dir)? {
-                let entry = entry?;
-                let path = entry.path();
+            for entry in std::fs::read_dir(&dir)?.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name == "pack.zip" {
-                    files.push(("pack".into(), path));
-                } else if name.ends_with(".audio") {
-                    files.push((format!("sound:{}", name.trim_end_matches(".audio")), path));
+                    files.push(("pack".into(), entry.path()));
+                } else if let Some(stem) = name.strip_suffix(".audio") {
+                    files.push((format!("sound:{stem}"), entry.path()));
                 }
             }
         }
         if dir.join("packs").is_dir() {
-            for entry in std::fs::read_dir(dir.join("packs"))? {
-                let entry = entry?;
+            for entry in std::fs::read_dir(dir.join("packs"))?.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if name.ends_with(".zip") {
-                    files.push((
-                        format!("pack:{}", name.trim_end_matches(".zip")),
-                        entry.path(),
-                    ));
+                if let Some(stem) = name.strip_suffix(".zip") {
+                    files.push((format!("pack:{stem}"), entry.path()));
                 }
             }
         }
         for (key, path) in files {
-            let dest = target.join(format!("{}.bin", URL_SAFE_NO_PAD.encode(key)));
-            if !dest.exists() {
-                private_write(&dest, &std::fs::read(path)?)?;
+            let dest = target.join(format!("{}.bin", URL_SAFE_NO_PAD.encode(&key)));
+            if !dest.exists()
+                && let Err(e) = std::fs::read(&path)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|b| private_write(&dest, &b))
+            {
+                problems.push(format!("{} skipped: {e:#}", path.display()));
             }
         }
         Ok(())
@@ -256,6 +298,27 @@ impl Profile {
         self.save()
     }
 }
+fn has_legacy(source: &Path) -> bool {
+    [
+        "identities.json",
+        "identity.json",
+        "saved-state.json",
+        "saved-state.json.bak",
+        "sounds.json",
+        "sounds",
+    ]
+    .iter()
+    .any(|f| source.join(f).exists())
+}
+/// Reads the previous app's `{"version":1,"values":{key: raw}}` saved state.
+fn read_saved_state(file: &Path) -> Result<BTreeMap<String, String>> {
+    let data: Value = serde_json::from_slice(&std::fs::read(file)?)?;
+    let values = data["values"].as_object().context("No saved values")?;
+    Ok(values
+        .iter()
+        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+        .collect())
+}
 pub fn legacy_directories() -> Vec<PathBuf> {
     let mut paths = vec![];
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
@@ -327,23 +390,22 @@ mod migration_tests {
         let new = dir.join("new");
         std::fs::create_dir_all(old.join("sounds/packs"))?;
         let identity = certificates::create("Existing user", "")?;
-        let mut entry = serde_json::to_value(&identity)?;
-        entry["id"] = json!("registered-identity-id");
-        entry["name"] = json!("Registered");
+        // Exactly what electron/identity-store.ts wrote (StoredIdentity entries in a StoreFile).
+        let entry = json!({"id":"registered-identity-id","name":"Registered","certPem":identity.cert_pem,"keyPem":identity.key_pem,"fingerprint":"00","createdAt":"2026-01-01T00:00:00.000Z"});
         let identities = serde_json::to_vec(
             &json!({"identities":[entry],"defaultId":"registered-identity-id","setupDone":true}),
         )?;
         private_write(&old.join("identities.json"), &identities)?;
         private_write(
             &old.join("saved-state.json"),
-            br#"{"values":{"mumh5.servers":"[{\"host\":\"voice.example\"}]","mumh5.pins":"{}"}}"#,
+            br#"{"version":1,"values":{"mumh5.servers":"[{\"host\":\"voice.example\"}]","mumh5.pins":"{}"}}"#,
         )?;
         private_write(&old.join("sounds.json"), br#"{"volume":0.5}"#)?;
         private_write(&old.join("sounds/message.audio"), b"custom audio")?;
         let mut profile = Profile::open(new.clone())?;
-        profile.import_legacy(&old)?;
+        assert!(profile.import_legacy(&old).is_empty());
         profile.save()?;
-        profile.import_legacy(&old)?;
+        assert!(profile.import_legacy(&old).is_empty());
         assert_eq!(profile.identities.len(), 1);
         assert_eq!(
             profile.default_id.as_deref(),
@@ -362,6 +424,48 @@ mod migration_tests {
             )?,
             b"custom audio"
         );
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+    #[test]
+    fn damaged_legacy_files_are_skipped_and_startup_continues() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("mumh5-damaged-{}", uuid::Uuid::new_v4()));
+        let old = dir.join("old");
+        std::fs::create_dir_all(old.join("sounds"))?;
+        let good = certificates::create("Good", "")?;
+        let identities = json!({"identities":[
+            {"id":"broken","name":"Broken","certPem":"not a certificate","keyPem":"nope"},
+            {"name":"No id","certPem":good.cert_pem,"keyPem":good.key_pem},
+            {"id":"good","name":"Good","certPem":good.cert_pem,"keyPem":good.key_pem}
+        ],"defaultId":"broken","setupDone":true});
+        private_write(
+            &old.join("identities.json"),
+            &serde_json::to_vec(&identities)?,
+        )?;
+        // A damaged main file falls back to the backup, as the previous app did.
+        private_write(&old.join("saved-state.json"), b"{truncated")?;
+        private_write(
+            &old.join("saved-state.json.bak"),
+            br#"{"version":1,"values":{"mumh5.tokens":"{}"}}"#,
+        )?;
+        private_write(&old.join("sounds.json"), b"[[[")?;
+        private_write(&old.join("sounds/join.audio"), b"join")?;
+        let mut profile = Profile::open(dir.join("new"))?;
+        let problems = profile.import_legacy(&old);
+        assert_eq!(problems.len(), 4, "{problems:?}");
+        assert_eq!(profile.identities.len(), 1);
+        assert_eq!(profile.default_id.as_deref(), Some("good"));
+        assert_eq!(profile.state["mumh5.tokens"], "{}");
+        assert!(!dir.join("new/sounds/settings.json").exists());
+        // A damaged profile.json no longer stops the app; it is kept beside the new one.
+        std::fs::write(dir.join("new/profile.json"), b"{oops")?;
+        let reopened = Profile::open(dir.join("new"))?;
+        assert!(reopened.identities.is_empty());
+        assert!(std::fs::read_dir(dir.join("new"))?.flatten().any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("profile.json.damaged-")
+        }));
         std::fs::remove_dir_all(dir)?;
         Ok(())
     }

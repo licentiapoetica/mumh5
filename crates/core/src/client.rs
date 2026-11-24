@@ -490,12 +490,27 @@ struct Runner {
     flush_requests: Vec<oneshot::Sender<Result<Value>>>,
     barriers: BTreeMap<u64, Vec<oneshot::Sender<Result<Value>>>>,
     flush_serial: u64,
+    dropped_events: std::sync::atomic::AtomicU64,
+    /// When each peer was last answered a text-capability probe; one answer per peer per second.
+    probe_replies: std::collections::HashMap<u32, Instant>,
 }
 impl Runner {
+    /// Hands an event to the consumer. A full queue drops the event (busy channels, a bot that
+    /// answers slowly) instead of ending the connection; only a consumer that is gone ends it.
     fn event(&self, value: Value) -> Result<()> {
-        self.events
-            .try_send(value)
-            .map_err(|_| anyhow!("Event consumer is too slow or closed"))
+        match self.events.try_send(value) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                let dropped = self
+                    .dropped_events
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if dropped.is_power_of_two() {
+                    eprintln!("mumh5: event queue full, {} events dropped", dropped + 1);
+                }
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => bail!("Event consumer closed"),
+        }
     }
     fn send<M: Message>(
         &self,
@@ -1062,7 +1077,24 @@ impl Runner {
                     && let Some((kind, text)) = self.text.push(sender, &data)
                 {
                     if kind == 1 {
-                        self.queue_plugins(vec![sender], id, crate::signal::encode(2, None)?)?;
+                        // A peer must not be able to fill the plugin queue with probes.
+                        let now = std::time::Instant::now();
+                        let recent = self
+                            .probe_replies
+                            .get(&sender)
+                            .is_some_and(|t| now.duration_since(*t) < Duration::from_secs(1));
+                        if !recent {
+                            self.probe_replies
+                                .retain(|_, t| now.duration_since(*t) < Duration::from_secs(60));
+                            self.probe_replies.insert(sender, now);
+                            if let Err(e) = self.queue_plugins(
+                                vec![sender],
+                                id,
+                                crate::signal::encode(2, None)?,
+                            ) {
+                                eprintln!("mumh5: text probe reply dropped: {e}");
+                            }
+                        }
                     } else if kind == 3
                         && let Some(text) = text
                         && let Ok(v) = serde_json::from_str::<Value>(&text)
@@ -1159,6 +1191,8 @@ async fn run(
         crypto_failures: 0,
         last_resync: Instant::now() - Duration::from_secs(30),
         plugin_queue: VecDeque::new(),
+        dropped_events: Default::default(),
+        probe_replies: Default::default(),
         text_queue: VecDeque::new(),
         next_plugin: Instant::now(),
         next_text: Instant::now(),

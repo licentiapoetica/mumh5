@@ -53,31 +53,84 @@ struct App {
     crypto: Arc<Semaphore>,
     connections: Arc<Semaphore>,
     addresses: Mutex<HashMap<IpAddr, Arc<Semaphore>>>,
-    rates: Mutex<HashMap<(IpAddr, String), (Instant, u32)>>,
+    rates: Mutex<Rates>,
+}
+/// Request budgets per client address and route class, in one-minute windows.
+#[derive(Default)]
+struct Rates {
+    windows: HashMap<(IpAddr, Route), (Instant, u32)>,
+    swept: Option<Instant>,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Route {
+    Ping,
+    Identity,
+    Relay,
+    Other,
+}
+impl Route {
+    fn of(path: &str) -> Self {
+        if path.ends_with("/ping") {
+            Self::Ping
+        } else if path.contains("/identity/") {
+            Self::Identity
+        } else if path.ends_with("/relay") {
+            Self::Relay
+        } else {
+            Self::Other
+        }
+    }
+    fn limit(self) -> u32 {
+        match self {
+            Self::Ping => 60,
+            Self::Identity | Self::Relay => 20,
+            Self::Other => 240,
+        }
+    }
+}
+/// Beyond this many tracked windows the oldest are forgotten; the limiter never refuses everyone.
+const MAX_RATE_WINDOWS: usize = 20000;
+const RATE_WINDOW: Duration = Duration::from_secs(60);
+impl Rates {
+    fn allow(&mut self, ip: IpAddr, route: Route) -> bool {
+        let now = Instant::now();
+        // Expired windows are swept at most every few seconds, not on every request.
+        if self
+            .swept
+            .is_none_or(|t| now.duration_since(t) > Duration::from_secs(5))
+        {
+            self.windows
+                .retain(|_, (at, _)| now.duration_since(*at) < RATE_WINDOW);
+            self.swept = Some(now);
+        }
+        if self.windows.len() >= MAX_RATE_WINDOWS && !self.windows.contains_key(&(ip, route)) {
+            let mut starts: Vec<Instant> = self.windows.values().map(|(at, _)| *at).collect();
+            starts.sort_unstable();
+            let cutoff = starts[starts.len() / 2];
+            self.windows.retain(|_, (at, _)| *at > cutoff);
+        }
+        let entry = self.windows.entry((ip, route)).or_insert((now, 0));
+        if now.duration_since(entry.0) >= RATE_WINDOW {
+            *entry = (now, 0);
+        }
+        entry.1 += 1;
+        entry.1 <= route.limit()
+    }
 }
 impl App {
-    fn rate(&self, ip: IpAddr, route: &str, limit: u32) -> bool {
-        let Ok(mut rates) = self.rates.lock() else {
-            return false;
-        };
-        rates.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
-        if rates.len() > 20000 {
-            return false;
-        }
-        let entry = rates
-            .entry((ip, route.into()))
-            .or_insert((Instant::now(), 0));
-        entry.1 += 1;
-        entry.1 <= limit
+    fn rate(&self, ip: IpAddr, route: Route) -> bool {
+        self.rates
+            .lock()
+            .map(|mut rates| rates.allow(ip, route))
+            .unwrap_or(true)
     }
     fn address_slot(&self, ip: IpAddr) -> Option<tokio::sync::OwnedSemaphorePermit> {
         let mut map = self.addresses.lock().ok()?;
+        // Only addresses with a live connection are kept, so this map never exceeds the
+        // gateway's connection limit and new addresses are never refused for its size.
         map.retain(|_, s| {
             s.available_permits() < self.config.max_per_address || Arc::strong_count(s) > 1
         });
-        if map.len() > 20000 {
-            return None;
-        }
         map.entry(ip)
             .or_insert_with(|| Arc::new(Semaphore::new(self.config.max_per_address)))
             .clone()
@@ -135,15 +188,8 @@ async fn origin_guard(
         peer
     };
     request.extensions_mut().insert(client);
-    let route = request.uri().path();
-    let rate = if route.ends_with("/ping") {
-        60
-    } else if route.contains("/identity/") || route.ends_with("/relay") {
-        20
-    } else {
-        240
-    };
-    if !app.rate(client.ip(), route, rate) {
+    let route = request.uri().path().to_owned();
+    if !app.rate(client.ip(), Route::of(&route)) {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             "Too many requests; retry in a minute",
@@ -292,9 +338,14 @@ async fn connect(
             let _ = tunnel(socket, app, address).await;
         })
 }
+/// The largest text frame accepted after the handshake (mumpeer requests are well under 1 KiB).
+const MAX_REQUEST_FRAME: usize = 4096;
+const MAX_PENDING_REQUESTS: usize = 4;
 async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<()> {
     let (events, mut replies) = tokio::sync::mpsc::channel::<Value>(64);
     let mut relays: Option<Arc<relay::Relays>> = None;
+    // Mumpeer requests handled at once per connection; opening a link can take seconds.
+    let requests = Arc::new(Semaphore::new(MAX_PENDING_REQUESTS));
     let result = async {
         let Some(Ok(Message::Text(hello))) =
             tokio::time::timeout(Duration::from_secs(10), ws.recv()).await?
@@ -343,18 +394,27 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
                 frame = ws.recv() => match frame {
                     Some(Ok(Message::Binary(b))) => transport.send.send(b.to_vec()).await?,
                     Some(Ok(Message::Text(t))) => {
-                        // Text frames after the handshake are mumpeer requests; others are ignored.
+                        // Text frames after the handshake are small mumpeer requests; others are ignored.
+                        if t.len() > MAX_REQUEST_FRAME {
+                            anyhow::bail!("Request too large");
+                        }
                         let Ok(msg) = serde_json::from_str::<Value>(&t) else { continue };
                         if !msg["type"].as_str().is_some_and(|t| t.starts_with("relay-")) {
                             continue;
                         }
-                        match &relays {
-                            Some(relays) => {
-                                tokio::spawn(relays.clone().handle(msg));
+                        let permit = requests.clone().try_acquire_owned();
+                        match (&relays, permit) {
+                            (Some(relays), Ok(permit)) => {
+                                let relays = relays.clone();
+                                tokio::spawn(async move {
+                                    let _permit = permit;
+                                    relays.handle(msg).await;
+                                });
                             }
-                            None => {
+                            (relays, _) => {
                                 if let Some(n) = msg["n"].as_u64() {
-                                    let fail = json!({"type":"relay-fail","n":n,"reason":"Mumpeer is unavailable on this proxy"});
+                                    let reason = if relays.is_some() { "Too many mumpeer requests at once" } else { "Mumpeer is unavailable on this proxy" };
+                                    let fail = json!({"type":"relay-fail","n":n,"reason":reason});
                                     ws.send(Message::Text(fail.to_string().into())).await?;
                                 }
                             }
@@ -459,4 +519,30 @@ async fn main() -> Result<()> {
     })
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn one_client_cannot_lock_out_others() {
+        let mut rates = Rates::default();
+        let attacker: IpAddr = "203.0.113.1".parse().unwrap();
+        // Distinct paths fall into one route class, so the attacker only spends its own budget.
+        let allowed = (0..30000)
+            .filter(|n| rates.allow(attacker, Route::of(&format!("/api/identity/{n}"))))
+            .count();
+        assert_eq!(allowed, Route::Identity.limit() as usize);
+        assert!(rates.allow("203.0.113.2".parse().unwrap(), Route::Identity));
+        assert!(rates.windows.len() < MAX_RATE_WINDOWS);
+    }
+    #[test]
+    fn many_addresses_evict_old_windows_instead_of_refusing() {
+        let mut rates = Rates::default();
+        for n in 0..(MAX_RATE_WINDOWS as u32 + 500) {
+            let ip = IpAddr::from(std::net::Ipv4Addr::from(0x0a00_0000 + n));
+            assert!(rates.allow(ip, Route::Other));
+        }
+        assert!(rates.windows.len() <= MAX_RATE_WINDOWS);
+    }
 }

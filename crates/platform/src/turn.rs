@@ -28,6 +28,9 @@ type UtilResult<T> = std::result::Result<T, webrtc_util::Error>;
 fn io_error(message: &str) -> webrtc_util::Error {
     std::io::Error::other(message).into()
 }
+/// Addresses a relay or gateway must not reach for a user: private, loopback, link-local,
+/// unspecified (`0.0.0.0/8`), CGNAT, multicast/reserved, and IPv4 embedded in IPv4-mapped,
+/// NAT64 (`64:ff9b::/96`) or 6to4 (`2002::/16`) addresses.
 pub fn private(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(a) => {
@@ -35,18 +38,32 @@ pub fn private(ip: IpAddr) -> bool {
             a.is_private()
                 || a.is_loopback()
                 || a.is_link_local()
-                || a.is_unspecified()
+                || o[0] == 0
                 || a.is_multicast()
                 || o[0] >= 224
                 || o[0] == 100 && (64..=127).contains(&o[1])
         }
-        IpAddr::V6(a) => a.to_ipv4_mapped().map(|a| private(a.into())).unwrap_or(
+        IpAddr::V6(a) => {
+            if let Some(v4) = a.to_ipv4_mapped() {
+                return private(v4.into());
+            }
+            let s = a.segments();
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                return private(
+                    std::net::Ipv4Addr::from(((s[6] as u32) << 16) | s[7] as u32).into(),
+                );
+            }
+            if s[0] == 0x2002 {
+                return private(
+                    std::net::Ipv4Addr::from(((s[1] as u32) << 16) | s[2] as u32).into(),
+                );
+            }
             a.is_loopback()
                 || a.is_unspecified()
                 || a.is_multicast()
                 || a.is_unique_local()
-                || a.is_unicast_link_local(),
-        ),
+                || a.is_unicast_link_local()
+        }
     }
 }
 #[derive(Clone)]
@@ -277,6 +294,9 @@ enum RelayKind {
         remote: SocketAddr,
     },
 }
+/// Relay ports of this server's live UDP allocations. Clients of the relay reach each other at
+/// its public address; only those ports may be targeted that way, never another local service.
+type Ports = Arc<StdMutex<std::collections::HashSet<u16>>>;
 struct RelayConn {
     kind: RelayKind,
     local: SocketAddr,
@@ -285,6 +305,26 @@ struct RelayConn {
     cancel: CancellationToken,
     lease: StdMutex<Option<Lease>>,
     claim: StdMutex<Option<LaneClaim>>,
+    ports: Option<Ports>,
+}
+impl RelayConn {
+    fn own_port(&self, port: u16) -> bool {
+        self.ports
+            .as_ref()
+            .is_some_and(|p| p.lock().is_ok_and(|p| p.contains(&port)))
+    }
+    fn release_port(&self) {
+        if let Some(ports) = &self.ports
+            && let Ok(mut ports) = ports.lock()
+        {
+            ports.remove(&self.local.port());
+        }
+    }
+}
+impl Drop for RelayConn {
+    fn drop(&mut self) {
+        self.release_port();
+    }
 }
 #[async_trait]
 impl Conn for RelayConn {
@@ -295,7 +335,38 @@ impl Conn for RelayConn {
         Ok(self.recv_from(b).await?.0)
     }
     async fn recv_from(&self, b: &mut [u8]) -> UtilResult<(usize, SocketAddr)> {
-        tokio::select! {_=self.cancel.cancelled()=>Err(io_error("Relay closed")),result=async{match &self.kind{RelayKind::Udp(socket)=>{let(n,mut peer)=socket.recv_from(b).await?;if peer.ip().is_loopback()&&!self.public.is_loopback(){peer.set_ip(self.public);}Ok((n,peer))},RelayKind::Virtual{rx,remote,..}=>{let p=rx.lock().await.recv().await.map_err(|_|io_error("Relay closed"))?;if p.len()>b.len(){return Err(io_error("Relay packet too large"));}b[..p.len()].copy_from_slice(&p);Ok((p.len(),*remote))}}}=>result}
+        let receive = async {
+            match &self.kind {
+                RelayKind::Udp(socket) => loop {
+                    let (n, mut peer) = socket.recv_from(b).await?;
+                    if peer.ip().is_loopback() && !self.public.is_loopback() {
+                        // Only another allocation of this relay is presented as the public address;
+                        // anything else on loopback is a local service and is dropped.
+                        if !self.own_port(peer.port()) {
+                            continue;
+                        }
+                        peer.set_ip(self.public);
+                    }
+                    return Ok((n, peer));
+                },
+                RelayKind::Virtual { rx, remote, .. } => loop {
+                    let p = match rx.lock().await.recv().await {
+                        Ok(p) => p,
+                        // A burst (a video keyframe) outran this lane: drop what was missed, keep going.
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => {
+                            return Err(io_error("Relay closed"));
+                        }
+                    };
+                    if p.len() > b.len() {
+                        return Err(io_error("Relay packet too large"));
+                    }
+                    b[..p.len()].copy_from_slice(&p);
+                    return Ok((p.len(), *remote));
+                },
+            }
+        };
+        tokio::select! {_=self.cancel.cancelled()=>Err(io_error("Relay closed")),result=receive=>result}
     }
     async fn send(&self, _b: &[u8]) -> UtilResult<usize> {
         Err(io_error("Use send_to for a relay"))
@@ -307,6 +378,10 @@ impl Conn for RelayConn {
                     return Err(io_error("Private TURN peer denied"));
                 }
                 if target.ip() == self.public && !self.public.is_loopback() {
+                    // A client of this relay, by its relayed address: only live allocation ports.
+                    if !self.own_port(target.port()) {
+                        return Err(io_error("Relay may only reach its own allocations"));
+                    }
                     target.set_ip(if target.is_ipv4() {
                         "127.0.0.1".parse().unwrap()
                     } else {
@@ -340,6 +415,7 @@ impl Conn for RelayConn {
         if let Ok(mut claim) = self.claim.lock() {
             claim.take();
         }
+        self.release_port();
         Ok(())
     }
     fn as_any(&self) -> &(dyn Any + Send + Sync) {
@@ -354,6 +430,7 @@ struct Generator {
     virtual_bridge: Option<VirtualBridge>,
     lanes: Option<Arc<LaneRegistry>>,
     users: Users,
+    ports: Ports,
 }
 impl Generator {
     fn lane_user(&self) -> Option<String> {
@@ -382,6 +459,7 @@ fn virtual_conn(
         cancel,
         lease: StdMutex::new(Some(lease)),
         claim: StdMutex::new(claim),
+        ports: None,
     }
 }
 #[async_trait]
@@ -462,7 +540,11 @@ impl RelayAddressGenerator for Generator {
             cancel: CancellationToken::new(),
             lease: StdMutex::new(Some(lease)),
             claim: StdMutex::new(None),
+            ports: Some(self.ports.clone()),
         };
+        if let Ok(mut ports) = self.ports.lock() {
+            ports.insert(address.port());
+        }
         Ok((Arc::new(conn), address))
     }
 }
@@ -528,6 +610,7 @@ struct ContextState {
     virtual_bridge: Option<VirtualBridge>,
     lanes: Option<Arc<LaneRegistry>>,
     users: Users,
+    ports: Ports,
 }
 fn local_ip(peer: SocketAddr) -> Result<IpAddr> {
     let socket = std::net::UdpSocket::bind(if peer.is_ipv4() {
@@ -555,6 +638,7 @@ async fn serve_client(conn: Arc<PacketConn>, state: ContextState) -> Result<()> 
                 virtual_bridge: state.virtual_bridge,
                 lanes: state.lanes,
                 users: state.users.clone(),
+                ports: state.ports.clone(),
             }),
         }],
         realm: "mumh5".into(),
@@ -585,6 +669,7 @@ async fn tcp_client(tcp: TcpStream, state: ContextState) -> Result<()> {
         cancel: cancel.clone(),
     });
     let c = cancel.clone();
+    let reader_state = state.clone();
     let server = tokio::spawn(async move {
         let _ = serve_client(conn, state).await;
         c.cancel();
@@ -593,7 +678,13 @@ async fn tcp_client(tcp: TcpStream, state: ContextState) -> Result<()> {
     let reader = async {
         loop {
             let mut head = [0; 4];
-            tokio::time::timeout(Duration::from_secs(600), read.read_exact(&mut head)).await??;
+            // A connection that has not authenticated may not hold a slot for long.
+            let idle = if authenticated(&reader_state, &peer) {
+                AUTHENTICATED_IDLE
+            } else {
+                UNAUTHENTICATED_IDLE
+            };
+            tokio::time::timeout(idle, read.read_exact(&mut head)).await??;
             let prefix = match head[0] & 0xc0 {
                 0 => 20,
                 0x40 => 4,
@@ -625,6 +716,103 @@ async fn tcp_client(tcp: TcpStream, state: ContextState) -> Result<()> {
     let _ = server.await;
     Ok(())
 }
+/// Idle time after which a client that never authenticated is forgotten.
+const UNAUTHENTICATED_IDLE: Duration = Duration::from_secs(30);
+/// Idle time after which an authenticated client is forgotten (allocations refresh well within it).
+const AUTHENTICATED_IDLE: Duration = Duration::from_secs(600);
+fn authenticated(state: &ContextState, peer: &SocketAddr) -> bool {
+    state.users.lock().is_ok_and(|u| u.contains_key(peer))
+}
+/// A STUN message (not ChannelData): first two bits zero and the magic cookie.
+fn looks_like_stun(p: &[u8]) -> bool {
+    p.len() >= 20 && p[0] & 0xc0 == 0 && p[4..8] == [0x21, 0x12, 0xa4, 0x42]
+}
+type Peer = (
+    mpsc::Sender<Vec<u8>>,
+    CancellationToken,
+    tokio::time::Instant,
+);
+async fn udp_loop(socket: Arc<UdpSocket>, state: ContextState, stop: CancellationToken) {
+    let cap = state.opts.max_allocations.saturating_mul(4).max(16);
+    let mut peers: HashMap<SocketAddr, Peer> = HashMap::new();
+    let mut buffer = vec![0; 65536];
+    let mut sweep = tokio::time::interval(Duration::from_secs(10));
+    let local = match socket.local_addr() {
+        Ok(a) => a,
+        Err(_) => return,
+    };
+    loop {
+        tokio::select! {
+            _ = stop.cancelled() => break,
+            _ = sweep.tick() => peers.retain(|addr, (_, c, at)| {
+                let limit = if authenticated(&state, addr) { AUTHENTICATED_IDLE } else { UNAUTHENTICATED_IDLE };
+                if at.elapsed() > limit { c.cancel(); false } else { !c.is_cancelled() }
+            }),
+            r = socket.recv_from(&mut buffer) => {
+                // An ICMP error for an earlier reply (a client gone) must not end the server.
+                let Ok((n, addr)) = r else { continue };
+                if n < 4 {
+                    continue;
+                }
+                if !peers.contains_key(&addr) {
+                    // New state only for STUN requests, never for stray or spoofed ChannelData.
+                    if !looks_like_stun(&buffer[..n]) {
+                        continue;
+                    }
+                    if peers.len() >= cap {
+                        // Full: make room by forgetting the longest-idle client that never
+                        // authenticated. Authenticated clients are never pushed out.
+                        let victim = peers
+                            .iter()
+                            .filter(|(a, _)| !authenticated(&state, a))
+                            .min_by_key(|(_, (_, _, at))| *at)
+                            .map(|(a, _)| *a);
+                        match victim.and_then(|v| peers.remove(&v)) {
+                            Some((_, c, _)) => c.cancel(),
+                            None => continue,
+                        }
+                    }
+                    let (tx, rx) = mpsc::channel(64);
+                    let c = stop.child_token();
+                    let conn = Arc::new(PacketConn { rx: Mutex::new(rx), sender: Sender::Udp(socket.clone()), local, peer: addr, cancel: c.clone() });
+                    let s = state.clone();
+                    let closed = c.clone();
+                    tokio::spawn(async move {
+                        let _ = serve_client(conn, s).await;
+                        closed.cancel();
+                    });
+                    peers.insert(addr, (tx, c, tokio::time::Instant::now()));
+                }
+                if let Some((tx, _, at)) = peers.get_mut(&addr) {
+                    *at = tokio::time::Instant::now();
+                    let _ = tx.try_send(buffer[..n].to_vec());
+                }
+            }
+        }
+    }
+    for (_, (_, c, _)) in peers {
+        c.cancel();
+    }
+}
+async fn tcp_accept_loop(listener: TcpListener, state: ContextState, stop: CancellationToken) {
+    let slots = Arc::new(tokio::sync::Semaphore::new(
+        state.opts.max_allocations.saturating_mul(4).max(16),
+    ));
+    loop {
+        tokio::select! {
+            _ = stop.cancelled() => break,
+            r = listener.accept() => {
+                let Ok((stream, _)) = r else { continue };
+                let Ok(permit) = slots.clone().try_acquire_owned() else { continue };
+                let s = state.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let _ = tcp_client(stream, s).await;
+                });
+            }
+        }
+    }
+}
 pub struct TurnServer {
     pub port: u16,
     secret: String,
@@ -655,6 +843,7 @@ impl TurnServer {
             virtual_bridge: bridge,
             lanes: lanes.clone(),
             users,
+            ports: Ports::default(),
         };
         let mut tasks = vec![];
         let port;
@@ -663,11 +852,7 @@ impl TurnServer {
             port = socket.local_addr()?.port();
             let state = state.clone();
             let stop = cancel.clone();
-            tasks.push(tokio::spawn(async move{
- let mut peers:HashMap<SocketAddr,(mpsc::Sender<Vec<u8>>,CancellationToken,tokio::time::Instant)>=HashMap::new();let mut buffer=vec![0;65536];let mut sweep=tokio::time::interval(Duration::from_secs(30));loop{tokio::select!{_=stop.cancelled()=>break,_=sweep.tick()=>{peers.retain(|_,(_,c,t)|{if t.elapsed()>Duration::from_secs(600){c.cancel();false}else{!c.is_cancelled()}});},r=socket.recv_from(&mut buffer)=>{let Ok((n,addr))=r else{break;};if n<4{continue;}
-if !peers.contains_key(&addr){if peers.len()>=state.opts.max_allocations.saturating_mul(4).max(16){continue;}let(tx,rx)=mpsc::channel(64);let c=stop.child_token();let conn=Arc::new(PacketConn{rx:Mutex::new(rx),sender:Sender::Udp(socket.clone()),local:socket.local_addr().unwrap(),peer:addr,cancel:c.clone()});let s=state.clone();let closed=c.clone();tokio::spawn(async move{let _=serve_client(conn,s).await;closed.cancel();});peers.insert(addr,(tx,c,tokio::time::Instant::now()));}
-if let Some((tx,_,at))=peers.get_mut(&addr){*at=tokio::time::Instant::now();let _=tx.try_send(buffer[..n].to_vec());}}}}for(_,(_,c,_))in peers{c.cancel();}
- }));
+            tasks.push(tokio::spawn(udp_loop(socket, state, stop)));
         } else {
             port = 0;
         }
@@ -685,7 +870,7 @@ if let Some((tx,_,at))=peers.get_mut(&addr){*at=tokio::time::Instant::now();let 
             let port = listener.local_addr()?.port();
             let state = state.clone();
             let stop = cancel.clone();
-            tasks.push(tokio::spawn(async move{let slots=Arc::new(tokio::sync::Semaphore::new(state.opts.max_allocations.saturating_mul(4).max(16)));loop{tokio::select!{_=stop.cancelled()=>break,r=listener.accept()=>{let Ok((stream,_))=r else{break;};let Ok(permit)=slots.clone().try_acquire_owned()else{continue;};let s=state.clone();tokio::spawn(async move{let _permit=permit;let _=tcp_client(stream,s).await;});}}}}));
+            tasks.push(tokio::spawn(tcp_accept_loop(listener, state, stop)));
             port
         } else {
             port
@@ -743,6 +928,23 @@ mod tests {
             assert!(private(ip.parse().unwrap()));
         }
         assert!(!private("8.8.8.8".parse().unwrap()));
+        for ip in [
+            "0.0.0.0",
+            "0.1.2.3",
+            "64:ff9b::a00:1",
+            "64:ff9b::7f00:1",
+            "2002:c0a8:101::1",
+            "2002:7f00:1::",
+        ] {
+            assert!(private(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in [
+            "64:ff9b::808:808",
+            "2002:808:808::1",
+            "2001:4860:4860::8888",
+        ] {
+            assert!(!private(ip.parse().unwrap()), "{ip}");
+        }
     }
 }
 
@@ -980,6 +1182,69 @@ mod integration_tests {
             assert!(late.allocate().await.is_err());
             late.close().await?;
             cancel.cancel();
+            server.close().await;
+            anyhow::Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn relay_reaches_its_own_allocations_but_not_local_services() -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            // A public address that is not loopback turns on the self-target rewrite.
+            let public: IpAddr = "198.51.100.7".parse()?;
+            let mut server = TurnServer::start(
+                Options {
+                    bind: "127.0.0.1:0".parse()?,
+                    min_port: 0,
+                    max_port: 0,
+                    public_ip: Some(public),
+                    ..Default::default()
+                },
+                None,
+            )
+            .await?;
+            let service = UdpSocket::bind("127.0.0.1:0").await?;
+            let service_port = service.local_addr()?.port();
+            let a = client(&server, false).await?;
+            let b = client(&server, true).await?;
+            let ra = a.allocate().await?;
+            let rb = b.allocate().await?;
+            assert_eq!(ra.local_addr()?.ip(), public);
+            // A loopback-only service of the host, addressed through the relay's own address.
+            let _ = ra
+                .send_to(b"probe", SocketAddr::new(public, service_port))
+                .await;
+            let mut bytes = [0; 2048];
+            assert!(
+                tokio::time::timeout(Duration::from_millis(500), service.recv_from(&mut bytes))
+                    .await
+                    .is_err(),
+                "relay reached a local service"
+            );
+            // Another allocation of the same relay is still reachable at the public address.
+            rb.send_to(b"hello", ra.local_addr()?).await?;
+            ra.send_to(b"hi", rb.local_addr()?).await?;
+            let (n, from) = loop {
+                let (n, from) = rb.recv_from(&mut bytes).await?;
+                if &bytes[..n] == b"hi" {
+                    break (n, from);
+                }
+            };
+            assert_eq!((&bytes[..n], from), (&b"hi"[..], ra.local_addr()?));
+            // A stray packet from another loopback port never reaches a client.
+            service
+                .send_to(b"spoof", ("127.0.0.1", rb.local_addr()?.port()))
+                .await?;
+            assert!(
+                tokio::time::timeout(Duration::from_millis(300), rb.recv_from(&mut bytes))
+                    .await
+                    .is_err()
+            );
+            ra.close().await?;
+            rb.close().await?;
+            a.close().await?;
+            b.close().await?;
             server.close().await;
             anyhow::Ok(())
         })

@@ -33,6 +33,11 @@ struct AppState {
     profile: Arc<Mutex<Profile>>,
     wires: Arc<Mutex<HashMap<String, Wire>>>,
 }
+/// The frontend dev server (`bun run dev`) counts as the app only in debug builds; in a release
+/// another program listening on that port must get no navigation or microphone/camera grants.
+fn dev_server(url: &tauri::Url) -> bool {
+    cfg!(debug_assertions) && url.host_str() == Some("localhost") && url.port() == Some(1420)
+}
 fn string<'a>(v: &'a Value, k: &str) -> &'a str {
     v[k].as_str().unwrap_or("")
 }
@@ -391,7 +396,9 @@ async fn wire_open(
              event=udp_events.recv(),if udp_open=>{if let Some(event)=event{if events.send(event).is_err(){break;}}else{udp_open=false;}},
              data=transport.receive.recv()=>match data{
               Some(Ok(data))=>{if events.send(json!({"event":"data","args":[data]})).is_err(){break;}
-               tokio::select!{_ = cancel.cancelled()=>break,r=tokio::time::timeout(std::time::Duration::from_secs(30),acks.recv())=>{if !matches!(r,Ok(Some(()))){reason="Frontend stopped receiving data".into();break;}}}
+               // Backpressure only: a page the WebView throttles while hidden may answer late, and
+               // the server (whose pings the page sends) decides when a silent client is gone.
+               tokio::select!{_ = cancel.cancelled()=>break,r=acks.recv()=>{if r.is_none(){reason="Frontend stopped receiving data".into();break;}}}
               },Some(Err(e))=>{reason=format!("{e:#}");break;},None=>break
              }
             }
@@ -763,7 +770,7 @@ pub fn run() {
                 let local = webview.url().ok().is_some_and(|u| {
                     u.scheme() == "tauri"
                         || u.host_str() == Some("tauri.localhost")
-                        || u.host_str() == Some("localhost") && u.port() == Some(1420)
+                        || dev_server(&u)
                 });
                 if !local {
                     return PermissionResponse::Deny;
@@ -777,9 +784,8 @@ pub fn run() {
             })
             .on_navigation(move |url| {
                 let internal = matches!(url.scheme(), "tauri" | "asset")
-                    || matches!(url.host_str(), Some("tauri.localhost" | "localhost"))
-                        && url.port() == Some(1420)
-                    || url.as_str().starts_with("http://tauri.localhost/");
+                    || url.host_str() == Some("tauri.localhost")
+                    || dev_server(url);
                 if !internal && matches!(url.scheme(), "https" | "http") {
                     use tauri_plugin_opener::OpenerExt;
                     let _ = handle.opener().open_url(url.as_str(), None::<&str>);
