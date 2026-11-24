@@ -194,20 +194,20 @@
       <FormatToolbar {exec} onlink={link} onimage={() => imagePicker.click()} />
     {/if}
     <div class="box">
-      <button class="icon-btn" title={t('Send a file')} {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
+      <button class="icon-btn" title={t('composer.sendFile')} {disabled} onclick={() => picker.click()}><Icon name="paperclip" /></button>
       <input bind:this={picker} type="file" multiple hidden
         onchange={() => { session.sendFiles([...(picker.files ?? [])], target); picker.value = ''; }} />
       <input bind:this={imagePicker} type="file" accept="image/*" hidden
         onchange={() => { session.sendFiles([...(imagePicker.files ?? [])], target); imagePicker.value = ''; }} />
-      <button class="icon-btn" title={t('Code snippet (or ```language in the message)')} aria-label={t('Code snippet')} {disabled} onclick={() => (snippet = true)}><Icon name="code" /></button>
+      <button class="icon-btn" title={t('composer.codeHint')} aria-label={t('composer.code')} {disabled} onclick={() => (snippet = true)}><Icon name="code" /></button>
       <div class="input" class:blank={empty} bind:this={input} contenteditable={!disabled}
-        role="textbox" aria-multiline="true" aria-label={t('Message')} tabindex="0" data-placeholder={placeholder}
+        role="textbox" aria-multiline="true" aria-label={t('composer.message')} tabindex="0" data-placeholder={placeholder}
         oninput={sync} {onkeydown} {onpaste}></div>
-      <button class="icon-btn" class:emoji-on={emojiOpen} title={t('Emoji (Shift+click in the list keeps it open)')} aria-label={t('Emoji')} aria-haspopup="dialog" aria-expanded={emojiOpen}
+      <button class="icon-btn" class:emoji-on={emojiOpen} title={t('composer.emojiHint')} aria-label={t('composer.emoji')} aria-haspopup="dialog" aria-expanded={emojiOpen}
         {disabled} bind:this={emojiButton} onmousedown={e => e.preventDefault()} onclick={toggleEmoji}><Icon name="smile" size={18} /></button>
-      <button class="icon-btn fmt" class:on={formatting} title={t('Text formatting')} aria-label={t('Text formatting')} aria-pressed={formatting}
+      <button class="icon-btn fmt" class:on={formatting} title={t('composer.formatting')} aria-label={t('composer.formatting')} aria-pressed={formatting}
         {disabled} onmousedown={e => e.preventDefault()} onclick={toggleFormatting}>Aa</button>
-      <button class="icon-btn send" title={t('Send')} disabled={disabled || empty} onclick={submit}><Icon name="send" size={18} /></button>
+      <button class="icon-btn send" title={t('composer.send')} disabled={disabled || empty} onclick={submit}><Icon name="send" size={18} /></button>
     </div>
   </div>
 </div>

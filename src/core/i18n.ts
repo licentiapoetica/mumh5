@@ -1,5 +1,5 @@
-// Translation without a library. The English text is the key, so code reads as before and a
-// missing translation falls back to English by itself.
+// Translation without a library. Texts are looked up by key; English (`src/locales/en.ts`) is the
+// fallback for every language, so a missing translation shows English and a missing key its id.
 
 export type Catalog = Record<string, string>;
 export type Params = Record<string, string | number>;
@@ -16,8 +16,18 @@ export function format(text: string, params?: Params): string {
   return text.replace(/\{(\w+)\}/g, (whole, k: string) => (k in params ? String(params[k]) : whole));
 }
 
-export function translate(catalog: Catalog | undefined, key: string, params?: Params): string {
-  return format(catalog?.[key] ?? key, params);
+export function translate(catalog: Catalog | undefined, fallback: Catalog, key: string, params?: Params): string {
+  return format(catalog?.[key] ?? fallback[key] ?? key, params);
+}
+
+/**
+ * Text for a count. A catalog gives the forms of its language as `<key>#<category>` (Intl.PluralRules
+ * categories: zero, one, two, few, many) and the plain `<key>` for every other count. English is used
+ * with English's own rules when the language has no entry at all.
+ */
+export function translatePlural(catalog: Catalog | undefined, fallback: Catalog, lang: string, key: string, n: number, params?: Params): string {
+  const pick = (c: Catalog | undefined, rules: string) => c?.[`${key}#${new Intl.PluralRules(rules).select(n)}`] ?? c?.[key];
+  return format(pick(catalog, lang) ?? pick(fallback, 'en') ?? key, { n, ...params });
 }
 
 /** The first of the browser's preferred languages that has a catalog; English otherwise. */
@@ -28,16 +38,4 @@ export function pickLanguage(preferred: readonly string[]): LanguageId {
     if (hit) return hit.id;
   }
   return 'en';
-}
-
-/**
- * Plural form. `other` is the English text for any count but 1, `one` for 1. A catalog gives its
- * language's forms as `<other>#<category>` (Intl.PluralRules categories: zero, one, two, few, many),
- * with the plain `<other>` entry as the fallback form.
- */
-export function translatePlural(catalog: Catalog | undefined, lang: string, other: string, one: string, n: number, params?: Params): string {
-  const merged = { n, ...params };
-  if (!catalog) return format(n === 1 ? one : other, merged);
-  const category = new Intl.PluralRules(lang).select(n);
-  return format(catalog[`${other}#${category}`] ?? catalog[other] ?? (n === 1 ? one : other), merged);
 }

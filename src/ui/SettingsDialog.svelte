@@ -73,14 +73,14 @@
   let noteTimer: ReturnType<typeof setTimeout> | undefined;
   function saveNow() {
     commit();
-    note = t('Saved');
+    note = t('settings.saved');
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => (note = ''), 2000);
   }
   function popOut() {
     commit();
     if (onpopout?.(tab)) onclose();
-    else note = t('The new window was blocked. Allow pop-ups for this page.');
+    else note = t('settings.popupBlocked');
   }
   onDestroy(() => {
     clearTimeout(noteTimer);
@@ -91,15 +91,15 @@
   $effect(() => { if (tab === 'files') files.measure(); });
 
   const tabs: { id: Tab; label: string }[] = $derived([
-    { id: 'voice', label: t('Voice') },
-    { id: 'video', label: t('Video') },
-    { id: 'sharing', label: t('Screen sharing') },
-    { id: 'sounds', label: t('Sounds') },
-    { id: 'appearance', label: t('Appearance') },
-    { id: 'accessibility', label: t('Accessibility') },
-    { id: 'files', label: t('Chat and files') },
-    ...(native ? [{ id: 'identities' as Tab, label: t('Identities') }] : []),
-    { id: 'about', label: t('About') }
+    { id: 'voice', label: t('settings.tab.voice') },
+    { id: 'video', label: t('settings.tab.video') },
+    { id: 'sharing', label: t('settings.tab.sharing') },
+    { id: 'sounds', label: t('settings.tab.sounds') },
+    { id: 'appearance', label: t('settings.tab.appearance') },
+    { id: 'accessibility', label: t('settings.tab.accessibility') },
+    { id: 'files', label: t('settings.tab.files') },
+    ...(native ? [{ id: 'identities' as Tab, label: t('settings.tab.identities') }] : []),
+    { id: 'about', label: t('settings.tab.about') }
   ]);
   // The reset at the bottom of each tab; Identities has none
   const reset = $derived.by((): { what: string; changed: boolean; note?: string; run: () => void } | null => {
@@ -236,13 +236,13 @@
   {:else if tab === 'appearance'}
     <AppearanceSettings />
   {:else if tab === 'accessibility'}
-    <label for="s-lang">{t('Language')}</label>
+    <label for="s-lang">{t('settings.language')}</label>
     <select id="s-lang" bind:value={s.language} onchange={() => store.saveSettings()}>
-      <option value="auto">{t('Automatic')}</option>
+      <option value="auto">{t('settings.languageAuto')}</option>
       {#each LANGUAGES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
     </select>
-    <p class="help">{t('Follows your browser or system language. Text not translated yet stays in English.')}</p>
-    <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> {t('Show hints when the pointer rests on buttons and icons')}</label>
+    <p class="help">{t('settings.languageHelp')}</p>
+    <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> {t('settings.hints')}</label>
     <p class="help">Hints are the small labels that appear on hover. Screen readers get the names either way.</p>
   {:else if tab === 'files'}
     <h3>Chat history</h3>

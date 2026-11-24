@@ -96,7 +96,7 @@
   </div>
 
   {#if session.status === 'connected'}
-    <Composer target={session.view} placeholder={t('Message {target}', { target: `${isDm ? '@' : '#'}${title}` })} />
+    <Composer target={session.view} placeholder={t('chat.placeholder', { target: `${isDm ? '@' : '#'}${title}` })} />
   {/if}
 </section>
 

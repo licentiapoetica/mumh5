@@ -60,7 +60,7 @@
       </div>
     {/snippet}
   </ChatLog>
-  {#if connected}<Composer target={session.view} placeholder={t('Message {target}', { target: `${isDm ? '@' : '#'}${title}` })} />{/if}
+  {#if connected}<Composer target={session.view} placeholder={t('chat.placeholder', { target: `${isDm ? '@' : '#'}${title}` })} />{/if}
 </section>
 
 <style>

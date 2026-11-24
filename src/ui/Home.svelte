@@ -34,46 +34,46 @@
   const d = $derived(session.disconnectInfo);
 </script>
 
-<section data-background class="home" aria-label={t('Servers')}>
+<section data-background class="home" aria-label={t('home.servers')}>
   <Background />
   {#if top}<UserBar toolbar />{/if}
   <div class="scroll">
     <header>
       {#if !top && store.settings.railHidden}<ServerButton />{/if}
       <div class="title">
-        <h1>{t('Servers')}</h1>
-        <p>{store.servers.length ? t('Pick one to connect.') : t('Add a Mumble server to get started.')}</p>
+        <h1>{t('home.servers')}</h1>
+        <p>{store.servers.length ? t('home.pickOne') : t('home.addToStart')}</p>
       </div>
       <div class="acts">
-        <button class="btn primary" onclick={onadd}><Icon name="plus" size={16} />{t('Add a server')}</button>
-        {#if desktop}<button class="btn" onclick={onbrowse}><Icon name="globe" size={16} />{t('Browse public servers')}</button>{/if}
-        <button class="btn" onclick={() => { ui.settingsTab = 'identities'; ui.settingsOpen = true; }}>{t('Manage identities')}</button>
+        <button class="btn primary" onclick={onadd}><Icon name="plus" size={16} />{t('home.addServer')}</button>
+        {#if desktop}<button class="btn" onclick={onbrowse}><Icon name="globe" size={16} />{t('home.browsePublic')}</button>{/if}
+        <button class="btn" onclick={() => { ui.settingsTab = 'identities'; ui.settingsOpen = true; }}>{t('home.manageIdentities')}</button>
       </div>
     </header>
 
     {#if d}
       <div class="ended" class:bad={d.kind === 'kicked' || d.kind === 'banned'}>
         <h2>
-          {#if d.kind === 'kicked'}{d.by ? t('You were kicked by {name}', { name: d.by }) : t('You were kicked')}
-          {:else if d.kind === 'banned'}{d.by ? t('You were banned by {name}', { name: d.by }) : t('You were banned')}
-          {:else if d.kind === 'rejected'}{t('The server refused the connection')}
-          {:else}{t('Connection lost')}{/if}
+          {#if d.kind === 'kicked'}{d.by ? t('home.kickedBy', { name: d.by }) : t('home.kicked')}
+          {:else if d.kind === 'banned'}{d.by ? t('home.bannedBy', { name: d.by }) : t('home.banned')}
+          {:else if d.kind === 'rejected'}{t('home.refused')}
+          {:else}{t('home.lost')}{/if}
         </h2>
         {#if d.reason}<p class="reason">{d.reason}</p>{/if}
         <p class="where">{session.server?.label}</p>
-        <div class="row"><button class="btn primary" onclick={() => session.reconnect()}>{t('Reconnect')}</button></div>
+        <div class="row"><button class="btn primary" onclick={() => session.reconnect()}>{t('home.reconnect')}</button></div>
       </div>
     {:else if session.error}
       <div class="ended bad">
-        <h2>{t('Could not connect')}</h2>
+        <h2>{t('home.couldNotConnect')}</h2>
         <p class="reason">{session.error}</p>
         {#if session.server}<p class="where">{session.server.label}</p>{/if}
       </div>
     {/if}
 
     {#if session.reconnectDelay != null}
-      <p role="status">{tn('Retrying in {n} seconds.', 'Retrying in {n} second.', session.reconnectDelay)}</p>
-      <button class="btn" onclick={() => session.cancelReconnect()}>{t('Cancel auto-reconnect')}</button>
+      <p role="status">{tn('home.retrying', session.reconnectDelay)}</p>
+      <button class="btn" onclick={() => session.cancelReconnect()}>{t('home.cancelReconnect')}</button>
     {/if}
 
     {#if store.servers.length}
@@ -90,13 +90,13 @@
                 <span class="state" class:on={!!people?.users}>{#if people?.users}<span class="dot"></span>{/if}{line(s)}</span>
               </span>
             </button>
-            <button class="btn" class:primary={state !== 'connected'} onclick={() => sessions.open(s)}>{state === 'connected' ? t('Open') : t('Connect')}</button>
-            <button class="icon-btn" title={t('Edit {name}', { name: s.label })} aria-label={t('Edit {name}', { name: s.label })} onclick={() => onedit(s)}><Icon name="settings" size={16} /></button>
+            <button class="btn" class:primary={state !== 'connected'} onclick={() => sessions.open(s)}>{state === 'connected' ? t('home.open') : t('home.connect')}</button>
+            <button class="icon-btn" title={t('home.editServer', { name: s.label })} aria-label={t('home.editServer', { name: s.label })} onclick={() => onedit(s)}><Icon name="settings" size={16} /></button>
           </li>
         {/each}
       </ul>
     {:else}
-      <p class="none">{t('No saved servers yet.')}</p>
+      <p class="none">{t('home.noServers')}</p>
     {/if}
   </div>
   {#if !top}<UserBar inline />{/if}

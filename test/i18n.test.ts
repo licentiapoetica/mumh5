@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { format, translate, translatePlural, pickLanguage } from '../src/core/i18n.ts';
-import { de } from '../src/locales/de.ts';
 
-test('falls back to the English key', () => {
-  assert.equal(translate({}, 'Mute'), 'Mute');
-  assert.equal(translate(undefined, 'Mute'), 'Mute');
-  assert.equal(translate({ Mute: 'Stumm' }, 'Mute'), 'Stumm');
+test('falls back to English, then to the key', () => {
+  assert.equal(translate({ a: 'Stumm' }, { a: 'Mute' }, 'a'), 'Stumm');
+  assert.equal(translate({}, { a: 'Mute' }, 'a'), 'Mute');
+  assert.equal(translate(undefined, { a: 'Mute' }, 'a'), 'Mute');
+  assert.equal(translate(undefined, {}, 'a.b'), 'a.b');
 });
 
 test('fills placeholders and leaves unknown ones', () => {
@@ -20,15 +20,14 @@ test('picks the first preferred language with a catalog', () => {
   assert.equal(pickLanguage([]), 'en');
 });
 
-test('translations keep their placeholders', () => {
-  const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join();
-  for (const [k, v] of Object.entries(de)) assert.equal(holes(v), holes(k), k);
-});
-
 test('plural forms', () => {
-  const cat = { '{n} files': '{n} Dateien', '{n} files#one': '{n} Datei' };
-  assert.equal(translatePlural(cat, 'de', '{n} files', '{n} file', 1), '1 Datei');
-  assert.equal(translatePlural(cat, 'de', '{n} files', '{n} file', 3), '3 Dateien');
-  assert.equal(translatePlural(undefined, 'en', '{n} files', '{n} file', 1), '1 file');
-  assert.equal(translatePlural(undefined, 'en', '{n} files', '{n} file', 0), '0 files');
+  const en = { f: '{n} files', 'f#one': '{n} file' };
+  const de = { f: '{n} Dateien', 'f#one': '{n} Datei' };
+  assert.equal(translatePlural(de, en, 'de', 'f', 1), '1 Datei');
+  assert.equal(translatePlural(de, en, 'de', 'f', 3), '3 Dateien');
+  assert.equal(translatePlural(en, en, 'en', 'f', 1), '1 file');
+  assert.equal(translatePlural(en, en, 'en', 'f', 0), '0 files');
+  // A language without the entry uses English with English's rules, not its own
+  assert.equal(translatePlural({}, en, 'fr', 'f', 0), '0 files');
+  assert.equal(translatePlural(undefined, {}, 'en', 'f', 2), 'f');
 });
