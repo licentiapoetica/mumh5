@@ -245,7 +245,7 @@ class VoiceEngine {
       for (const [s, g] of this.sessionGains) this.playback.port.postMessage({ session: s, gain: g });
       this.playback.connect(this.outputGainNode).connect(ctx.destination);
       this.direct = true;
-      if (android) this.startOutputElement(ctx);
+      if (android && !inAndroidShell()) this.startOutputElement(ctx);  // the shell has its own service notification
 
       this.inputGainNode = new GainNode(ctx, { gain: this.settings.inputGain });
       this.capture = new AudioWorkletNode(ctx, 'mumh5-capture', { numberOfOutputs: 0 });
