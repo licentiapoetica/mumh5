@@ -13,7 +13,10 @@
   function escapeCloses(node: HTMLElement) {
     if (windowed) return;
     const view = node.ownerDocument.defaultView ?? window;
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); };
+    const key = (e: KeyboardEvent) => {
+      const top = [...node.ownerDocument.querySelectorAll('.backdrop:not(.windowed)')].at(-1);
+      if (e.key === 'Escape' && top === node) { e.stopImmediatePropagation(); onclose(); }
+    };
     view.addEventListener('keydown', key);
     return { destroy: () => view.removeEventListener('keydown', key) };
   }

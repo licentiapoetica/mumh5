@@ -3,6 +3,7 @@
   import { historyHours } from '../core/chat-retention.ts';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
+  import DebugLog from './DebugLog.svelte';
   import VoiceSettings from './VoiceSettings.svelte';
   import VideoSettings from './VideoSettings.svelte';
   import IdentityList from './IdentityList.svelte';
@@ -23,6 +24,8 @@
   import { sessions } from '../lib/session.svelte.ts';
 
   type Tab = 'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
+  let debugOpen = $state(false);
+
   // onpopout: moves Settings to a window of its own; false if it could not be opened
   // windowed: this is that window. jump: a section asked for while it is open
   let { onclose, tab: initialTab = 'voice', onpopout, windowed = false, jump = null }:
@@ -269,7 +272,7 @@
       <option value="thumbnail">Player card with thumbnail (loads the thumbnail from YouTube)</option>
     </select>
   {:else if tab === 'about'}
-    <p class="about">mumh5 {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
+    <p class="about">Dream Cord {build.version}{#if build.commit}, build <code>{build.commit.slice(0, 7)}</code>{/if}</p>
     <p class="help">A Mumble client for desktop and browser, MIT licensed. Built by Kibi, with code, tests and documentation written using Claude in Claude Code.</p>
     <p class="links">
       <a href={repoUrl} target="_blank" rel="noopener noreferrer">Repository</a>
@@ -296,6 +299,9 @@
     {:else}
       <p class="help">{isWeb ? 'This site is updated by whoever runs it.' : 'This build does not know its commit, so it cannot check for updates.'}</p>
     {/if}
+    <h3>Diagnostics</h3>
+    <p class="help">Open the live debug log to investigate connection drops and keepalive failures.</p>
+    <button class="btn" onclick={() => (debugOpen = true)}>Open debug log</button>
     <h3>Credits</h3>
     <p class="help">mumh5 is not affiliated with the Mumble project. Mumble is a trademark of its respective owners. Licenses are listed in full in the license notices.</p>
     <ul class="credits">
@@ -364,3 +370,5 @@
   .credits .what { color: var(--text-dim); }
   .link { color: var(--link); font-size: inherit; }
 </style>
+
+{#if debugOpen}<DebugLog onclose={() => (debugOpen = false)} />{/if}

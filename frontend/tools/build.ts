@@ -4,9 +4,9 @@ const out = `${root}dist`;
 await Bun.$`rm -rf ${out}`;
 await Bun.$`mkdir -p ${out}/assets`;
 const workers = new Map<string, string>();
-for (const file of ['capture', 'playback', 'denoise']) {
- const source = `${root}src/lib/audio/${file}.worklet.ts`;
- const name = `${file}.worklet.js`;
+for (const file of ['lib/audio/capture.worklet', 'lib/audio/playback.worklet', 'lib/audio/denoise.worklet', 'lib/tick.worker']) {
+ const source = `${root}src/${file}.ts`;
+ const name = `${file.split('/').pop()}.js`;
  const worker = await Bun.build({ entrypoints: [source], target: 'browser', minify: true });
  if (!worker.success) throw new AggregateError(worker.logs);
  await Bun.write(`${out}/assets/${name}`, worker.outputs[0]);
@@ -30,7 +30,9 @@ const result = await Bun.build({
       return { contents: `export default ${JSON.stringify(`./assets/${name}`)}`, loader: 'js' };
     });
     build.onLoad({ filter: /.*/, namespace: 'worker-url' }, async args => {
-      return { contents: `export default ${JSON.stringify(workers.get(args.path))}`, loader: 'js' };
+      const url = workers.get(args.path);
+      if (!url) throw new Error(`Worker was not built: ${args.path}`);
+      return { contents: `export default ${JSON.stringify(url)}`, loader: 'js' };
     });
     build.onLoad({ filter: /\.svelte$/ }, async args => {
       const compiled = compile(await Bun.file(args.path).text(), { filename: args.path, generate: 'client', css: 'external', dev: false });

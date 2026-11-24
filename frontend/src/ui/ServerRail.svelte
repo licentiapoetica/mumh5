@@ -7,8 +7,8 @@
   import { railMenu, serverState as stateOf, serverUnread as unreadOf } from '../lib/server-menu.ts';
 
   // canHide: false in the phone drawer, which opens and closes by itself
-  let { onadd, onsettings, onbrowse, canHide = true }:
-    { onadd: () => void; onsettings: () => void; onbrowse: () => void; canHide?: boolean } = $props();
+  let { onadd, onbrowse, canHide = true }:
+    { onadd: () => void; onbrowse: () => void; canHide?: boolean } = $props();
 
   // The home screen over a connected server takes the marker from that server's tile
   const homeOver = $derived(sessions.homeShown && sessions.active.status !== 'idle');
@@ -78,7 +78,6 @@
     <button class="tile ghost" class:active={homeOver} title={label} aria-label={label} aria-pressed={homeOver} onclick={() => (sessions.homeShown = !sessions.homeShown)}><Icon name="home" size={18} /></button>
   {/if}
   {#if canHide}<button class="tile ghost" title="Hide server list" aria-label="Hide server list" onclick={hide}><Icon name="sidebar" size={18} /></button>{/if}
-  <button class="tile ghost" title="Settings" onclick={onsettings}><Icon name="settings" size={18} /></button>
 </nav>
 
 <style>

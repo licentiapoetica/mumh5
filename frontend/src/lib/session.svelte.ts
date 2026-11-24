@@ -1,3 +1,4 @@
+import { debugLog } from '../core/debug-log.ts';
 import { createCodec } from '../core/proto.ts';
 import { MumbleClient, PERM, describeDenial, type Channel, type ChannelAcl, type User, type TextMessage } from '../core/client.ts';
 import { native, desktop, openTransport, TauriTransport } from './native.ts';
@@ -448,6 +449,7 @@ export class Session {
     this.reconnectAttempts = retries;
     const attempt = ++this.attempt;
     this.server = server;
+    debugLog.record('info', 'connection', 'Connecting', { host: server.host, port: server.port, automatic, attempt: retries + 1 });
     this.error = '';
     if (automatic) {
       // Sessions are numbered anew on every login: direct chats would reach someone else
@@ -503,6 +505,7 @@ export class Session {
     }
     if (attempt !== this.attempt) return transport.close();
     this.serverCert = info;
+    debugLog.record('info', 'tls', 'TLS handshake completed', { host: server.host, port: server.port, authorized: info.authorized });
 
     // Trust on first use: pin the certificate, and stop before sending credentials if it changed
     const hostPort = `${server.host.toLowerCase()}:${server.port}`;
@@ -519,6 +522,7 @@ export class Session {
     const client = new MumbleClient(codec);
     client.forceTcp = voice.settings.forceTcp;
     this.client = client;
+    debugLog.record('info', 'connection', 'Authenticating', { host: server.host, port: server.port, connection: client.debugId });
     this.mumpeer.attach(transport instanceof TauriTransport ? transport : null);
     this.wire(client);
     // TLS is up but the server may still never finish the login
@@ -606,6 +610,7 @@ export class Session {
     if (this.syncedAt && Date.now() - this.syncedAt > 60_000) this.reconnectAttempts = 0;
     const server = $state.snapshot(this.server) as SavedServer;
     this.reconnectDelay = Math.min(5 * 2 ** Math.min(this.reconnectAttempts++, 3), 30);
+    debugLog.record('warn', 'connection', 'Reconnect scheduled', { host: this.server?.host ?? '', delaySeconds: this.reconnectDelay });
     this.reconnectTimer = setInterval(() => {
       this.reconnectDelay = (this.reconnectDelay ?? 1) - 1;
       if (this.reconnectDelay > 0) return;
@@ -616,6 +621,7 @@ export class Session {
   }
 
   private fail(msg: string, retry = true): void {
+    debugLog.record('error', 'connection', 'Connection attempt failed', { host: this.server?.host ?? '', reason: msg, retry });
     this.status = 'idle';
     this.error = msg;
     // Voice waited for this server through an automatic attempt; without another one it moves on
@@ -629,6 +635,7 @@ export class Session {
     client.on('synced', () => {
       if (!live()) return;
       this.status = 'connected';
+      debugLog.record('info', 'connection', 'Server synchronized', { connection: client.debugId, version: client.serverVersion, host: this.server?.host ?? '' });
       // ServerConfig normally follows at once; a server that sends none still gets names
       setTimeout(() => { if (live() && !this.namesStarted) this.startNames(client); }, NAMES_WAIT_MS);
       void chatHistory.entered(this);
@@ -900,6 +907,7 @@ export class Session {
       // Except UsernameInUse (5), while the server still holds our dropped session, and ServerFull (6)
       this.noRetry = type !== 5 && type !== 6;
       this.disconnectInfo = { kind: 'rejected', by: '', reason };
+      debugLog.record('warn', 'connection', 'Server rejected login', { connection: client.debugId, type, reason });
     });
 
     client.on('close', reason => {

@@ -26,7 +26,6 @@
   import Home from './ui/Home.svelte';
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
-  import Shell from './ui2/Shell.svelte';
   import Icon from './ui/Icon.svelte';
   import { updates } from './lib/updates.svelte.ts';
   import { identities } from './lib/identities.svelte.ts';
@@ -197,11 +196,10 @@
 <svelte:window bind:innerWidth={width} onclickcapture={e => { imageClick(e); codeCopy(e); }} />
 
 {#snippet rail()}
-  <ServerRail canHide={!inDrawer} onadd={() => (editing = { server: null })} onbrowse={() => (ui.publicServers = true)}
-    onsettings={() => (ui.settingsOpen = true)} />
+  <ServerRail canHide={!inDrawer} onadd={() => (editing = { server: null })} onbrowse={() => (ui.publicServers = true)} />
 {/snippet}
 {#snippet chat()}
-  <Chat tabs={chatTabs} showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
+  <Chat showSettings={layout === 'narrow' && arrangement === 'side' && !navOpen && !homeOver} tabs={chatTabs} showMenu={layout === 'narrow' && arrangement === 'side'} showStage={!panelInline && arrangement === 'side'} videoOnly={arrangement === 'stacked'}
     serverButton={railHidden && arrangement === 'classic' && !classicLeft} onmenu={() => (navOpen = true)} onpanel={togglePanel} />
 {/snippet}
 
@@ -219,23 +217,20 @@
     <button class="icon-btn" aria-label="Not now" title="Hide until there is another update" onclick={() => updates.dismiss()}><Icon name="x" size={16} /></button>
   </div>
 {/if}
-{#if store.settings.interface === 'rooms'}
-<Shell onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
-{:else}
 <div class="app {layout} {arrangement}" class:home bind:this={appEl}>
   {#if home}
     {#if !railHidden}{@render rail()}{/if}
     <Home top={arrangement === 'stacked'} onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
   {:else if arrangement === 'classic'}
     {#if !railHidden}{@render rail()}{/if}
-    {#if classicLeft}<Sidebar serverButton={railHidden} onnavigate={() => {}} />{/if}
+    {#if classicLeft}<Sidebar showSettings={!homeOver} serverButton={railHidden} onnavigate={() => {}} />{/if}
     {@render chat()}
-    {#if !classicLeft}<Sidebar handleEdge="left" onnavigate={() => {}} />{/if}
+    {#if !classicLeft}<Sidebar showSettings={!homeOver} handleEdge="left" onnavigate={() => {}} />{/if}
   {:else if arrangement === 'stacked'}
     {#if !railHidden}{@render rail()}{/if}
     <div class="stack" bind:this={stackEl}>
       <div class="tree" style:height="{treeHeight}px">
-        <Sidebar fill chats={false} onnavigate={() => {}} />
+        <Sidebar showSettings={!homeOver} fill chats={false} onnavigate={() => {}} />
         <ResizeHandle bind:width={treeHeight} edge="bottom" min={120} max={treeMax} initial={280}
           storageKey="mumh5.treeHeight" label="Resize channel list" />
       </div>
@@ -245,7 +240,7 @@
     {#if layout !== 'narrow' || navOpen}
       <div class="nav" class:drawer={layout === 'narrow'}>
         {#if !railHidden || layout === 'narrow'}{@render rail()}{/if}
-        <Sidebar resizable={layout !== 'narrow'} chats={!chatTabs} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+        <Sidebar showSettings={!homeOver} resizable={layout !== 'narrow'} chats={!chatTabs} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
       </div>
       {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
     {/if}
@@ -267,7 +262,6 @@
     {/if}
   {/if}
 </div>
-{/if}
 </div>
 
 {#if studio.place === 'inline'}<ThemeCreator docked />{/if}

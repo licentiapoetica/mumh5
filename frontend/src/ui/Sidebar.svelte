@@ -21,8 +21,8 @@
   // fill: take the whole area (stacked layout, where the parent sizes it)
   // serverButton: the current server leads the header while the server list is hidden
   // chats: list private chats here; where the chat shows them as tabs it is off
-  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false, chats = true }:
-    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean; chats?: boolean } = $props();
+  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false, chats = true, showSettings = true }:
+    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean; chats?: boolean; showSettings?: boolean } = $props();
 
   const MIN_W = 200, DEFAULT_W = 260;
   const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
@@ -129,7 +129,7 @@
       <button class="btn" onclick={() => sessions.setVoice(sessions.active)}>Talk here</button>
     </div>
   {/if}
-  <UserBar toolbar={fill} />
+  <UserBar toolbar={fill} {showSettings} />
 </aside>
 
 <style>

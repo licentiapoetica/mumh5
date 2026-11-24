@@ -58,9 +58,12 @@ impl Transport {
             let read = async {
                 let mut buffer = vec![0; 65536];
                 loop {
-                    let n = reader.read(&mut buffer).await?;
+                    let n = reader
+                        .read(&mut buffer)
+                        .await
+                        .context("Reading Mumble TLS stream")?;
                     if n == 0 {
-                        break;
+                        bail!("Mumble server closed the TLS connection");
                     }
                     if incoming.send(Ok(buffer[..n].to_vec())).await.is_err() {
                         break;
@@ -73,13 +76,16 @@ impl Transport {
                     if bytes.len() > 8 * 1024 * 1024 {
                         bail!("Frame too large");
                     }
-                    writer.write_all(&bytes).await?;
+                    writer
+                        .write_all(&bytes)
+                        .await
+                        .context("Writing Mumble TLS stream")?;
                 }
                 anyhow::Ok(())
             };
             let result = tokio::select! {_ = stop.cancelled()=>Ok(()), r=read=>r,r=write=>r};
             if let Err(e) = result {
-                let _ = incoming.try_send(Err(e));
+                let _ = incoming.send(Err(e)).await;
             }
         });
         Ok(Self {
@@ -94,5 +100,56 @@ impl Transport {
 impl Drop for Transport {
     fn drop(&mut self) {
         self.cancel.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openssl::{
+        pkey::PKey,
+        ssl::{Ssl, SslAcceptor, SslMethod},
+        x509::X509,
+    };
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn tls_eof_keeps_received_bytes_and_reports_the_upstream_close() -> Result<()> {
+        let identity = identity::generate("localhost", "")?;
+        let mut acceptor = SslAcceptor::mozilla_intermediate(SslMethod::tls_server())?;
+        let cert = X509::from_pem(identity.cert_pem.as_bytes())?;
+        let key = PKey::private_key_from_pem(identity.key_pem.as_bytes())?;
+        acceptor.set_certificate(&cert)?;
+        acceptor.set_private_key(&key)?;
+        let acceptor = acceptor.build();
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await?;
+            let mut stream = SslStream::new(Ssl::new(acceptor.context())?, tcp)?;
+            Pin::new(&mut stream).accept().await?;
+            stream.write_all(b"server data before close").await?;
+            stream.shutdown().await?;
+            anyhow::Ok(())
+        });
+        let mut transport = Transport::connect("127.0.0.1", port, &identity).await?;
+        let (received, reason) = timeout(Duration::from_secs(5), async {
+            let mut received = Vec::new();
+            while let Some(packet) = transport.receive.recv().await {
+                match packet {
+                    Ok(bytes) => received.extend(bytes),
+                    Err(error) => return (received, format!("{error:#}")),
+                }
+            }
+            (received, String::new())
+        })
+        .await?;
+        assert_eq!(received, b"server data before close");
+        assert!(
+            reason.contains("Mumble server closed the TLS connection"),
+            "{reason}"
+        );
+        server.await??;
+        Ok(())
     }
 }

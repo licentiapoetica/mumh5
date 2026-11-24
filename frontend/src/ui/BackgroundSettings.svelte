@@ -13,7 +13,6 @@
 <BackgroundEditor area="main" />
 
 <SectionHead title="Channel list background" part="appearance.tree" />
-<p class="help">Also the room list in Rooms.</p>
 <div class="designs" role="group" aria-label="Channel list background">
   {#each treeModes as mode (mode.id)}
     <button class="btn" class:primary={store.settings.treeBackground === mode.id} aria-pressed={store.settings.treeBackground === mode.id}

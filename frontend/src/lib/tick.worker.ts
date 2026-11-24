@@ -12,3 +12,5 @@ scope.onmessage = e => {
     timers.delete(id);
   }
 };
+
+scope.postMessage({ type: 'ready' });

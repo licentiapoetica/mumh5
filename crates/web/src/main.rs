@@ -186,7 +186,7 @@ async fn tunnel(mut ws: WebSocket, app: Shared, _address: String) -> Result<()> 
     let reason = result
         .as_ref()
         .err()
-        .map(|e| e.to_string())
+        .map(|e| format!("{e:#}"))
         .unwrap_or_else(|| "Connection closed".into());
     let _ = ws
         .send(Message::Text(

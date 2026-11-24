@@ -64,11 +64,13 @@ The configured Mumble host must be reachable from inside the container.
 
 ## Included interface
 
-The reused interface includes both responsive layouts; channel trees and private
+The reused interface includes responsive Modern, Classic and Stacked layouts; channel trees and private
 chats; independent collapsible lists; voice controls and noise suppression;
 channel/private text and reactions; unified audio, video, image, PDF and document
 cards; round player sliders; file transfers; profiles, identities, ACLs/roles;
 themes, custom theme creation, backgrounds; notifications and sound packs.
+Settings → About → Open debug log shows bounded, in-memory connection diagnostics,
+including keepalive status and WebSocket close codes, with copy/download controls.
 Chat history is client-side, off by default, with configurable expiration (24
 hours by default when saving is enabled). Expired history is pruned while the
 client runs and again on startup.

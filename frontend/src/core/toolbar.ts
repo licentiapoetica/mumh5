@@ -12,7 +12,7 @@ export const TOOLS: { id: ToolId; label: string; icon: string }[] = [
   { id: 'camera', label: 'Camera', icon: 'camera' },
   { id: 'screen', label: 'Share screen', icon: 'screen' },
   { id: 'profile', label: 'Edit profile', icon: 'message' },
-  { id: 'settings', label: 'Configure', icon: 'settings' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
   { id: 'tree', label: 'Expand or collapse all', icon: 'filter' },
   { id: 'you', label: 'Name and picture', icon: 'user' }
 ];
@@ -33,7 +33,7 @@ export function normalizeToolbar(raw: unknown): ToolbarLayout {
     if (v === 'sep' || (isTool(v) && !items.includes(v))) items.push(v);
   }
   for (const t of TOOLS) if (!items.includes(t.id)) items.push(t.id);
-  const hidden = TOOLS.map(t => t.id).filter(id => Array.isArray(saved.hidden) && saved.hidden.includes(id));
+  const hidden = TOOLS.map(t => t.id).filter(id => id !== 'settings' && Array.isArray(saved.hidden) && saved.hidden.includes(id));
   return { items, hidden };
 }
 
@@ -47,6 +47,7 @@ export function moveToolbarItem(layout: ToolbarLayout, from: number, to: number)
 
 export function setToolHidden(layout: ToolbarLayout, id: ToolId, hidden: boolean): ToolbarLayout {
   const rest = layout.hidden.filter(h => h !== id);
+  if (id === 'settings') return { items: [...layout.items], hidden: rest };
   return { items: [...layout.items], hidden: hidden ? [...rest, id] : rest };
 }
 

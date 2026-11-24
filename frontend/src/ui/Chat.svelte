@@ -1,6 +1,7 @@
 <script lang="ts">
   import Background from './Background.svelte';
   import Icon from './Icon.svelte';
+  import { ui } from '../lib/ui.svelte.ts';
   import ServerButton from './ServerButton.svelte';
   import ChatLog from './ChatLog.svelte';
   import ChatTabs from './ChatTabs.svelte';
@@ -14,7 +15,7 @@
   // showStage: voice tiles above the chat when the window is too narrow for the member list
   // videoOnly: streams as a plain picture without the tiles (stacked layout)
   // tabs: private chats as tabs above the log (stacked and narrow; elsewhere the channel list has them)
-  let { onmenu, onpanel, showMenu, showStage = false, videoOnly = false, serverButton = false, tabs = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; videoOnly?: boolean; serverButton?: boolean; tabs?: boolean } = $props();
+  let { onmenu, onpanel, showMenu, showStage = false, showSettings = false, videoOnly = false, serverButton = false, tabs = false }: { onmenu: () => void; onpanel: () => void; showMenu: boolean; showStage?: boolean; showSettings?: boolean; videoOnly?: boolean; serverButton?: boolean; tabs?: boolean } = $props();
 
   // Stacked layout with a stream above the chat: the chat's height can be dragged larger than
   // its minimum; the picture gets the rest. Unset until dragged, then the picture decides.
@@ -67,6 +68,7 @@
     <h1>{title}</h1>
     {#if topic}<span class="topic" title={topic}>{topic}</span>{/if}
     <span class="grow"></span>
+    {#if showSettings}<button class="icon-btn" title="Settings" aria-label="Settings" onclick={() => (ui.settingsOpen = true)}><Icon name="settings" /></button>{/if}
     <button class="icon-btn" onclick={onpanel} title="Members"><Icon name="users" /></button>
   </header>
   {/if}
