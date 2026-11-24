@@ -4,6 +4,7 @@
   import SectionHead from './SectionHead.svelte';
   import ThemeLibrary from './ThemeLibrary.svelte';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
+  import { desktop } from '../lib/native.ts';
 
   const TAB_BARS = [
     { id: 'none', name: 'Plain' }, { id: 'tree', name: 'Same as channel list' }, { id: 'chat', name: 'Same as chat' }
@@ -95,6 +96,8 @@
 {/if}
 <label class="role-check"><input type="checkbox" checked={store.settings.treeLines}
   onchange={e => { store.settings.treeLines = e.currentTarget.checked; store.saveSettings(); }} /> Show tree lines</label>
+{#if desktop}<label class="role-check"><input type="checkbox" checked={store.settings.settingsWindow}
+  onchange={e => { store.settings.settingsWindow = e.currentTarget.checked; store.saveSettings(); }} /> Open Settings in its own window</label>{/if}
 {#if store.settings.arrangement === 'stacked'}
   <span class="pick-label" id="tab-bar-bg">Tab bar background</span>
   <p class="help">The strip with the chat names above the messages. Backgrounds are set below.</p>

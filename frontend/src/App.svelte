@@ -90,7 +90,6 @@
   const inDrawer = $derived(layout === 'narrow' && arrangement === 'side' && !home);
   // Home on request lies over the server view: unmounting it would lose drafts and stop stream audio
   const homeOver = $derived(sessions.homeShown && !home);
-  const sidebarNavigation = $derived(railHidden && !homeOver && (layout !== 'narrow' || arrangement === 'stacked'));
   let appEl = $state<HTMLElement>();
   $effect(() => {
     void layout; void arrangement;
@@ -136,6 +135,16 @@
   });
 
   $effect(() => applyCorners(document.documentElement.style, store.settings.corners));
+
+  // On desktop, Settings opens as a window of its own (unless turned off, on phone widths, or when no
+  // window can be opened): the window then holds Settings and the in-app dialog stays closed.
+  $effect(() => {
+    if (!ui.settingsOpen || settingsWindow.isOpen || !desktop || layout === 'narrow' || !store.settings.settingsWindow) return;
+    if (settingsWindow.open(ui.settingsTab)) {
+      ui.settingsOpen = false;
+      ui.settingsTab = 'voice';
+    }
+  });
 
   // Settings already has its own window: bring that forward. Voice is the tab every plain
   // Settings button asks for, so it does not move the window off the section in use.
@@ -228,14 +237,14 @@
     <Home showNavigation={railHidden || inDrawer} top={arrangement === 'stacked'} onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
   {:else if arrangement === 'classic'}
     {#if !railHidden}{@render rail()}{/if}
-    {#if classicLeft}<Sidebar showNavigation={sidebarNavigation} serverButton={railHidden} onnavigate={() => {}} />{/if}
+    {#if classicLeft}<Sidebar serverButton={railHidden} onnavigate={() => {}} />{/if}
     {@render chat()}
-    {#if !classicLeft}<Sidebar showNavigation={sidebarNavigation} handleEdge="left" onnavigate={() => {}} />{/if}
+    {#if !classicLeft}<Sidebar handleEdge="left" onnavigate={() => {}} />{/if}
   {:else if arrangement === 'stacked'}
     {#if !railHidden}{@render rail()}{/if}
     <div class="stack" bind:this={stackEl}>
       <div class="tree" style:height="{treeHeight}px">
-        <Sidebar showNavigation={sidebarNavigation} fill chats={false} onnavigate={() => {}} />
+        <Sidebar fill chats={false} onnavigate={() => {}} />
         <ResizeHandle bind:width={treeHeight} edge="bottom" min={120} max={treeMax} initial={280}
           storageKey="mumh5.treeHeight" label="Resize channel list" />
       </div>
@@ -245,7 +254,7 @@
     {#if layout !== 'narrow' || navOpen}
       <div class="nav" class:drawer={layout === 'narrow'}>
         {#if !railHidden || layout === 'narrow'}{@render rail()}{/if}
-        <Sidebar showNavigation={sidebarNavigation} resizable={layout !== 'narrow'} chats={!chatTabs} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
+        <Sidebar resizable={layout !== 'narrow'} chats={!chatTabs} serverButton={railHidden && layout !== 'narrow'} onnavigate={() => { if (layout === 'narrow') navOpen = false; }} />
       </div>
       {#if layout === 'narrow'}<button class="scrim" aria-label="Close" onclick={() => (navOpen = false)}></button>{/if}
     {/if}
@@ -275,7 +284,7 @@
 {#if ui.addServer}<ConnectDialog server={null} prefill={ui.addServer} onclose={() => (ui.addServer = null)} />{/if}
 {#if ui.publicServers}<PublicServers onclose={() => (ui.publicServers = false)} />{/if}
 {#if ui.serverInfo && session.status === 'connected'}<ServerInfoDialog onclose={() => (ui.serverInfo = false)} />{/if}
-{#if ui.settingsOpen && !settingsWindow.isOpen}<SettingsDialog tab={ui.settingsTab} onpopout={t => settingsWindow.open(t)} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
+{#if ui.settingsOpen && !settingsWindow.isOpen && !(desktop && layout !== 'narrow' && store.settings.settingsWindow && settingsWindow.canOpen)}<SettingsDialog tab={ui.settingsTab} onpopout={t => settingsWindow.open(t)} onclose={() => { ui.settingsOpen = false; ui.settingsTab = 'voice'; }} />{/if}
 {#if ui.profileEdit && session.status === 'connected'}
   <!-- A draft belongs to one server; before the prompt dialog, which opens on top of it -->
   {#key sessions.active}<ProfileDialog />{/key}

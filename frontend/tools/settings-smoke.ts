@@ -16,6 +16,23 @@ async function oneSettings(page: Page) {
   } await page.waitForTimeout(100); }
  throw new Error(`Expected one visible Settings button, got ${await button.count()}`);
 }
+// Connected with the server list collapsed there is no navigation row above the channel list:
+// Settings is the toolbar's Configure button there, Home is in the server list.
+async function settingsReachable(page: Page) {
+ const navigation = page.getByRole('group', { name: 'App navigation', exact: true });
+ for (let n = 0; n < 50; n++) {
+  if (await navigation.count() && await navigation.first().isVisible()) return oneSettings(page);
+  const configure = page.getByRole('button', { name: 'Configure', exact: true });
+  if (await configure.count() === 1 && await configure.isVisible()) return;
+  await page.waitForTimeout(100);
+ }
+ throw new Error('Neither the navigation nor the Configure button is there');
+}
+async function openSettings(page: Page) {
+ const settings = page.getByRole('button', { name: 'Settings', exact: true });
+ if (await settings.count() && await settings.first().isVisible()) await settings.first().click();
+ else await page.getByRole('button', { name: 'Configure', exact: true }).click();
+}
 try {
  await context.addInitScript(() => {
   localStorage.setItem('mumh5.settings', JSON.stringify({ interface: 'rooms', arrangement: 'classic', railHidden: false, toolbar: { items: ['settings', 'settings', 'mic'], hidden: [] } }));
@@ -54,29 +71,33 @@ try {
  await page.getByLabel('Username', { exact: true }).fill('debug-smoke');
  await page.getByLabel('Password', { exact: false }).fill('private-password-sentinel');
  await page.getByRole('button', { name: 'Save and connect' }).click(); await page.getByText('Root', { exact: true }).first().waitFor();
- await oneSettings(page);
+ await settingsReachable(page);
  // The toolbar keeps its own Configure button as well (once, although the saved layout lists it twice)
  const configure = page.getByRole('button', { name: 'Configure', exact: true });
  require(await configure.count() === 1, `Expected one Configure button in the toolbar, got ${await configure.count()}`);
  await configure.click(); await page.getByRole('dialog', { name: 'Settings', exact: true }).waitFor();
- await page.getByRole('button', { name: 'Done', exact: true }).click(); await oneSettings(page);
+ await page.getByRole('button', { name: 'Done', exact: true }).click(); await settingsReachable(page);
  console.log('PASS toolbar Configure button opens Settings');
  for (const name of ['Modern', 'Classic', 'Stacked']) {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await openSettings(page);
   await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
   await page.getByRole('radio', { name, exact: true }).click();
-  await page.getByRole('button', { name: 'Done', exact: true }).click(); await oneSettings(page);
-  await page.getByRole('button', { name: 'Hide server list', exact: true }).click(); await oneSettings(page);
-  await page.getByRole('button', { name: 'Go to home screen', exact: true }).click(); await oneSettings(page);
-  await page.getByRole('button', { name: 'Back to server', exact: true }).click(); await oneSettings(page);
-  await page.setViewportSize({ width: 390, height: 844 }); await oneSettings(page);
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.getByRole('button', { name: 'Show servers', exact: true }).click(); await oneSettings(page);
+  await page.getByRole('button', { name: 'Done', exact: true }).click(); await settingsReachable(page);
+  if (await page.getByRole('button', { name: 'Hide server list', exact: true }).count()) await page.getByRole('button', { name: 'Hide server list', exact: true }).click();
+  // Collapsed: no navigation row above the channel list, one Configure button
+  require(!await page.getByRole('group', { name: 'App navigation', exact: true }).isVisible().catch(() => false), `${name}: navigation buttons above the channel list`);
+  await settingsReachable(page);
+  // Home through the server list
+  await page.getByRole('button', { name: 'Show servers', exact: true }).click();
+  await page.getByRole('button', { name: 'Go to home screen', exact: true }).click(); await settingsReachable(page);
+  await page.getByRole('button', { name: 'Back to server', exact: true }).click(); await settingsReachable(page);
+  await page.setViewportSize({ width: 390, height: 844 }); await settingsReachable(page);
+  await page.setViewportSize({ width: 1280, height: 800 }); await settingsReachable(page);
  }
  await page.screenshot({ path: `${new URL('../../', import.meta.url).pathname}.tooling/navigation-settings.png` });
  console.log('PASS connected Home/Settings placement with rail hidden, home overlay, and phone layouts');
  async function openLog() {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await openSettings(page);
   await page.getByRole('tab', { name: 'About', exact: true }).click();
   await page.getByRole('button', { name: 'Open debug log', exact: true }).click();
   return page.getByRole('dialog', { name: 'Debug log', exact: true });

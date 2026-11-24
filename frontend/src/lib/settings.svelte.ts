@@ -66,6 +66,7 @@ export interface Settings {
   avatars: 'pictures' | 'spheres'; // spheres replace pictures and letters, except in chat, members, profiles and voice tiles
   toolbar: ToolbarLayout; // order of the toolbar's buttons and spacers, and the hidden buttons
   treeLines: boolean;     // lines and a root node in the channel tree
+  settingsWindow: boolean; // desktop: Settings opens as a window of its own
   corners: Corners;       // rounded corners per group of elements; a group not listed stays square
 }
 
@@ -143,6 +144,7 @@ const defaults: Settings = {
   avatars: 'spheres',
   toolbar: DEFAULT_TOOLBAR,
   treeLines: true,
+  settingsWindow: true,
   corners: {}
 };
 
@@ -161,7 +163,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   treeBackground: 'appearance.tree', treeBackgroundStyle: 'appearance.tree',
   publicListUrl: 'kept',
   arrangement: 'appearance.layout', classicSide: 'appearance.layout', tabBarBackground: 'appearance.layout',
-  toolbar: 'appearance.layout', treeLines: 'appearance.layout',
+  toolbar: 'appearance.layout', treeLines: 'appearance.layout', settingsWindow: 'appearance.layout',
   railHidden: 'kept',
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
   shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',

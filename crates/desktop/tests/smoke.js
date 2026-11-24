@@ -46,7 +46,8 @@
   let audioOutputs = null;
   if (api.audioOutputs) {
    audioOutputs = await api.audioOutputs();
-   const other = (audioOutputs ?? [])[0];
+   // Only a test output (a null sink named mumh5_test_*) is switched to, never a real device
+   const other = (audioOutputs ?? []).find(o => o.id.startsWith('mumh5_test_'));
    if (other) { await api.setAudioOutput(other.id); await new Promise(r => setTimeout(r, 3000)); await api.setAudioOutput('default'); await new Promise(r => setTimeout(r, 1500)); }
   }
   if (!document.querySelector('[contenteditable=true]')) await wait(() => [...document.querySelectorAll('button')].find(e => /^(Chat|Text)$/.test(e.textContent.trim())), 'chat navigation').then(e => e.click());
