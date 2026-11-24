@@ -62,7 +62,7 @@ With the same disposable server and gateway running, run:
 
 This checks migration from a saved Rooms interface without changing its layout,
 exactly one Settings button beside Home across layouts, collapsed server lists
-and phone navigation (outside the audio toolbar), the About debug
+and phone navigation, the toolbar's Configure button opening Settings, the About debug
 window and its copy/download/filter/clear controls, and a background connection
 idle for 36 seconds (longer than stock Mumble's timeout). It then closes the test
 WebSocket with a known code/reason and checks that both appear in the log.

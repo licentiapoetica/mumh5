@@ -79,6 +79,7 @@ export const de: Partial<Record<Key, string>> = {
   'userBar.screenBlockedByCamera': 'Schalte die Kamera aus, um den Bildschirm zu teilen',
   'userBar.shareHint': 'Bildschirm oder Kamera mit deinem Kanal teilen',
   'userBar.share': 'Bildschirm oder Kamera teilen',
+  'userBar.configure': 'Einstellungen',
   'userBar.editProfile': 'Profil bearbeiten',
   'nav.settings': 'Einstellungen',
   'userBar.collapseAll': 'Alle Kanäle einklappen',

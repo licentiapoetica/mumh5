@@ -12,14 +12,13 @@ async function oneSettings(page: Page) {
    require(await navigation.count() === 1, 'Duplicate navigation controls');
    require(await navigation.getByRole('button').count() === 2, 'Home and Settings must be adjacent');
    require(await navigation.getByRole('button').last().getAttribute('aria-label') === 'Settings', 'Settings is not next to Home');
-   require(await page.locator('.me button[aria-label=Settings]').count() === 0, 'Settings remains in the audio toolbar');
    return;
   } await page.waitForTimeout(100); }
  throw new Error(`Expected one visible Settings button, got ${await button.count()}`);
 }
 try {
  await context.addInitScript(() => {
-  localStorage.setItem('mumh5.settings', JSON.stringify({ interface: 'rooms', arrangement: 'classic', railHidden: false, toolbar: { items: ['settings', 'settings', 'mic'], hidden: ['settings'] } }));
+  localStorage.setItem('mumh5.settings', JSON.stringify({ interface: 'rooms', arrangement: 'classic', railHidden: false, toolbar: { items: ['settings', 'settings', 'mic'], hidden: [] } }));
   const Original = window.WebSocket;
   window.WebSocket = class extends Original {
    constructor(url: string | URL, protocols?: string | string[]) { super(url, protocols); (window as unknown as { testSocket: WebSocket }).testSocket = this; }
@@ -56,6 +55,12 @@ try {
  await page.getByLabel('Password', { exact: false }).fill('private-password-sentinel');
  await page.getByRole('button', { name: 'Save and connect' }).click(); await page.getByText('Root', { exact: true }).first().waitFor();
  await oneSettings(page);
+ // The toolbar keeps its own Configure button as well (once, although the saved layout lists it twice)
+ const configure = page.getByRole('button', { name: 'Configure', exact: true });
+ require(await configure.count() === 1, `Expected one Configure button in the toolbar, got ${await configure.count()}`);
+ await configure.click(); await page.getByRole('dialog', { name: 'Settings', exact: true }).waitFor();
+ await page.getByRole('button', { name: 'Done', exact: true }).click(); await oneSettings(page);
+ console.log('PASS toolbar Configure button opens Settings');
  for (const name of ['Modern', 'Classic', 'Stacked']) {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('tab', { name: 'Appearance', exact: true }).click();

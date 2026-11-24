@@ -118,6 +118,10 @@
         <button class="icon-btn" data-tool={index} title={t('userBar.editProfile')} aria-label={t('userBar.editProfile')} disabled={!self} onclick={() => (ui.profileEdit = true)}>
           <Icon name="message" size={18} />
         </button>
+      {:else if item === 'settings'}
+        <button class="icon-btn" data-tool={index} title={t('userBar.configure')} aria-label={t('userBar.configure')} onclick={() => (ui.settingsOpen = true)}>
+          <Icon name="settings" size={18} />
+        </button>
       {:else if item === 'tree'}
         <button class="icon-btn" data-tool={index} title={allOpen ? t('userBar.collapseAll') : t('userBar.expandAll')} aria-label={allOpen ? t('userBar.collapseAll') : t('userBar.expandAll')}
           disabled={session.status !== 'connected'} onclick={toggleAll}>

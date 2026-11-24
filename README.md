@@ -63,7 +63,7 @@ The Android application keeps `org.mumh5.app`; desktop keeps `dev.f0ck.mumh5`. E
 
 ## Interface and native services
 
-The reused interface includes Modern, Classic and Stacked layouts, channels and collapsible private chats, configurable opt-in local chat history, unified media/PDF cards, file transfers, reactions, identity/ACL/role management, themes, backgrounds, sounds, sharing, and connection diagnostics. Settings stays beside Home. The previously requested Rooms/interface-selector removal remains in place.
+The reused interface includes Modern, Classic and Stacked layouts, channels and collapsible private chats, configurable opt-in local chat history, unified media/PDF cards, file transfers, reactions, identity/ACL/role management, themes, backgrounds, sounds, sharing, and connection diagnostics. Settings opens from beside Home and from the toolbar's Configure button. The previously requested Rooms/interface-selector removal remains in place.
 
 The latest main-branch microphone recovery, same-host mumpeer discovery, Android background voice controls, connection log, Web Lock and keepalive changes are merged. Rust ports provide native TLS/OCB2 UDP, certificates/PKCS#12, profile and sound storage, relay/TURN services, PipeWire capture and portal color picking. Hardware/platform behavior and complete feature parity still require the checks listed in todo.md. Global push-to-talk remains an existing platform limitation.
 

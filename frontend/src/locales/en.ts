@@ -80,6 +80,7 @@ export const en = {
   'userBar.shareHint': 'Share your screen or camera with your channel',
   'userBar.share': 'Share your screen or camera',
   'userBar.editProfile': 'Edit your profile',
+  'userBar.configure': 'Configure',
   'nav.settings': 'Settings',
   'userBar.collapseAll': 'Collapse all channels',
   'userBar.expandAll': 'Expand all channels'
