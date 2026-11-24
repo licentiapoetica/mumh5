@@ -588,6 +588,16 @@ async fn wire_relay(
     }
     work(id, action, args, &state).await.map_err(failure)
 }
+/// Closes popup windows the way the system's close button does (a close request to the window).
+#[cfg(feature = "smoke-test")]
+#[tauri::command]
+fn smoke_close_popups(app: tauri::AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("popup-") {
+            let _ = window.close();
+        }
+    }
+}
 #[cfg(feature = "smoke-test")]
 #[tauri::command]
 fn smoke_windows(app: tauri::AppHandle) -> Vec<String> {
@@ -639,7 +649,8 @@ pub fn run() {
         wire_udp,
         wire_relay,
         smoke_report,
-        smoke_windows
+        smoke_windows,
+        smoke_close_popups
     ]);
     #[cfg(not(feature = "smoke-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![

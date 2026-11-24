@@ -42,7 +42,8 @@
       <h2>{title}</h2>
       <span class="head-tools">
         {@render actions?.()}
-        <button class="icon-btn" onclick={onclose} aria-label="Close"><Icon name="x" /></button>
+        <!-- A window of its own is closed with the system's window buttons -->
+        {#if !windowed}<button class="icon-btn" onclick={onclose} aria-label="Close"><Icon name="x" /></button>{/if}
       </span>
     </header>
     <div class="body" bind:this={body}>{@render children()}</div>

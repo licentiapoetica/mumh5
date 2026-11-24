@@ -91,6 +91,8 @@ class SettingsWindowStore {
     this.listeners = null;
     this.look?.disconnect();
     this.look = null;
+    // Closed with the system's button as well as with Done: a field being edited keeps what was typed
+    try { (w.document.activeElement as HTMLElement | null)?.blur?.(); } catch { /* already gone */ }
     if (this.view) unmount(this.view);
     this.view = null;
     this.isOpen = false;
