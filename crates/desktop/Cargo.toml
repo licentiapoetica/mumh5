@@ -1,0 +1,35 @@
+[package]
+name = "dream-cord-desktop"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+name = "dream_cord_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+smoke-test = []
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+openssl.workspace = true
+dream-cord-core.workspace = true
+dream-cord-platform.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+base64.workspace = true
+tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

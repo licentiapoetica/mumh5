@@ -1,0 +1,177 @@
+<script lang="ts">
+  import Background from './Background.svelte';
+  import Icon from './Icon.svelte';
+  import { voice } from '../lib/audio/voice.svelte.ts';
+  import Avatar from './Avatar.svelte';
+  import ChannelNode from './ChannelNode.svelte';
+  import { session, sessions } from '../lib/session.svelte.ts';
+  import { ui } from '../lib/ui.svelte.ts';
+  import { showServerCert } from '../lib/actions.ts';
+  import { menu } from '../lib/menu.svelte.ts';
+  import { PERM } from '../core/client.ts';
+  import { describeLink } from '../core/link-quality.ts';
+  import ResizeHandle from './ResizeHandle.svelte';
+  import UserBar from './UserBar.svelte';
+  import ServerButton from './ServerButton.svelte';
+  import UserSelection from './UserSelection.svelte';
+  import ConnectionWave from './ConnectionWave.svelte';
+
+  // resizable: false in the phone drawer, which keeps a fixed width
+  // handleEdge: which side the resize handle sits on (left when the list is on the right, classic layout)
+  // fill: take the whole area (stacked layout, where the parent sizes it)
+  // serverButton: the current server leads the header while the server list is hidden
+  // chats: list private chats here; where the chat shows them as tabs it is off
+  let { onnavigate, resizable = true, handleEdge = 'right', fill = false, serverButton = false, chats = true }:
+    { onnavigate: () => void; resizable?: boolean; handleEdge?: 'left' | 'right'; fill?: boolean; serverButton?: boolean; chats?: boolean } = $props();
+
+  const MIN_W = 200, DEFAULT_W = 260;
+  const maxW = () => Math.max(MIN_W, Math.min(520, window.innerWidth - 520));
+  let width = $state(Math.max(MIN_W, Number((() => { try { return localStorage.getItem('mumh5.sidebarWidth'); } catch { return null; } })()) || DEFAULT_W));
+
+  const roots = $derived(session.childrenOf(null));
+  const self = $derived(session.self);
+  const visiblePeople = $derived.by(() => {
+    const ids: number[] = [];
+    const walk = (parent: number | null) => {
+      for (const c of session.childrenOf(parent)) {
+        if (!session.isExpanded(c.id)) continue;
+        ids.push(...session.usersIn(c.id).map(u => u.session));
+        walk(c.id);
+      }
+    };
+    walk(null);
+    return ids;
+  });
+  const cert = $derived(session.serverCert);
+  const trusted = $derived(!!cert?.authorized);
+  // The lock and the status dot share a column, so the name and the status start at the same x
+  const marked = $derived(!!cert || session.status === 'connected');
+
+  // Right-click on free space in the channel list (rows open their own menus and stop the event)
+  function listMenu(e: MouseEvent) {
+    if (session.status !== 'connected') return;
+    const here = session.self?.channelId ?? 0;
+    const hereName = session.channel(here)?.name || 'Root';
+    const noMake = (id: number) => session.can(id, PERM.MakeChannel) === false && session.can(id, PERM.MakeTempChannel) === false;
+    menu.show(e, [
+      { label: 'Create channel...', disabled: noMake(0), action: () => (ui.channelDialog = { mode: 'create', parent: 0 }) },
+      ...(here !== 0 ? [{ label: `Create channel in ${hereName}...`, disabled: noMake(here), action: () => (ui.channelDialog = { mode: 'create', parent: here }) }] : []),
+      { separator: true, label: '' },
+      { label: 'Expand all', action: () => session.setAllExpanded(true) },
+      { label: 'Collapse all', action: () => session.setAllExpanded(false) }
+    ]);
+  }
+
+  const dms = $derived(
+    Object.keys(session.logs).filter(k => k.startsWith('dm:')).map(k => ({ key: k as `dm:${number}`, user: session.user(Number(k.slice(3))), name: session.viewTitle(k) }))
+  );
+</script>
+
+<aside class="sidebar" class:fill style:width={resizable && !fill ? `${width}px` : undefined}>
+  {#if resizable && !fill}<ResizeHandle bind:width edge={handleEdge} min={MIN_W} max={maxW} initial={DEFAULT_W} storageKey="mumh5.sidebarWidth" label="Resize channel list" />{/if}
+  <header class:with-server={serverButton}>
+    {#if session.status === 'connected'}<ConnectionWave />{/if}
+    {#if serverButton}<ServerButton />{/if}
+    <button class="title" onclick={showServerCert} disabled={!cert} title={cert ? (trusted ? 'Valid certificate. Click to view' : 'Self-signed or untrusted certificate. Click to view') : ''}>
+      <strong>
+        {#if marked}<span class="mark">{#if cert}<Icon name={trusted ? 'lock' : 'shield'} size={12} />{/if}</span>{/if}
+        <span class="server-name">{session.server?.label ?? 'Dream Cord'}</span>
+      </strong>
+      <span class="status" role="status" onpointerenter={e => (e.currentTarget.title = describeLink(session.client?.link.read(Date.now())))}>
+        {#if marked}<span class="mark">{#if session.status === 'connected'}<span class="dot"></span>{/if}</span>{/if}
+        {#if session.status === 'connected'}
+          Connected{#if session.rtt} , {session.rtt} ms{/if}
+          {#if voice.error}<span class="voice-bad" role="alert" title={voice.error}>Voice not working</span>{/if}
+        {:else if session.status === 'connecting'}Connecting...
+        {:else if session.reconnectDelay != null}Waiting to reconnect
+        {:else}Not connected{/if}
+      </span>
+    </button>
+    {#if session.status !== 'idle' || session.reconnectDelay != null}
+      <button class="icon-btn" title="Disconnect" aria-label="Disconnect" onclick={() => session.server && sessions.close(session.server.id)}><Icon name="power" size={18} /></button>
+    {/if}
+  </header>
+
+  <!-- The background starts under the header with the connection wave -->
+  <div class="tree-bg" data-background>
+    <Background area="tree" />
+    <div class="scroll" data-user-list="tree" role="presentation" oncontextmenu={listMenu}>
+      {#if session.status === 'connected'}
+        <ul class="tree">
+          {#each roots as c (c.id)}<ChannelNode channel={c} {onnavigate} />{/each}
+        </ul>
+        {#if chats && dms.length}
+          <h3>Direct messages</h3>
+          <ul class="tree">
+            {#each dms as dm (dm.key)}
+              <li class="dm-row" data-menu-row class:viewing={session.view === dm.key}
+                oncontextmenu={e => { e.stopPropagation(); menu.show(e, [{ label: 'Close conversation', action: () => session.closeDm(dm.key) }, { label: 'Delete history', action: () => session.deleteDm(dm.key) }]); }}>
+                <button class="dm"
+                  onclick={() => { session.selectView(dm.key); onnavigate(); }}>
+                  <Avatar name={dm.name} size={22} src={session.avatar(dm.user?.session)} />
+                  <span class="label" class:offline={!dm.user}>{dm.name}</span>
+                  {#if session.unread[dm.key]}<span class="badge">{session.unread[dm.key]}</span>{/if}
+                </button>
+                <button class="close" title="Close conversation" aria-label="Close conversation with {dm.name}"
+                  onclick={() => session.closeDm(dm.key)}><Icon name="x" size={14} /></button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <UserSelection list="tree" visibleIds={visiblePeople} />
+      {/if}
+    </div>
+  </div>
+
+  {#if self && sessions.voiceSession && sessions.voiceSession !== sessions.active}
+    <div class="elsewhere">
+      <span>Voice is on <strong>{sessions.voiceSession.server?.label}</strong>, deafened here</span>
+      <button class="btn" onclick={() => sessions.setVoice(sessions.active)}>Talk here</button>
+    </div>
+  {/if}
+  <UserBar toolbar={fill} />
+</aside>
+
+<style>
+  .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
+  .sidebar.fill { width: 100%; height: 100%; }
+  header { position: relative; isolation: isolate; height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
+  header.with-server { padding-left: 8px; }
+  /* Reaches the server button, so no dead gap between the two */
+  header.with-server .title { margin-left: -8px; padding-left: 10px; }
+  header.with-server > :global(.server-btn) { margin-top: 1px; }
+  .title { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; gap: 1px; padding-left: 16px; text-align: left; }
+  .title:disabled { opacity: 1; }
+  /* :where keeps this weaker than the themes that draw their own buttons */
+  header > .icon-btn:where(:hover, :active) { background: transparent; color: var(--danger); }
+  /* The button's click area fills its corner, up to the title and the header's edges */
+  header > .icon-btn { position: relative; }
+  header > .icon-btn::after { content: ''; position: absolute; left: -8px; right: -10px; top: calc(50% - (var(--header-h) - 1px) / 2); height: calc(var(--header-h) - 1px); }
+  .title strong { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .server-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mark { flex: none; width: 7px; display: flex; justify-content: center; }
+  .mark :global(svg) { flex: none; }
+  .voice-bad { color: var(--danger); white-space: nowrap; }
+  .status { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; background: var(--speaking); }
+  .tree-bg { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .scroll { flex: 1; overflow-y: auto; padding: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  h3 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint); margin: 18px 8px 6px; }
+  .dm-row { display: flex; align-items: stretch; transition: background 100ms var(--ease); }
+  .dm-row:hover { background: var(--bg-hover); }
+  .dm-row.viewing { background: var(--bg-active); }
+  .dm { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 8px; color: var(--text-dim); text-align: left; transition: color 100ms var(--ease); }
+  .dm-row:hover .dm, .dm-row.viewing .dm { color: var(--text); }
+  /* Shown on hover or focus; always on touch screens, which have no hover */
+  .close { flex: none; width: 28px; display: grid; place-items: center; color: var(--text-faint); opacity: 0; }
+  .dm-row:hover .close, .close:focus-visible { opacity: 1; }
+  .close:hover { color: var(--text); }
+  @media (hover: none) { .close { opacity: 1; } }
+  .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .offline { color: var(--text-faint); font-style: italic; }
+  .badge { flex: none; min-width: 18px; text-align: center; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; padding: 0 5px; line-height: 18px; }
+  .elsewhere { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; color: var(--text-dim); background: var(--bg-0); border-top: 1px solid var(--line); }
+  .elsewhere span { flex: 1; min-width: 0; }
+  .elsewhere .btn { padding: 4px 10px; font-size: 12px; }
+</style>
