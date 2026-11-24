@@ -10,6 +10,11 @@ interface CapacitorGlobal {
   nativeCallback?: (plugin: string, method: string, options: object, callback: (data: unknown) => void) => unknown;
 }
 
+// True inside the Android app (Capacitor shell), false in any browser
+export function inAndroidShell(): boolean {
+  return !!(globalThis as { Capacitor?: CapacitorGlobal }).Capacitor?.isNativePlatform?.();
+}
+
 function call(method: string, options: object): Promise<unknown> | null {
   const cap = (globalThis as { Capacitor?: CapacitorGlobal }).Capacitor;
   if (!cap?.isNativePlatform?.()) return null;
