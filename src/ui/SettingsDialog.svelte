@@ -213,7 +213,7 @@
         <option value="direct-only">Direct only</option>
         <option value="off">Off</option>
       </select>
-      <p class="help">When both clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. The relay operator can see your IP address. {isWeb ? 'The site you are on keeps the link to the relay for you, so it sees that traffic too. ' : ''}Changing this setting ends active screen shares.</p>
+      <p class="help">When both clients use Automatic, the app prefers a relay announced on the Mumble server’s own host. If the relay fails, the app tries the usual connection. {isWeb ? 'The site you are on keeps the link to the relay for you, so the relay sees that site’s address, not yours, and the site sees the traffic between you and the relay. ' : 'The relay operator can see your IP address. '}Changing this setting ends active screen shares.</p>
     {/if}
     <label for="s-stun">STUN server</label>
     <select id="s-stun" value={stunChoice} onchange={e => chooseStun(e.currentTarget.value)}>

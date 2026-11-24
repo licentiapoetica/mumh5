@@ -58,12 +58,15 @@ export interface ProxyConfig {
   debug: boolean;
   maxConnections: number;
   maxPerAddress: number;
+  // TLS ports the proxy dials for a mumpeer relay (the relay's own default is 443). Browsers name the
+  // port, so without this list a listed private server would make the proxy a scanner of its own host.
+  mumpeerPorts: number[];
   audioPackLimits: AudioPackLimits;
 }
 
 export const defaults: ProxyConfig = {
   port: 8080, bind: '127.0.0.1', servers: [], defaultServer: null, allowAny: false, allowPrivate: false, origins: [],
-  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, turnUrls: [], debug: false, maxConnections: 200, maxPerAddress: 8,
+  trustProxy: false, sendProxy: false, staticDir: null, stunPort: null, stunBind: '::', turn: true, turnIp: null, turnMinPort: 49160, turnMaxPort: 49659, turnMax: 500, turnPerAddress: 64, turnUrls: [], debug: false, maxConnections: 200, maxPerAddress: 8, mumpeerPorts: [443],
   audioPackLimits: DEFAULT_AUDIO_PACK_LIMITS
 };
 
@@ -123,6 +126,7 @@ export function configFromEnv(source: NodeJS.ProcessEnv): ProxyConfig {
     turnMax: Number(env.MUMH5_TURN_MAX ?? defaults.turnMax),
     turnPerAddress: Number(env.MUMH5_TURN_PER_ADDRESS ?? defaults.turnPerAddress),
     turnUrls: (env.MUMH5_TURN_URLS ?? '').split(',').map(s => s.trim()).filter(Boolean),
+    mumpeerPorts: env.MUMH5_MUMPEER_PORTS ? env.MUMH5_MUMPEER_PORTS.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0 && n < 65536) : defaults.mumpeerPorts,
     debug: on(env.MUMH5_DEBUG),
     maxConnections: Number(env.MUMH5_MAX_CONNECTIONS ?? defaults.maxConnections),
     maxPerAddress: Number(env.MUMH5_MAX_PER_ADDRESS ?? defaults.maxPerAddress),
@@ -376,6 +380,7 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
         // The relay is the Mumble server's own host, or any host this proxy would connect to for a user
         const sameHost = sameRelayHost(t.host, endpoint.host);
         if (!sameHost && !config.allowAny) throw new Error('This proxy only allows a relay on the Mumble server host');
+        if (!config.mumpeerPorts.includes(endpoint.tcp)) throw new Error('This proxy does not allow that relay port');
         const guard = sameHost ? t.guard : !config.allowPrivate;
         const rid: string = msg.rid;
         const host: LaneHost = async peer => {
@@ -389,7 +394,13 @@ export async function startProxy(config: ProxyConfig): Promise<{ port: number; s
         }, { lanes: host, lookup: guard ? publicLookup : undefined });
         relays.set(rid, { link, lowSide: msg.lowSide });
         // A link that never became ready is this request's to close; an existing one is not
-        try { await link.ready; } catch (error) { link.close(); throw error; }
+        // One answer for every way of not getting through, so the error cannot be used to probe a host;
+        // a refusal from a relay that identified itself (a pinned certificate) is the user's to see
+        try { await link.ready; } catch (error) {
+          link.close();
+          const reason = error instanceof Error ? error.message : '';
+          throw new Error(reason.startsWith('Mumpeer refused the link') ? reason : 'Could not connect to mumpeer');
+        }
         return null;
       }
       const relay = isRequestId(msg.rid) ? relays.get(msg.rid) : undefined;

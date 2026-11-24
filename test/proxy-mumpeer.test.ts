@@ -99,7 +99,7 @@ async function setup(over: Partial<ProxyConfig> = {}) {
   const relay = await fakeRelay();
   const proxy = await startProxy({
     ...defaults, port: 0, origins: ['*'], stunPort: 0, stunBind: '127.0.0.1', turnIp: '127.0.0.1',
-    servers: parseServers(`127.0.0.1:${mumble.port}`), ...over
+    servers: parseServers(`127.0.0.1:${mumble.port}`), mumpeerPorts: [relay.port], ...over
   });
   const base = `http://127.0.0.1:${proxy.port}`;
   return { mumble, relay, proxy, base, endpoint: { host: '127.0.0.1', tcp: relay.port, fp: relay.fp }, done: async () => { await proxy.close(); mumble.close(); relay.close(); } };
@@ -220,6 +220,9 @@ test('mumpeer requests are refused before the Mumble connection is secure, for o
     try {
       // A relay somewhere else is only for proxies that allow any server
       await assert.rejects(b.call({ type: 'relay-open', rid: '0123456789abcdef', address: { ...t.endpoint, host: 'relay.example.org' }, token: TOKEN, lowSide: true }), /only allows a relay on the Mumble server host/);
+      // The port must be one the operator listed, and nothing is dialed otherwise
+      await assert.rejects(b.call({ type: 'relay-open', rid: '0123456789abcdef', address: { ...t.endpoint, tcp: t.endpoint.tcp + 1 }, token: TOKEN, lowSide: true }), /does not allow that relay port/);
+      assert.equal(t.relay.frames.length, 0);
       await assert.rejects(b.call({ type: 'relay-open', rid: 'nothex', address: t.endpoint, token: TOKEN, lowSide: true }), /Invalid mumpeer connection/);
       await assert.rejects(b.call({ type: 'relay-open', rid: '0123456789abcdef', address: t.endpoint, token: 'short', lowSide: true }), /Invalid mumpeer connection/);
       // Nine links, then the tenth is refused; the same id twice is refused without closing the first
@@ -254,7 +257,7 @@ test('a relay on another host is refused when it resolves to a private address',
   const relay = await fakeRelay();
   const proxy = await startProxy({
     ...defaults, port: 0, origins: ['*'], stunPort: 0, stunBind: '127.0.0.1', turnIp: '127.0.0.1',
-    allowAny: true, servers: parseServers(`127.0.0.1:${mumble.port}`)
+    allowAny: true, servers: parseServers(`127.0.0.1:${mumble.port}`), mumpeerPorts: [relay.port]
   });
   const b = await browser(`http://127.0.0.1:${proxy.port}`, mumble.port);
   try {
@@ -296,6 +299,28 @@ test('the browser transport opens a link, gets TURN servers for the proxy and he
     await assert.rejects(transport.relayTurn('0123456789abcdef', 0), /unavailable/);
   } finally {
     transport.close();
+    await t.done();
+  }
+});
+
+test('every way of not getting through to the relay gives the same answer', async () => {
+  const dead = net.createServer();
+  await new Promise<void>(r => dead.listen(0, '127.0.0.1', r));
+  const deadPort = (dead.address() as net.AddressInfo).port;
+  await new Promise<void>(r => dead.close(() => r()));
+  const relay = await fakeRelay();
+  const t = await setup({ mumpeerPorts: [deadPort, relay.port] });
+  const b = await browser(t.base, t.mumble.port);
+  try {
+    const open = (address: object) => b.call({ type: 'relay-open', rid: '0123456789abcdef', address, token: TOKEN, lowSide: true });
+    // Nothing listens there, and a relay with another certificate than the one pinned
+    await assert.rejects(open({ ...t.endpoint, tcp: deadPort }), /^Error: Could not connect to mumpeer$/);
+    await assert.rejects(open({ host: '127.0.0.1', tcp: relay.port, fp: '00'.repeat(32) }), /^Error: Could not connect to mumpeer$/);
+    assert.equal(relay.frames.length, 0, 'no bind was sent to a relay that did not match');
+    await open({ host: '127.0.0.1', tcp: relay.port, fp: relay.fp });
+  } finally {
+    b.close();
+    relay.close();
     await t.done();
   }
 });

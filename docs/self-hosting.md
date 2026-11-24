@@ -47,6 +47,7 @@ For screen sharing, open these in the firewall (and forward them on a router in 
 | `MUMH5_TURN` | on | The relay (TURN) for people who cannot connect directly: mobile networks, strict company networks, browsers that forbid direct UDP such as Vanadium. `0` leaves only STUN |
 | `MUMH5_TURN_PORTS` | `49160-49659` | UDP ports the relayed streams use, one per relayed route |
 | `MUMH5_TURN_URLS` | none | Extra relay addresses handed to clients, comma-separated, for example `turns:turn.example.com:443?transport=tcp` when a TLS front forwards to port 3478. For networks that only let port 443 out |
+| `MUMH5_MUMPEER_PORTS` | `443` | TLS ports the proxy may dial for a mumpeer relay, comma-separated. Browsers name the port, so keep this to the relay's own port (see [mumpeer-relay.md](mumpeer-relay.md)) |
 | `MUMH5_DEBUG` | off | Log relay events (credentials handed out, routes granted or refused) |
 | `MUMH5_TURN_MAX`, `MUMH5_TURN_PER_ADDRESS` | `500`, `64` | Relayed routes in total and per client address. A camera round uses several per person |
 | `MUMH5_TURN_IP` | found automatically | The server's public address, announced for relayed streams. Set it when the server sits behind a 1:1 NAT, as on many cloud hosts |
