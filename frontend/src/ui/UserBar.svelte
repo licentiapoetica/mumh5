@@ -29,7 +29,9 @@
     if (share.screenOn) share.stop();
     else share.start(sessions.active);
   }
-  const cameraHint = $derived(share.cameraOn ? t('userBar.cameraOff') : share.screenOn ? t('userBar.cameraBlockedByScreen') : t('userBar.cameraOn'));
+  // Without WebRTC in the WebView (some Linux WebKitGTK builds) nothing can be shared or watched
+  const noWebrtc = typeof RTCPeerConnection === 'undefined';
+  const cameraHint = $derived(noWebrtc ? t('userBar.noWebrtc') : share.cameraOn ? t('userBar.cameraOff') : share.screenOn ? t('userBar.cameraBlockedByScreen') : t('userBar.cameraOn'));
 
   // One button for the whole tree. It follows the tree, which single channels can change too
   const allOpen = $derived(session.allExpanded);
@@ -110,7 +112,7 @@
           <Icon name="camera" size={18} />
         </button>
       {:else if item === 'screen'}
-        <button class="icon-btn" data-tool={index} class:live={share.screenOn} title={share.screenOn ? t('userBar.stopSharing') : share.cameraOn ? t('userBar.screenBlockedByCamera') : t('userBar.shareHint')}
+        <button class="icon-btn" data-tool={index} class:live={share.screenOn} title={noWebrtc ? t('userBar.noWebrtc') : share.screenOn ? t('userBar.stopSharing') : share.cameraOn ? t('userBar.screenBlockedByCamera') : t('userBar.shareHint')}
           aria-label={share.screenOn ? t('userBar.stopSharing') : t('userBar.share')} disabled={!share.screenOn && (!canShareScreen || share.cameraOn)} onclick={toggleShare}>
           <Icon name="screen" size={18} />
         </button>

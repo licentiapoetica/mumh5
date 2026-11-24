@@ -67,6 +67,9 @@ export interface Settings {
   toolbar: ToolbarLayout; // order of the toolbar's buttons and spacers, and the hidden buttons
   treeLines: boolean;     // lines and a root node in the channel tree
   settingsWindow: boolean; // desktop: Settings opens as a window of its own
+  hotkeys: { mute: string; deafen: string };  // key combinations (core/hotkeys.ts), '' for none
+  globalHotkeys: boolean;  // desktop: hotkeys also work in the background (desktop portal)
+  zoom: number;            // desktop: page zoom of every window, 1 = 100 %
   corners: Corners;       // rounded corners per group of elements; a group not listed stays square
 }
 
@@ -145,12 +148,15 @@ const defaults: Settings = {
   toolbar: DEFAULT_TOOLBAR,
   treeLines: true,
   settingsWindow: true,
+  hotkeys: { mute: '', deafen: '' },
+  globalHotkeys: false,
+  zoom: 1,
   corners: {}
 };
 
 // Where in Settings each setting is reset; parts of Appearance are its headings.
 // kept: not picked in Settings (window state, notices already seen).
-export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
+export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'hotkeys' | 'kept'
   | 'appearance.roles' | 'appearance.people' | 'appearance.layout'
   | 'appearance.background' | 'appearance.tree' | 'appearance.corners' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
@@ -163,7 +169,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   treeBackground: 'appearance.tree', treeBackgroundStyle: 'appearance.tree',
   publicListUrl: 'kept',
   arrangement: 'appearance.layout', classicSide: 'appearance.layout', tabBarBackground: 'appearance.layout',
-  toolbar: 'appearance.layout', treeLines: 'appearance.layout', settingsWindow: 'appearance.layout',
+  toolbar: 'appearance.layout', treeLines: 'appearance.layout', settingsWindow: 'appearance.layout', hotkeys: 'hotkeys', globalHotkeys: 'hotkeys', zoom: 'accessibility',
   railHidden: 'kept',
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
   shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',

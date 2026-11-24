@@ -72,6 +72,12 @@ export interface NativeApi extends PlatformApi {
   // Named audio outputs where the WebView lists none (Linux WebKitGTK): null when the sound server
   // cannot be asked. setAudioOutput moves this app's playback there ('default' for the system's).
   audioOutputs?(): Promise<{ id: string; label: string }[] | null>;
+  // System-wide hotkeys through the desktop portal: the triggers the desktop settled on per id
+  hotkeysBind?(shortcuts: { id: string; description: string; trigger: string | null }[]): Promise<{ id: string; trigger: string }[]>;
+  hotkeysUnbind?(): Promise<void>;
+  // Page zoom of every window of the desktop app (1 = 100 %)
+  setZoom?(factor: number): Promise<number>;
+  onHotkey?(fn: (id: string, pressed: boolean) => void): () => void;
   setAudioOutput?(id: string): Promise<void>;
   open(connId: string, host: string, port: number, identityId?: string): Promise<void>;
   send(connId: string, bytes: Uint8Array): void;

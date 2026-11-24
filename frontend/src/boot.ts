@@ -20,6 +20,8 @@ import { serverStatus } from './lib/server-status.svelte.ts';
 import { updates } from './lib/updates.svelte.ts';
 import { useWorkerTimers } from './lib/worker-timer.ts';
 import { startMediaControls } from './lib/media-controls.svelte.ts';
+import { hotkeys } from './lib/hotkeys.svelte.ts';
+import { zoom } from './lib/zoom.svelte.ts';
 
 debugLog.record('info', 'app', 'mumh5 started', { platform: isWeb ? 'web' : 'desktop', version: __MUMH5_BUILD__.version });
 if (isWeb) void proxyInfo.load();
@@ -37,6 +39,8 @@ startHints();
 serverStatus.start();
 updates.start();
 startMediaControls();
+hotkeys.start();
+zoom.start();
 
 startAndroidControls();
 connLog.start();

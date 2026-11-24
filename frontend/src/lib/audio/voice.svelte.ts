@@ -772,6 +772,15 @@ class VoiceEngine {
     // Typing in a text field does not trigger push to talk
     const t = e.target as HTMLElement | null;
     if (down && t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (this.pttGlobal) return; // the system-wide hotkey reports it (the desktop may not pass the key on)
+    this.setPtt(down);
+  }
+
+  /** While the system-wide push-to-talk hotkey is bound, the window's own key handling stays out. */
+  pttGlobal = false;
+
+  /** Push to talk pressed or released, by the window's key or a system-wide hotkey. */
+  setPtt(down: boolean): void {
     if (this.pttDown === down) return;
     this.pttDown = down;
     if (this.settings.mode === 'ptt' && this.client) {

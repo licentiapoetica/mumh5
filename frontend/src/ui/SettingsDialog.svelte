@@ -9,6 +9,8 @@
   import IdentityList from './IdentityList.svelte';
   import AppearanceSettings from './AppearanceSettings.svelte';
   import SoundSettings from './SoundSettings.svelte';
+  import HotkeySettings from './HotkeySettings.svelte';
+  import { zoom } from '../lib/zoom.svelte.ts';
   import ResetButton from './ResetButton.svelte';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { sounds } from '../lib/audio/sounds.svelte.ts';
@@ -27,7 +29,7 @@
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
 
-  type Tab = 'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about';
+  type Tab = 'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'hotkeys' | 'files' | 'identities' | 'about';
   let debugOpen = $state(false);
 
   // onpopout: moves Settings to a window of its own; false if it could not be opened
@@ -100,6 +102,7 @@
     { id: 'sounds', label: t('settings.tab.sounds') },
     { id: 'appearance', label: t('settings.tab.appearance') },
     { id: 'accessibility', label: t('settings.tab.accessibility') },
+    { id: 'hotkeys', label: t('settings.tab.hotkeys') },
     { id: 'files', label: t('settings.tab.files') },
     ...(native ? [{ id: 'identities' as Tab, label: t('settings.tab.identities') }] : []),
     { id: 'about', label: t('settings.tab.about') }
@@ -129,6 +132,7 @@
         note: 'Back to the defaults. Background images stay on this device.'
       };
       case 'accessibility': return { what: 'accessibility settings', changed: !store.isDefault('accessibility'), run: () => store.resetSettings('accessibility') };
+      case 'hotkeys': return { what: 'hotkeys', changed: !store.isDefault('hotkeys'), run: () => store.resetSettings('hotkeys'), note: 'Clears the mute and deafen keys and turns system-wide hotkeys off. The push-to-talk key belongs to Voice.' };
       case 'files': return {
         what: 'chat and file settings', changed: !store.isDefault('files'),
         run: () => { store.resetSettings('files'); embedHosts = s.embedHosts.join('\n'); },
@@ -238,12 +242,24 @@
     <SoundSettings />
   {:else if tab === 'appearance'}
     <AppearanceSettings />
+  {:else if tab === 'hotkeys'}
+    <HotkeySettings />
   {:else if tab === 'accessibility'}
     <label for="s-lang">{t('settings.language')}</label>
     <select id="s-lang" bind:value={s.language} onchange={() => store.saveSettings()}>
       <option value="auto">{t('settings.languageAuto')}</option>
       {#each LANGUAGES as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
     </select>
+    {#if zoom.available}
+      <span class="pick-label" id="s-zoom">Zoom</span>
+      <div class="zoom-row" role="group" aria-labelledby="s-zoom">
+        <button class="btn" onclick={() => zoom.step(-1)} aria-label="Zoom out">-</button>
+        <span class="zoom-value" role="status">{Math.round(zoom.factor * 100)} %</span>
+        <button class="btn" onclick={() => zoom.step(1)} aria-label="Zoom in">+</button>
+        <button class="btn" onclick={() => zoom.set(1)} disabled={zoom.factor === 1}>Reset</button>
+      </div>
+      <p class="help">Also with Ctrl and +, - or 0, and Ctrl with the mouse wheel, as in a browser.</p>
+    {/if}
     <p class="help">{t('settings.languageHelp')}</p>
     <label class="check"><input type="checkbox" bind:checked={s.hints} onchange={() => store.saveSettings()} /> {t('settings.hints')}</label>
     <p class="help">Hints are the small labels that appear on hover. Screen readers get the names either way.</p>
@@ -405,6 +421,8 @@
   .credits .lic { margin-left: 6px; font-size: 12px; color: var(--text-faint); }
   .credits .what { color: var(--text-dim); }
   .link { color: var(--link); font-size: inherit; }
+  .zoom-row { display: flex; gap: 8px; align-items: center; }
+  .zoom-value { min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
 </style>
 
 {#if debugOpen}<DebugLog onclose={() => (debugOpen = false)} />{/if}

@@ -35,6 +35,9 @@ struct AppState {
     attention: Arc<std::sync::atomic::AtomicBool>,
     audio: mumh5_platform::pipewire::ShareAudio,
     output: mumh5_platform::audio_output::OutputRouter,
+    hotkeys: Arc<tokio::sync::Mutex<Option<mumh5_platform::shortcuts::Bound>>>,
+    // Page zoom of every window, as a browser's (1.0 = 100 %)
+    zoom: Arc<Mutex<f64>>,
     profile: Arc<Mutex<Profile>>,
     wires: Arc<Mutex<HashMap<String, Wire>>>,
 }
@@ -72,6 +75,58 @@ async fn platform_call(
                 return Ok(
                     json!({"portal":true,"audio":if cfg!(target_os="windows"){"loopback"}else if mumh5_platform::pipewire::ShareAudio::available().await{"pipewire"}else{"none"},"micLabel":mumh5_platform::pipewire::ShareAudio::label()}),
                 );
+            }
+            // System-wide hotkeys (desktop portal): replaces earlier ones; presses and releases
+            // reach the page as "hotkey" events
+            "hotkeysBind" => {
+                use tauri::Emitter;
+                let list = args["shortcuts"].as_array().cloned().unwrap_or_default();
+                if list.len() > 16 {
+                    anyhow::bail!("Too many hotkeys");
+                }
+                let shortcuts = list
+                    .iter()
+                    .map(|s| mumh5_platform::shortcuts::Shortcut {
+                        id: string(s, "id").chars().take(64).collect(),
+                        description: string(s, "description").chars().take(200).collect(),
+                        trigger: s["trigger"]
+                            .as_str()
+                            .filter(|t| !t.is_empty())
+                            .map(str::to_owned),
+                    })
+                    .collect();
+                let mut current = state.hotkeys.lock().await;
+                current.take();
+                let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, bool)>();
+                let (bound, answer) = mumh5_platform::shortcuts::bind(shortcuts, tx).await?;
+                *current = Some(bound);
+                let events = app.clone();
+                tokio::spawn(async move {
+                    while let Some((id, pressed)) = rx.recv().await {
+                        let _ =
+                            events.emit_to("main", "hotkey", json!({"id": id, "pressed": pressed}));
+                    }
+                });
+                return Ok(json!(answer));
+            }
+            "setZoom" => {
+                let factor = args["factor"]
+                    .as_f64()
+                    .filter(|f| f.is_finite())
+                    .unwrap_or(1.0)
+                    .clamp(0.3, 3.0);
+                *state
+                    .zoom
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Zoom lock poisoned"))? = factor;
+                for window in app.webview_windows().into_values() {
+                    let _ = window.set_zoom(factor);
+                }
+                return Ok(json!(factor));
+            }
+            "hotkeysUnbind" => {
+                state.hotkeys.lock().await.take();
+                return Ok(Value::Null);
             }
             "audioOutputs" => {
                 return Ok(json!(
@@ -765,6 +820,8 @@ pub fn run() {
                 attention: Default::default(),
                 audio: Default::default(),
                 output: Default::default(),
+                hotkeys: Default::default(),
+                zoom: Arc::new(Mutex::new(1.0)),
                 profile: Arc::new(Mutex::new(if isolated {
                     Profile::open(directory.clone())?
                 } else {
@@ -863,7 +920,7 @@ pub fn run() {
             )
             .title("mumh5")
             .inner_size(1280., 800.)
-            .min_inner_size(680., 480.)
+            .min_inner_size(360., 420.)
             .data_directory(directory.join("webview"))
             .on_page_load(|webview, payload| {
                 #[cfg(feature = "smoke-test")]
@@ -898,6 +955,14 @@ pub fn run() {
                     .build()
                     {
                         Ok(window) => {
+                            // A new window (Settings) starts at the app's zoom
+                            if let Some(zoom) = popup_app
+                                .try_state::<AppState>()
+                                .and_then(|s| s.zoom.lock().ok().map(|z| *z))
+                                && (zoom - 1.0).abs() > f64::EPSILON
+                            {
+                                let _ = window.set_zoom(zoom);
+                            }
                             // window.close() from the page: wry answers by destroying only the WebKit
                             // view, which also drops later "close" handlers, and the empty native
                             // window stays. Close the window when its view is destroyed.
@@ -957,6 +1022,10 @@ pub fn run() {
                 use webkit2gtk::{SettingsExt, WebViewExt};
                 if let Some(settings) = view.inner().settings() {
                     settings.set_javascript_can_open_windows_automatically(true);
+                    // WebKitGTK ships WebRTC switched off: without it there is no RTCPeerConnection,
+                    // so screen sharing and cameras between people cannot connect.
+                    settings.set_enable_webrtc(true);
+                    settings.set_enable_media_stream(true);
                 }
             });
             #[cfg(desktop)]

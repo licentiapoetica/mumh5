@@ -78,6 +78,30 @@ try {
  await configure.click(); await page.getByRole('dialog', { name: 'Settings', exact: true }).waitFor();
  await page.getByRole('button', { name: 'Done', exact: true }).click(); await settingsReachable(page);
  console.log('PASS toolbar Configure button opens Settings');
+ // Hotkeys: record a mute combination in the new section, then use it
+ await openSettings(page);
+ await page.getByRole('tab', { name: 'Hotkeys', exact: true }).click();
+ require(await page.getByRole('checkbox', { name: /in the background/ }).count() === 0, 'System-wide option shown in the browser');
+ await page.locator('#hk-mute').click();
+ await page.keyboard.press('Control+Shift+KeyM');
+ require((await page.locator('#hk-mute').innerText()).includes('Ctrl + Shift + M'), `Recorded hotkey: ${await page.locator('#hk-mute').innerText()}`);
+ await page.getByRole('button', { name: 'Done', exact: true }).click(); await settingsReachable(page);
+ const micButton = () => page.locator('button[aria-label="Mute"], button[aria-label="Unmute"]').first();
+ const before = await micButton().getAttribute('aria-label');
+ await page.keyboard.press('Control+Shift+KeyM');
+ await page.waitForFunction(b => document.querySelector('button[aria-label="Mute"], button[aria-label="Unmute"]')?.getAttribute('aria-label') !== b, before);
+ await page.keyboard.press('Control+Shift+KeyM');
+ await page.waitForFunction(b => document.querySelector('button[aria-label="Mute"], button[aria-label="Unmute"]')?.getAttribute('aria-label') === b, before);
+ // A plain key typed into the chat stays text: give mute a single key and type it
+ await openSettings(page); await page.getByRole('tab', { name: 'Hotkeys', exact: true }).click();
+ await page.locator('#hk-mute').click(); await page.keyboard.press('KeyQ');
+ await page.getByRole('button', { name: 'Done', exact: true }).click(); await settingsReachable(page);
+ const composer = page.locator('[contenteditable=true]').first();
+ if (await composer.isVisible()) { await composer.click(); await page.keyboard.press('KeyQ'); require(await micButton().getAttribute('aria-label') === before, 'A single-key hotkey fired while typing'); await composer.fill(''); }
+ await openSettings(page); await page.getByRole('tab', { name: 'Hotkeys', exact: true }).click();
+ await page.getByRole('button', { name: 'Clear' }).first().click();
+ await page.getByRole('button', { name: 'Done', exact: true }).click(); await settingsReachable(page);
+ console.log('PASS hotkeys: recorded in Settings, toggle mute, stay out of typing');
  for (const name of ['Modern', 'Classic', 'Stacked']) {
   await openSettings(page);
   await page.getByRole('tab', { name: 'Appearance', exact: true }).click();

@@ -46,7 +46,7 @@ class Ui {
   quickAudio = $state<{ kind: 'input' | 'output'; anchor: HTMLElement; x: number; top: number; bottom: number; tools?: ToolbarEdit } | null>(null);
   // The toolbar's editor, from right-clicking it
   toolbarEdit = $state<ToolbarEdit | null>(null);
-  settingsTab = $state<'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'files' | 'identities' | 'about'>('voice');
+  settingsTab = $state<'voice' | 'video' | 'sharing' | 'sounds' | 'appearance' | 'accessibility' | 'hotkeys' | 'files' | 'identities' | 'about'>('voice');
   publicServers = $state(false);
   serverInfo = $state(false);
   // Image shown large (clicked in the chat or in a description)

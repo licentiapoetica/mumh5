@@ -1,6 +1,7 @@
 import { mount, unmount } from 'svelte';
 import SettingsWindow from '../ui/SettingsWindow.svelte';
 import { startHints } from './hints.ts';
+import { zoom } from './zoom.svelte.ts';
 import { ui } from './ui.svelte.ts';
 
 type Tab = typeof ui.settingsTab;
@@ -54,6 +55,7 @@ class SettingsWindowStore {
     box.style.height = '100%';
     doc.body.replaceChildren(box);
     startHints(doc);
+    zoom.attach(w);
 
     this.win = w;
     this.usedLast = true;

@@ -156,6 +156,8 @@ export async function initializePlatform(): Promise<void> {
   pickScreenSource() {}, shareInfo: () => call('shareInfo'), shareAudioApps: () => call('shareAudioApps'),
   shareAudioStart: target => call('shareAudioStart', { target }), shareAudioStop: () => call('shareAudioStop'),
   audioOutputs: () => call('audioOutputs'), setAudioOutput: id => call('setAudioOutput', { id }),
+  hotkeysBind: shortcuts => call('hotkeysBind', { shortcuts }), hotkeysUnbind: () => call('hotkeysUnbind'), setZoom: factor => call('setZoom', { factor }),
+  onHotkey: fn => { let off: (() => void) | null = null, gone = false; void listen<{ id: string; pressed: boolean }>('hotkey', e => fn(e.payload.id, e.payload.pressed)).then(u => { if (gone) u(); else off = u; }); return () => { gone = true; off?.(); }; },
   canPickColor: () => call('canPickColor'), pickColor: () => call('pickColor'),
   async open(id, host, port, identityId) {
    active.add(id);

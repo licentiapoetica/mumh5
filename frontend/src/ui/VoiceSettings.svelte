@@ -83,7 +83,7 @@
       </button>
       <span class="hint" class:on={voice.pttDown}>{voice.pttDown ? 'Talking' : 'Hold the key to talk'}</span>
     </div>
-    <p class="help">Works while mumh5 is focused. System-wide push to talk is planned.</p>
+    <p class="help">Also under Hotkeys, where it can work while mumh5 is in the background.</p>
   {/if}
 
   <label for="v-level">Input level{s.mode === 'vad' ? ' and threshold' : ''}</label>
