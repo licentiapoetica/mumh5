@@ -16,6 +16,7 @@ import { proxyInfo } from './lib/web.svelte.ts';
 import { serverStatus } from './lib/server-status.svelte.ts';
 import { updates } from './lib/updates.svelte.ts';
 import { useWorkerTimers } from './lib/worker-timer.ts';
+import { startAndroidControls } from './lib/android-controls.svelte.ts';
 import { connLog } from './lib/conn-log.svelte.ts';
 import { startMediaControls } from './lib/media-controls.svelte.ts';
 
@@ -32,4 +33,5 @@ startHints();
 serverStatus.start();
 updates.start();
 startMediaControls();
+startAndroidControls();
 connLog.start();
