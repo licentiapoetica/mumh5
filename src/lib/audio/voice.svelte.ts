@@ -1,5 +1,4 @@
-import { androidVoiceStart, androidVoiceStop } from '../android-shell.ts';
-import { holdPageLock, releasePageLock } from './page-lock.ts';
+import { androidVoiceStart, androidVoiceStop, inAndroidShell } from '../android-shell.ts';
 import { WasmEncoder, WasmDecoder, type Opus } from './opus-wasm.ts';
 import { loadOpus } from './opus-load.ts';
 import captureUrl from './capture.worklet.ts?worker&url';
@@ -218,6 +217,8 @@ class VoiceEngine {
 
   // Starts the audio graph; safe to call repeatedly
   async start(): Promise<void> {
+    // A stop still closing the old context (a reconnect right after a drop) must finish first
+    await this.pendingStop;
     if (this.ctx) return;
     this.error = '';
     try {
@@ -246,7 +247,7 @@ class VoiceEngine {
       for (const [s, g] of this.sessionGains) this.playback.port.postMessage({ session: s, gain: g });
       this.playback.connect(this.outputGainNode).connect(ctx.destination);
       this.direct = true;
-      if (android) this.startOutputElement(ctx);
+      if (android && !inAndroidShell()) this.startOutputElement(ctx);  // the shell has its own service notification
 
       this.inputGainNode = new GainNode(ctx, { gain: this.settings.inputGain });
       this.capture = new AudioWorkletNode(ctx, 'mumh5-capture', { numberOfOutputs: 0 });
@@ -259,13 +260,14 @@ class VoiceEngine {
         if ((ctx.state as string) === 'interrupted') ctx.resume().catch(() => {});
       });
       await this.applyOutputDevice();
-      await this.syncInput();
+      // Not awaited: a browser may hold the request while the tab is hidden, and the watchdog
+      // opens the microphone later if it did not come
+      void this.syncInput();
       this.configureEncoder();
       // Safari can leave this pending outside a gesture; the wake handlers above finish it later
       ctx.resume().catch(() => {});
       this.levelTimer = setInterval(() => { this.level = this.levelRaw; this.watchdog(); }, 50);
       this.running = true;
-      holdPageLock();
       androidVoiceStart();
       this.syncAwake();
       // Not awaited: voice works with the browser's filter until the model is ready
@@ -277,7 +279,13 @@ class VoiceEngine {
     }
   }
 
-  async stop(): Promise<void> {
+  private pendingStop: Promise<void> | null = null;
+
+  stop(): Promise<void> {
+    return this.pendingStop = this.halt();
+  }
+
+  private async halt(): Promise<void> {
     this.endTransmission();
     if (this.levelTimer) clearInterval(this.levelTimer);
     this.levelTimer = null;
@@ -297,7 +305,6 @@ class VoiceEngine {
     this.ctx = null;
     this.capture = this.playback = null;
     this.running = false;
-    releasePageLock();
     androidVoiceStop();
     this.syncAwake();
     this.transmitting = false;
@@ -307,7 +314,9 @@ class VoiceEngine {
 
   // The microphone is not needed while we cannot talk anyway (muted or deafened, by us or the server)
   private micWanted(): boolean {
-    if (!this.settings.releaseMicMuted || this.testing) return true;
+    // The Android app cannot open the microphone again with the screen off (getUserMedia just waits),
+    // so unmuting from the notification would not bring it back
+    if (!this.settings.releaseMicMuted || this.testing || inAndroidShell()) return true;
     const self = this.client?.self;
     return !self || !(self.selfMute || self.mute || self.suppress || self.selfDeaf || self.deaf);
   }
@@ -337,6 +346,7 @@ class VoiceEngine {
     const s = this.settings;
     const browserNoise = this.browserNoise();
     let stream: MediaStream;
+    this.openingSince = performance.now();
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -349,9 +359,13 @@ class VoiceEngine {
         }
       });
     } catch (e) {
+      this.openingSince = 0;
       this.error = `Microphone unavailable: ${(e as Error).message}`;
+      connLog.add(`microphone unavailable (${(e as Error).name})${document.hidden ? ' while the page was hidden' : ''}`);
       return;
     }
+    this.openingSince = 0;
+    this.autoOpens = 0;
     // Muted again, or opened a second time, while the browser was getting the microphone
     if (!this.ctx || !this.inputGainNode || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
     this.stream = stream;
@@ -517,6 +531,7 @@ class VoiceEngine {
   attach(client: MumbleClient): void {
     this.unsubscribe.forEach(off => off());
     this.client = client;
+    this.autoOpens = 0;
     this.stats = { sent: 0, received: 0, decoded: 0, lost: 0 };
     this.unsubscribe = [
       client.on('voice', raw => { if (this.client === client) this.receive(raw); }),
@@ -581,6 +596,8 @@ class VoiceEngine {
     this.encoder = encoder;
   }
 
+  private autoOpens = 0;         // tries by the watchdog since the last connection or success
+  private openingSince = 0;     // a request for the microphone is out since then, 0 when none
   private lastFrameAt = 0;       // when the capture worklet last delivered audio
   private lastSentAt = 0;        // when a voice packet last left
   private talkingSince = 0;
@@ -598,30 +615,42 @@ class VoiceEngine {
   // although it is open), and speech that reaches the encoder but never leaves
   private watchdog(): void {
     const now = performance.now();
+    // Wanted but not open: the request failed or was held while the page was hidden (a reconnect
+    // that happened in the background), or never came. Only tried with the page visible, where the
+    // browser answers; a request still out after 10 s is tried again.
+    // At most three tries, so a microphone that is denied or missing does not ask over and over
+    if (this.running && !this.stream && !document.hidden && this.autoOpens < 3 && this.micWanted() && (!this.openingSince || now - this.openingSince > 10000) && now - this.lastHeal > 5000) {
+      this.autoOpens++;
+      connLog.add('microphone is not open, opening it');
+      this.openingSince = 0;
+      this.reopenInput();
+    }
     if (this.micOpen && this.ctx?.state === 'running' && now - this.lastFrameAt > 2000) {
       connLog.add('microphone gave no audio for 2 s, opening it again');
       this.lastFrameAt = now;
       this.reopenInput();
     }
     if (this.transmitting && now - this.talkingSince > 2000 && now - this.lastSentAt > 2000) {
-      connLog.add('speech was not sent for 2 s, rebuilding the encoder');
       this.lastSentAt = now;
-      this.configureEncoder();
+      this.rebuildEncoder('speech was not sent for 2 s');
     }
   }
 
-  private lastRevive = 0;
+  private lastRebuild = 0;
 
-  // The encoder, made again if it was closed (reclaimed by the browser, or failed). At most once
-  // a second, so a codec that cannot start does not make a loop.
-  private encoderReady(): boolean {
-    const configured = () => this.encoder?.state === 'configured';
-    if (configured()) return true;
+  // The one way to make the encoder again (closed by the browser or failed, or sending nothing).
+  // At most once a second, so a codec that cannot start does not make a loop.
+  private rebuildEncoder(why: string): boolean {
     const now = performance.now();
-    if (!this.ctx || now - this.lastRevive < 1000) return false;
-    this.lastRevive = now;
+    if (!this.ctx || now - this.lastRebuild < 1000) return false;
+    this.lastRebuild = now;
+    connLog.add(`encoder rebuilt: ${why}`);
     try { this.configureEncoder(); } catch (e) { this.error = `Encoder: ${(e as Error).message}`; }
-    return configured();
+    return this.encoder?.state === 'configured';
+  }
+
+  private encoderReady(): boolean {
+    return this.encoder?.state === 'configured' || this.rebuildEncoder('encoder was closed');
   }
 
   private canTalk(): boolean {
@@ -738,7 +767,7 @@ class VoiceEngine {
       else {
         decoder = new AudioDecoder({
           output: data => this.onDecoded(session, data),
-          error: () => this.dropSession(session)
+          error: () => this.replaceDecoder(session, 'decoder failed')
         });
         decoder.configure({ codec: 'opus', sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
       }
@@ -748,7 +777,7 @@ class VoiceEngine {
     }
     // The browser took the decoder back (a tab in the background): start a new one
     if (d.decoder instanceof WasmDecoder === false && (d.decoder as AudioDecoder).state === 'closed') {
-      this.dropSession(p.session);
+      this.replaceDecoder(p.session, 'decoder was closed');
       return this.receive(raw);
     }
     if (d.lastFrame >= 0 && p.frame > d.lastFrame + 6 && p.frame - d.lastFrame < 500) this.stats.lost++;
@@ -763,7 +792,7 @@ class VoiceEngine {
         }
       } else {
         try { d.decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: p.frame * 10000, data: p.opus })); }
-        catch { this.dropSession(p.session); }
+        catch { this.replaceDecoder(p.session, 'decoder failed'); }
       }
     }
     if (!this.talking[p.session]) this.talking[p.session] = true;
@@ -778,6 +807,18 @@ class VoiceEngine {
     data.close();
     this.stats.decoded++;
     this.playback?.port.postMessage({ session, pcm }, [pcm.buffer]);
+  }
+
+  private lastDecoderLog = 0;
+
+  // The one way to replace a closed or failing decoder: dropped here, made again on the next packet
+  private replaceDecoder(session: number, why: string): void {
+    const now = performance.now();
+    if (now - this.lastDecoderLog >= 1000) {
+      this.lastDecoderLog = now;
+      connLog.add(`${why}, replacing it`);
+    }
+    this.dropSession(session);
   }
 
   private dropSession(session: number): void {

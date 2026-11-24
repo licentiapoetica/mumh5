@@ -1,0 +1,10 @@
+{
+  "name": "mumh5-android",
+  "private": true,
+  "description": "Capacitor shell around the hosted mumh5 web build; see CLAUDE.md",
+  "devDependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  }
+}
