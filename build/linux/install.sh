@@ -47,11 +47,14 @@ if [ "$mode" = system ]; then
   app=/opt/mumh5
   bin=/usr/local/bin
   menu=/usr/share/applications
+  # Not /usr/share: the .deb package owns the mumh5 icons there
+  icons=/usr/local/share/icons/hicolor
 else
   data=${XDG_DATA_HOME:-$HOME/.local/share}
   app=$data/mumh5
   bin=$HOME/.local/bin
   menu=$data/applications
+  icons=$data/icons/hicolor
 fi
 
 if [ "$src" = "$app" ]; then
@@ -94,14 +97,28 @@ chmod 755 "$bin/mumh5"
   echo 'Name=mumh5'
   echo 'Comment=Modern Mumble client'
   echo "Exec=\"$bin/mumh5\" %U"
-  echo "Icon=$app/mumh5.png"
+  echo "Icon=mumh5"
   echo 'Terminal=false'
   echo 'Categories=Network;Chat;'
   echo 'Keywords=mumble;voice;chat;voip;'
   echo 'StartupWMClass=mumh5'
 } > "$menu/mumh5.desktop"
 
+# The icon goes into the icon theme under the app's name: Wayland compositors (KWin, Mutter) find
+# a window's icon through its desktop file and load it by name, which a file path does not satisfy.
+for size in 32 64 128 256 512; do
+  icon=$app/icons/$size.png
+  [ -f "$icon" ] || { [ "$size" = 512 ] && icon=$app/mumh5.png; }
+  [ -f "$icon" ] || continue
+  mkdir -p "$icons/${size}x${size}/apps"
+  cp "$icon" "$icons/${size}x${size}/apps/mumh5.png"
+done
+command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -f "$icons/index.theme" ] && gtk-update-icon-cache -q "$icons" 2>/dev/null || true
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$menu" 2>/dev/null || true
+# KDE reads desktop files through its own cache
+if [ "$mode" = user ]; then
+  for k in kbuildsycoca6 kbuildsycoca5; do command -v "$k" >/dev/null 2>&1 && { "$k" >/dev/null 2>&1 || true; break; }; done
+fi
 
 echo "Done. Start it from your app menu or with: mumh5"
 case ":$PATH:" in
