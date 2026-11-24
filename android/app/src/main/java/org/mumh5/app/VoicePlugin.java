@@ -46,11 +46,13 @@ public class VoicePlugin extends Plugin {
     }
 
     private void startService(PluginCall call) {
+        keepPageVisible(true);
         Intent i = new Intent(getContext(), VoiceService.class);
         i.putExtra("text", call.getString("text", "In voice"));
         try {
             ContextCompat.startForegroundService(getContext(), i);
         } catch (RuntimeException e) {
+            keepPageVisible(false);
             call.reject(e.getMessage());
             return;
         }
@@ -71,7 +73,14 @@ public class VoicePlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        keepPageVisible(false);
         getContext().stopService(new Intent(getContext(), VoiceService.class));
         call.resolve(new JSObject());
+    }
+
+    private void keepPageVisible(boolean keep) {
+        if (getBridge().getWebView() instanceof VoiceWebView) {
+            getActivity().runOnUiThread(() -> ((VoiceWebView) getBridge().getWebView()).setKeepVisible(keep));
+        }
     }
 }
