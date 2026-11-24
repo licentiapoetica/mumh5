@@ -25,7 +25,7 @@ public class VoiceService extends Service {
         PendingIntent tap = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE);
         String text = intent != null && intent.getStringExtra("text") != null ? intent.getStringExtra("text") : "In voice";
         Notification n = new Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_stat_voice)
             .setContentTitle("mumh5")
             .setContentText(text)
             .setContentIntent(tap)
