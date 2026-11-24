@@ -22,8 +22,8 @@
   results.push('native identity wizard and private key isolation');
   const ping = await api.pingServer('127.0.0.1', 64750); if (!ping || ping.maxUsers < 1) throw new Error('UDP ping failed');
   results.push('native UDP server ping');
-  await api.sounds.write('test', new Uint8Array([1, 3, 5]));
-  const sound = await api.sounds.read('test'); if (sound?.join() !== '1,3,5') throw new Error('Sound file round trip failed'); await api.sounds.remove('test');
+  await api.sounds.write('sound:message', new Uint8Array([1, 3, 5]));
+  const sound = await api.sounds.read('sound:message'); if (sound?.join() !== '1,3,5') throw new Error('Sound file round trip failed'); await api.sounds.remove('sound:message');
   results.push('native sound storage');
   let udp = false; const stopUdp = api.on('udpState', (_id, ok) => { udpEvents.push(ok); if (ok) udp = true; });
   const originalSetup = api.udpSetup; api.udpSetup = (...args) => { udpEvents.push({key: args[1].length, cn: args[2].length, sn: args[3].length, protobuf: args[4]}); originalSetup(...args); };

@@ -168,15 +168,16 @@ async fn platform_call(
                     let key = string(&args, "key");
                     if key.is_empty()
                         || key.len() > 128
-                        || !key
-                            .bytes()
-                            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+                        || !key.bytes().all(|c| {
+                            c.is_ascii_alphanumeric() || c == b'-' || c == b'_' || c == b':'
+                        })
                     {
                         bail!("Invalid sound key");
                     }
                     let dir = p.directory.join("sounds");
                     std::fs::create_dir_all(&dir)?;
-                    let path = dir.join(format!("{key}.bin"));
+                    let filename = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);
+                    let path = dir.join(format!("{filename}.bin"));
                     match action.as_str() {
                         "soundRead" => Ok(std::fs::read(path)
                             .ok()
