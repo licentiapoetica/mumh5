@@ -106,6 +106,10 @@ jobs:
           key: desktop-${{ runner.os }}-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
       - run: ./tools/bootstrap.sh
       - name: Native Tauri installers
+        env:
+          # Git Bash on Windows rewrites arguments like /nologo into paths for MSVC tools
+          MSYS_NO_PATHCONV: 1
+          MSYS2_ARG_CONV_EXCL: '*'
         run: |
           source tools/env.sh
           cd crates/desktop
