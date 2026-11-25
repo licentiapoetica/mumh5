@@ -9,7 +9,7 @@
 // and CHROMIUM_PATH to the Chromium executable. Always use a disposable test server:
 // this script replaces its channels with the screenshot scene.
 import { _electron as electron, chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startGateway, type Gateway } from './gateway.ts';
 import assert from 'node:assert/strict';
 import electronPath from 'electron';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -38,7 +38,7 @@ const clients: MumbleClient[] = [];
 const apps: { close(): Promise<void> }[] = [];
 const pageErrors: string[] = [];
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
-let proxy: ReturnType<typeof spawn> | undefined;
+let proxy: Gateway['process'] | undefined;
 const proxyPort = 18440;
 
 async function launchClient() {
@@ -127,16 +127,8 @@ const SCENE = `(() => {
 
 try {
   if (web) {
-    proxy = spawn(process.execPath, [path.join(root, 'dist-proxy/proxy.mjs')], {
-      env: { ...process.env, MUMH5_SERVERS: `${target}=Community`, MUMH5_DEFAULT_SERVER: '', MUMH5_PORT: String(proxyPort),
-        MUMH5_STUN_PORT: '18441', MUMH5_STUN_BIND: '127.0.0.1', MUMH5_TURN_IP: '127.0.0.1', MUMH5_ALLOW_PRIVATE: '1' },
-      stdio: ['ignore', 'pipe', 'inherit']
-    });
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Proxy startup timed out')), 10000);
-      proxy!.stdout!.on('data', data => { if (String(data).includes('listening')) { clearTimeout(timeout); resolve(); } });
-      proxy!.on('exit', code => { clearTimeout(timeout); reject(new Error(`Proxy exited: ${code}`)); });
-    });
+    proxy = (await startGateway({ ...process.env, MUMH5_SERVERS: `${target}=Community`, MUMH5_DEFAULT_SERVER: '', MUMH5_PORT: String(proxyPort),
+      MUMH5_STUN_PORT: '18441', MUMH5_STUN_BIND: '127.0.0.1', MUMH5_TURN_IP: '127.0.0.1', MUMH5_ALLOW_PRIVATE: '1' })).process;
     browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true,
       args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output'] });
   }

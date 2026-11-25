@@ -4,7 +4,7 @@ import tls from 'node:tls';
 import type { LocalTurn, RelayEndpoint } from '../src/core/mumpeer-signal.ts';
 
 export type { LocalTurn };
-import { CREDENTIAL_TTL, startTurn, turnCredential, type VirtualTurnPeer } from '../server/turn.ts';
+import { CREDENTIAL_TTL, startTurn, turnCredential, type VirtualTurnPeer } from './turn.ts';
 
 const ALPN = 'mumpeer/1';
 const MAX_FRAME = 1500;
