@@ -537,11 +537,11 @@ async fn main() -> Result<()> {
     // Each shard is a single-threaded runtime with its own listener on the same port; the
     // kernel spreads connections over them. A connection's WebSocket, Mumble socket and tunnel
     // then stay on one thread, while the work-stealing runtime woke idle workers on every packet.
-    let first = listen(bind)?;
+    let first = listen(bind, shards > 1)?;
     let bind = first.local_addr()?;
     let mut listeners = vec![first];
     for _ in 1..shards {
-        listeners.push(listen(bind)?);
+        listeners.push(listen(bind, true)?);
     }
     println!("mumh5: http://{bind}");
     let threads = listeners
@@ -595,7 +595,10 @@ fn shard_count() -> Option<usize> {
     )
 }
 
-fn listen(bind: SocketAddr) -> Result<std::net::TcpListener> {
+/// `shared` lets the shards bind one port. Only then: a lone listener with SO_REUSEPORT would let
+/// a second gateway started by mistake bind the same port and take part of the connections,
+/// instead of failing with "address in use".
+fn listen(bind: SocketAddr, shared: bool) -> Result<std::net::TcpListener> {
     let socket = if bind.is_ipv4() {
         tokio::net::TcpSocket::new_v4()?
     } else {
@@ -603,7 +606,7 @@ fn listen(bind: SocketAddr) -> Result<std::net::TcpListener> {
     };
     socket.set_reuseaddr(true)?;
     #[cfg(target_os = "linux")]
-    socket.set_reuseport(true)?;
+    socket.set_reuseport(shared)?;
     socket.bind(bind)?;
     Ok(socket.listen(1024)?.into_std()?)
 }
