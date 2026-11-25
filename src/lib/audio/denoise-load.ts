@@ -11,10 +11,11 @@ const bytes = (url: string) => fetch(url).then(r => {
 });
 
 // Large, so fetched only when the strong filter is in use, and compiled here because a worklet
-// may not block on it
-let loading: Promise<DeepFilterAssets> | null = null;
+// may not block on it. The compiled module is kept (the worklet shares its code); the model's 8 MB
+// are copied into the worklet, so this page does not hold on to them.
+let compiling: Promise<WebAssembly.Module> | null = null;
 export function loadDeepFilter(): Promise<DeepFilterAssets> {
-  return loading ??= Promise.all([bytes(wasmUrl).then(b => WebAssembly.compile(b)), bytes(modelUrl)])
-    .then(([module, model]) => ({ module, model }))
-    .catch(e => { loading = null; throw e; });
+  const module = compiling ??= bytes(wasmUrl).then(b => WebAssembly.compile(b))
+    .catch(e => { compiling = null; throw e; });
+  return Promise.all([module, bytes(modelUrl)]).then(([module, model]) => ({ module, model }));
 }
