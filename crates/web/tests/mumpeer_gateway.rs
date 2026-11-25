@@ -154,7 +154,10 @@ async fn gateway_keeps_mumpeer_links_for_browsers() -> Result<()> {
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://{base}/api/connect")).await?;
     let identity = mumh5_core::identity::generate("gateway-mumpeer-test", "")?;
     ws.send(Message::Text(json!({"host":host,"port":port.parse::<u16>()?,"certPem":identity.cert_pem,"keyPem":identity.key_pem}).to_string().into())).await?;
-    assert_eq!(next_json(&mut ws).await?["type"], "secure");
+    let secure = next_json(&mut ws).await?;
+    assert_eq!(secure["type"], "secure");
+    // The browser learns its own address, which Mumble never sees behind the gateway
+    assert_eq!(secure["info"]["clientAddress"], "127.0.0.1", "{secure}");
 
     let rid = "0123456789abcdef";
     let token = "t".repeat(43);
