@@ -521,21 +521,21 @@ pub(crate) async fn share_receive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mumh5_platform::turn::{Options, TurnServer, VirtualBridge};
+    use tokio::sync::broadcast;
 
-    /// A sharer and a viewer in one process: offer, answer, connect, and a video sample arrives.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn native_peers_connect_and_carry_video() {
+    /// Offer, answer, connect, and a video sample from the sharer arrives at the viewer.
+    async fn carry_video(sharer_config: RTCConfiguration, viewer_config: RTCConfiguration) {
         let states = Arc::new(Mutex::new(Vec::<String>::new()));
         let log = |side: &'static str| {
             let states = states.clone();
             move |event: String| states.lock().unwrap().push(format!("{side}:{event}"))
         };
-        let config = || RTCConfiguration::default();
         let source = Some(Uuid::new_v4());
-        let sharer = Peer::open(config(), source, false, log("sharer"))
+        let sharer = Peer::open(sharer_config, source, false, log("sharer"))
             .await
             .unwrap();
-        let viewer = Peer::open(config(), None, false, log("viewer"))
+        let viewer = Peer::open(viewer_config, None, false, log("viewer"))
             .await
             .unwrap();
         let offer = sharer.local_sdp(None).await.unwrap();
@@ -550,7 +550,7 @@ mod tests {
         frame.resize(1200, 0x55);
         let video = sharer.video.clone().unwrap();
         let mut got = None;
-        for _ in 0..100 {
+        for _ in 0..200 {
             let _ = video
                 .write_sample(&Sample {
                     data: frame.clone().into(),
@@ -569,20 +569,95 @@ mod tests {
             }
         }
         let states = states.lock().unwrap().clone();
+        let candidates = |sdp: &str| {
+            sdp.lines()
+                .filter(|l| l.starts_with("a=candidate"))
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
         assert!(
             got.is_some(),
             "no sample arrived; states {states:?}\noffer candidates: {:?}\nanswer candidates: {:?}",
-            offer
-                .lines()
-                .filter(|l| l.starts_with("a=candidate"))
-                .collect::<Vec<_>>(),
-            answer
-                .lines()
-                .filter(|l| l.starts_with("a=candidate"))
-                .collect::<Vec<_>>()
+            candidates(&offer),
+            candidates(&answer)
         );
         assert_eq!(got.unwrap()[0], VIDEO);
         sharer.close().await;
         viewer.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn native_peers_connect_and_carry_video() {
+        carry_video(RTCConfiguration::default(), RTCConfiguration::default()).await;
+    }
+
+    /// The mumpeer route as the Linux app uses it: each side relay-only through its own
+    /// loopback TURN server, whose allocation is a virtual address bridged to the other side
+    /// (in the app over the pinned TLS link to the other client, here directly).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn native_peers_connect_through_mumpeer_lanes() {
+        let (low_out, mut low_rx) = mpsc::channel::<Vec<u8>>(64);
+        let (high_out, mut high_rx) = mpsc::channel::<Vec<u8>>(64);
+        let (low_in, _) = broadcast::channel(64);
+        let (high_in, _) = broadcast::channel(64);
+        let cancel = CancellationToken::new();
+        let (to_high, to_low, stop) = (high_in.clone(), low_in.clone(), cancel.clone());
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = stop.cancelled() => break,
+                    Some(p) = low_rx.recv() => { let _ = to_high.send(p); }
+                    Some(p) = high_rx.recv() => { let _ = to_low.send(p); }
+                }
+            }
+        });
+        let low = "192.0.2.1:40000".parse().unwrap();
+        let high = "192.0.2.2:40000".parse().unwrap();
+        let options = Options {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            max_allocations: 1,
+            max_per_address: 1,
+            ..Default::default()
+        };
+        let mut servers = Vec::new();
+        let mut configs = Vec::new();
+        for (local, remote, outgoing, incoming) in
+            [(low, high, low_out, low_in), (high, low, high_out, high_in)]
+        {
+            let bridge = VirtualBridge {
+                local,
+                remote,
+                outgoing,
+                incoming,
+                cancel: cancel.clone(),
+            };
+            let server = TurnServer::start(options.clone(), Some(bridge))
+                .await
+                .unwrap();
+            let (username, credential) = server.credentials().unwrap();
+            // What mumpeer hands the page on Linux: UDP first, TCP for WebViews that prefer it
+            configs.push(RTCConfiguration {
+                ice_servers: vec![RTCIceServer {
+                    urls: vec![
+                        format!("turn:127.0.0.1:{}?transport=udp", server.port),
+                        format!("turn:127.0.0.1:{}?transport=tcp", server.port),
+                    ],
+                    username,
+                    credential,
+                }],
+                ice_transport_policy: RTCIceTransportPolicy::Relay,
+                ..Default::default()
+            });
+            servers.push(server);
+        }
+        let viewer = configs.pop().unwrap();
+        let sharer = configs.pop().unwrap();
+        tokio::time::timeout(Duration::from_secs(30), carry_video(sharer, viewer))
+            .await
+            .expect("timed out");
+        cancel.cancel();
+        for mut server in servers {
+            server.close().await;
+        }
     }
 }
