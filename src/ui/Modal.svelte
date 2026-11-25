@@ -13,7 +13,11 @@
   function escapeCloses(node: HTMLElement) {
     if (windowed) return;
     const view = node.ownerDocument.defaultView ?? window;
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); };
+    // Every open dialog listens; only the topmost closes, so a prompt over Settings leaves Settings open
+    const key = (e: KeyboardEvent) => {
+      const top = [...node.ownerDocument.querySelectorAll('.backdrop:not(.windowed)')].at(-1);
+      if (e.key === 'Escape' && top === node) { e.stopImmediatePropagation(); onclose(); }
+    };
     view.addEventListener('keydown', key);
     return { destroy: () => view.removeEventListener('keydown', key) };
   }
