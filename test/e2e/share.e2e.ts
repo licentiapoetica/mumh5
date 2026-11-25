@@ -4,7 +4,7 @@ import { _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { startGateway } from './gateway.ts';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -379,14 +379,12 @@ try {
   console.log('ok: stopping ends the stream for viewers');
 
   // Camera instead of the screen, and a relay for networks without direct connections: both
-  // instances point at a mumh5 proxy, and the viewer is limited to the relay over TCP
-  const relayPort = 19000 + Math.floor(Math.random() * 500);
-  const relay = spawn(process.execPath, ['server/main.ts'], {
-    cwd: root, stdio: ['ignore', 'pipe', 'inherit'],
-    env: { ...env, MUMH5_PORT: String(relayPort), MUMH5_ALLOW_ANY: '1', MUMH5_ALLOW_PRIVATE: '1', MUMH5_STUN_PORT: String(relayPort + 500), MUMH5_STUN_BIND: '127.0.0.1', MUMH5_TURN_IP: '127.0.0.1' }
+  // instances point at a mumh5 gateway, and the viewer is limited to the relay over TCP
+  const relayStun = 19500 + Math.floor(Math.random() * 500);
+  const { process: relay, port: relayPort } = await startGateway({
+    ...env, MUMH5_PORT: '0', MUMH5_ALLOW_ANY: '1', MUMH5_ALLOW_PRIVATE: '1', MUMH5_STUN_PORT: String(relayStun), MUMH5_STUN_BIND: '127.0.0.1', MUMH5_TURN_IP: '127.0.0.1'
   });
   cleanup.push(() => relay.kill());
-  await new Promise<void>((res, rej) => { relay.stdout.on('data', d => { if (String(d).includes('listening')) res(); }); relay.on('exit', c => rej(new Error(`proxy exited with ${c}`))); });
   for (const p of [alice.page, bob.page]) {
     await p.getByTitle('Settings').click();
     await p.getByRole('tab', { name: 'Screen sharing' }).click();

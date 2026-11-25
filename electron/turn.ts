@@ -1,9 +1,7 @@
-// STUN and TURN for screen sharing between browser users (RFC 5389, RFC 5766).
-// STUN tells a browser its public address so two of them can connect directly. Where that is
-// not possible (mobile carriers, company networks, browsers that forbid direct UDP such as
-// Vanadium) the stream goes through this relay instead: the browser reaches it over UDP or
-// TCP, and the relay passes the packets on over UDP. Credentials are short-lived and come
-// from the proxy's API, so only people using this site can relay through it.
+// STUN and TURN (RFC 5389, RFC 5766). The desktop app uses it for its mumpeer lanes on loopback
+// (mumpeer.ts). It was also the relay of the Node web proxy; the browser gateway has its own in
+// crates/platform/src/turn.rs, so the public relay and lane credentials (LaneRegistry) here are
+// only exercised by test/turn.test.ts.
 import dgram from 'node:dgram';
 import net from 'node:net';
 import os from 'node:os';

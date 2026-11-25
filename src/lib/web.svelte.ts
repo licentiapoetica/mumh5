@@ -1,5 +1,5 @@
 // The browser build: what the desktop app does in its main process goes through the mumh5 web
-// proxy instead (server/proxy.ts). Identities are kept in this browser and sent to the proxy
+// proxy instead (the Rust gateway, crates/web). Identities are kept in this browser and sent to the proxy
 // when connecting, because the proxy presents the certificate to the Mumble server.
 import type { CertDetails } from '../core/transport.ts';
 import { WebSocketTransport } from '../core/ws-transport.ts';
