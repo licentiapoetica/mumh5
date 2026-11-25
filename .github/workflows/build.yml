@@ -94,12 +94,9 @@ jobs:
           choco install protoc --no-progress -y
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
           "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
-          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" >> $env:GITHUB_ENV
-          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
-          # vcpkg's MSVC OpenSSL is libssl.lib and libcrypto.lib; openssl-sys would look for ssl.lib
-          "OPENSSL_LIBS=libssl:libcrypto" >> $env:GITHUB_ENV
-          "OPENSSL_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\lib" >> $env:GITHUB_ENV
-          "OPENSSL_INCLUDE_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\include" >> $env:GITHUB_ENV
+          # No OPENSSL_* variables: openssl-sys then asks vcpkg (VCPKG_ROOT and VCPKGRS_TRIPLET),
+          # which links the library files the port actually installed
+          Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\lib" -Filter *.lib | ForEach-Object Name
           "OPUS_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md/lib" >> $env:GITHUB_ENV
           "OPUS_STATIC=1" >> $env:GITHUB_ENV
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
