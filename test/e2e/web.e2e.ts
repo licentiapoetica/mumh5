@@ -46,7 +46,8 @@ const proxyPort = 18000 + Math.floor(Math.random() * 1000);
 const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
 const { process: proxy } = await within(startGateway({
   ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_DEFAULT_SERVER: target, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1',
-  // Everything is on this machine, so the Mumble server has to be allowed on loopback
+  // Everything is on this machine. The relay announces loopback and may always reach its own
+  // address; MUMH5_ALLOW_PRIVATE does not open it to other private peers (it did in the Node proxy)
   MUMH5_ALLOW_PRIVATE: '1', MUMH5_TURN_IP: '127.0.0.1'
 }), 'gateway start', 600000);
 
