@@ -90,16 +90,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          vcpkg install openssl:x64-windows-static-md libvpx:x64-windows-static-md opus:x64-windows-static-md
+          vcpkg install openssl:x64-windows-static-md libvpx:x64-windows-static-md
           choco install protoc --no-progress -y
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
           "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
           # No OPENSSL_* variables: openssl-sys then asks vcpkg (VCPKG_ROOT and VCPKGRS_TRIPLET),
           # which links the library files the port actually installed
           Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\lib" -Filter *.lib | ForEach-Object Name
-          # audiopus_sys adds /lib to this itself
-          "OPUS_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" >> $env:GITHUB_ENV
-          "OPUS_STATIC=1" >> $env:GITHUB_ENV
+          # Opus: audiopus_sys builds its bundled source with CMake and links it statically
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
