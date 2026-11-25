@@ -539,7 +539,7 @@ async fn main() -> Result<()> {
         println!("mumh5: http://{}", listener.local_addr()?);
         let stopped = stop.clone();
         tokio::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
+            shutdown_signal().await;
             stopped.cancel();
         });
         return serve(listener, service, stop).await;
@@ -574,7 +574,7 @@ async fn main() -> Result<()> {
         })
         .collect::<std::io::Result<Vec<_>>>()?;
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {}
+        _ = shutdown_signal() => {}
         _ = stop.cancelled() => {}
     }
     stop.cancel();
@@ -619,6 +619,23 @@ fn listen(bind: SocketAddr, shared: bool) -> Result<std::net::TcpListener> {
     socket.set_reuseport(shared)?;
     socket.bind(bind)?;
     Ok(socket.listen(1024)?.into_std()?)
+}
+
+/// Ctrl-C, or SIGTERM from `docker stop` and service managers. Without SIGTERM, Docker waited its
+/// grace period (10 s) and then killed the gateway, so a restart kept web clients offline longer.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 async fn serve(
