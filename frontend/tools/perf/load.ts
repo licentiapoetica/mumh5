@@ -75,6 +75,8 @@ for (let i = 0; i < clients; i += 5) joined.push(...await Promise.all(Array.from
 const joinMs = joined.map(j => j.ms).sort((a, b) => a - b);
 
 let sent = 0;
+// Markers on stderr, so a caller can measure only the talking phase (compare.ts reads them)
+console.error('talking');
 const start = performance.now();
 const timers = joined.slice(0, talkers).map(({ client }) => {
   let seq = 0;
@@ -85,6 +87,7 @@ const timers = joined.slice(0, talkers).map(({ client }) => {
 });
 await Bun.sleep(seconds * 1000);
 timers.forEach(clearInterval);
+console.error('stopped');
 const elapsed = (performance.now() - start) / 1000;
 const received = joined.reduce((n, j) => n + j.received.n, 0);
 for (const { client } of joined) client.disconnect('done');

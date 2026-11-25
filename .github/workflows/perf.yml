@@ -1,0 +1,99 @@
+name: Gateway performance
+# Builds the web gateway of the pull request and of its base in one job and compares them on the
+# same runner (frontend/tools/perf/compare.ts). Only for changes that can move the gateway's
+# numbers, since it builds the gateway twice; run it by hand for anything else.
+on:
+  pull_request:
+    paths:
+      - 'crates/web/**'
+      - 'crates/core/**'
+      - 'crates/platform/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'frontend/tools/build.ts'
+      - 'frontend/tools/perf/**'
+      - '.github/workflows/perf.yml'
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Branch, tag or commit to compare against
+        required: true
+        default: feature/dream-cord-rust-tauri
+      rounds:
+        description: Alternating runs per side
+        required: false
+        default: '5'
+permissions:
+  contents: read
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gateway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      BASE_REF: ${{ github.event.pull_request.base.sha || inputs.base }}
+      ROUNDS: ${{ inputs.rounds || '5' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.BASE_REF }}
+          path: .perf-base
+      - name: Native libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .tooling
+            target
+          key: perf-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
+          restore-keys: |
+            perf-rust-1.100-bun-1.4.5-
+            check-rust-1.100-bun-1.4.5-
+      # Toolchain and frontend packages of this checkout; the base is built with the same toolchain
+      - run: ./tools/bootstrap.sh
+      # main before the Rust branch has the Node proxy, nothing to compare with
+      - name: Base has a gateway
+        id: base
+        run: |
+          if [[ -f .perf-base/crates/web/Cargo.toml ]]; then
+            echo "gateway=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Base ${BASE_REF} has no Rust web gateway (crates/web); nothing to compare." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build both gateways and both web builds
+        if: steps.base.outputs.gateway == 'true'
+        run: |
+          source tools/env.sh
+          mkdir -p .perf
+          # One target directory for both, so the dependencies are compiled once
+          export CARGO_TARGET_DIR="$PWD/target"
+          cargo build --locked --release -p mumh5-web
+          cp target/release/mumh5-web .perf/gateway-new
+          (cd .perf-base && cargo build --locked --release -p mumh5-web)
+          cp target/release/mumh5-web .perf/gateway-base
+          (cd frontend && bun run build)
+          # The base's own web build, so a change in frontend/tools/build.ts shows in the static numbers
+          (cd .perf-base/frontend && bun install --frozen-lockfile && bun run build)
+      - name: Compare
+        if: steps.base.outputs.gateway == 'true'
+        run: |
+          source tools/env.sh
+          docker run -d --name mumh5-perf -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 mumblevoip/mumble-server:latest
+          trap 'docker rm -f mumh5-perf' EXIT
+          timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
+          cd frontend
+          bun tools/perf/compare.ts --base ../.perf/gateway-base --new ../.perf/gateway-new \
+            --base-dist ../.perf-base/frontend/dist --new-dist dist \
+            --server 127.0.0.1:64750 --rounds "$ROUNDS" \
+            --summary "$GITHUB_STEP_SUMMARY" --json ../.perf/compare.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: gateway-perf-${{ github.sha }}
+          path: .perf/compare.json
+          if-no-files-found: ignore
