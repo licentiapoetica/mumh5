@@ -8,6 +8,7 @@
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
+  import { media, painterOf } from '../lib/stream-picture.ts';
   import { sessions } from '../lib/session.svelte.ts';
   import ResizeHandle from './ResizeHandle.svelte';
   import ShareStats from './ShareStats.svelte';
@@ -143,24 +144,17 @@
 
   const talking = (s: number) => !!voice.talking[s] || (s === self?.session && voice.transmitting);
 
-  // Mobile browsers do not always honour autoplay for a stream attached later, so play is asked for too
-  function media(node: HTMLMediaElement, stream: MediaStream | null) {
-    const attach = (s: MediaStream | null) => {
-      node.srcObject = s;
-      if (s) node.play().catch(() => {});
-    };
-    attach(stream);
-    return { update(next: MediaStream | null) { if (node.srcObject !== next) attach(next); } };
-  }
 
   // Sound comes from hidden players, one per stream that has any, so it plays once however
   // many pictures are shown. They all follow the stream volume.
   const withSound = $derived(watches.filter(w => w.stream?.getAudioTracks().length));
   const hasSound = $derived(focus != null && withSound.some(w => w.session === focus));
-  function loud(node: HTMLMediaElement) {
+  function loud(node: HTMLMediaElement, stream: MediaStream | null) {
     $effect(() => {
       node.volume = store.settings.shareVolume;
       node.muted = store.settings.shareVolume === 0;
+      // A native share's sound plays through WebAudio, not through this element
+      painterOf(stream)?.setVolume(store.settings.shareVolume);
     });
   }
   const focusWatch = $derived(focus != null ? watchOf(focus) : undefined);
@@ -372,7 +366,7 @@
 
 {#if visible && self && videoOnly}
   <section class="stage solo" aria-label="Voice channel">
-    {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud autoplay></audio>{/each}
+    {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud={w.stream} autoplay></audio>{/each}
     {#if focused}
       {@render spot()}
       {#if strip.length}{@render tiles()}{/if}
@@ -426,7 +420,7 @@
       </button>
     </header>
 
-    {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud autoplay></audio>{/each}
+    {#each withSound as w (w.session)}<audio use:media={w.stream} use:loud={w.stream} autoplay></audio>{/each}
 
     {#if focused && focus != null && !collapsed}{@render spot()}{/if}
 

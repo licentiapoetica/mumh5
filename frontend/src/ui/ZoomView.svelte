@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { media, pictureSize } from '../lib/stream-picture.ts';
 
   // A stream picture that zooms: the wheel zooms toward the pointer, dragging pans, two
   // fingers pinch, and while zoomed and hovered a panel (bottom right; a magnifier button before) shows
@@ -23,15 +24,6 @@
   let srcH = $state(0);
   let dragging = $state(false);
 
-  // Mobile browsers do not always honour autoplay for a stream attached later, so play is asked for too
-  function media(node: HTMLMediaElement, s: MediaStream | null) {
-    const attach = (next: MediaStream | null) => {
-      node.srcObject = next;
-      if (next) node.play().catch(() => {});
-    };
-    attach(s);
-    return { update(next: MediaStream | null) { if (node.srcObject !== next) attach(next); } };
-  }
 
   // The observer comes from the element's own window: the separate stream window has its own
   function measure(node: HTMLElement) {
@@ -43,8 +35,7 @@
     return { destroy: () => ro.disconnect() };
   }
   function readSource() {
-    srcW = video?.videoWidth ?? 0;
-    srcH = video?.videoHeight ?? 0;
+    [srcW, srcH] = pictureSize(video);
   }
 
   // Picture size as a fraction of the video box (the rest is letterbox)

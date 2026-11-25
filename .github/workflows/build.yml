@@ -90,18 +90,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          vcpkg install openssl:x64-windows-static-md libvpx:x64-windows-static-md opus:x64-windows-static-md
+          vcpkg install openssl:x64-windows-static-md libvpx:x64-windows-static-md
           choco install protoc --no-progress -y
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
           "VCPKGRS_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
-          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md" >> $env:GITHUB_ENV
-          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
-          # vcpkg's MSVC OpenSSL is libssl.lib and libcrypto.lib; openssl-sys would look for ssl.lib
-          "OPENSSL_LIBS=libssl:libcrypto" >> $env:GITHUB_ENV
-          "OPENSSL_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\lib" >> $env:GITHUB_ENV
-          "OPENSSL_INCLUDE_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\include" >> $env:GITHUB_ENV
-          "OPUS_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows-static-md/lib" >> $env:GITHUB_ENV
-          "OPUS_STATIC=1" >> $env:GITHUB_ENV
+          # No OPENSSL_* variables: openssl-sys then asks vcpkg (VCPKG_ROOT and VCPKGRS_TRIPLET),
+          # which links the library files the port actually installed
+          Get-ChildItem "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static-md\lib" -Filter *.lib | ForEach-Object Name
+          # Opus: audiopus_sys builds its bundled source with CMake and links it statically
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -110,14 +106,36 @@ jobs:
           key: desktop-${{ runner.os }}-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
       - run: ./tools/bootstrap.sh
       - name: Native Tauri installers
+        if: runner.os != 'Windows'
         run: |
           source tools/env.sh
           cd crates/desktop
           cargo tauri build --ci --bundles '${{ matrix.bundles }}'
       - name: Headless client
+        if: runner.os != 'Windows'
         run: |
           source tools/env.sh
           cargo build --locked --release -p mumh5-cli
+      # PowerShell on Windows, with MSYSTEM cleared and NMake as CMake's generator: otherwise
+      # the cmake crate picks "MSYS Makefiles" for Opus, and MSYS make turns MSVC's /nologo
+      # into a path. The other variables are those of tools/env.sh.
+      - name: Native Tauri installer and headless client (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CARGO_HOME = "$PWD\.tooling\cargo"
+          $env:RUSTUP_HOME = "$PWD\.tooling\rustup"
+          $env:BUN_INSTALL = "$PWD\.tooling\bun"
+          $env:BUN_INSTALL_CACHE_DIR = "$PWD\.tooling\bun\cache"
+          $env:PATH = "$env:CARGO_HOME\bin;$env:BUN_INSTALL\bin;$env:PATH"
+          Remove-Item Env:MSYSTEM -ErrorAction SilentlyContinue
+          $env:CMAKE_GENERATOR = "NMake Makefiles"
+          Push-Location crates/desktop
+          cargo tauri build --ci --bundles '${{ matrix.bundles }}'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Pop-Location
+          cargo build --locked --release -p mumh5-cli
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Linux portable archive and AppImage runtime check
         if: runner.os == 'Linux'
         run: |

@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::STANDARD};
+#[cfg(target_os = "linux")]
+mod share_rtc;
 mod wire_frames;
 use mumh5_core::{
     transport::Transport,
@@ -750,6 +752,54 @@ fn smoke_windows(app: tauri::AppHandle) -> Vec<String> {
     labels.sort();
     labels
 }
+// A real click at (x, y) in CSS pixels of the main window, delivered through GTK, so WebKit
+// treats it as a user gesture (getDisplayMedia needs one). Scripted clicks are not gestures.
+#[cfg(feature = "smoke-test")]
+#[tauri::command]
+fn smoke_click(x: f64, y: f64, app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let w = app.get_webview_window("main").ok_or("no main window")?;
+        w.with_webview(move |view| {
+            use gdk::prelude::*;
+            use gtk::glib::translate::{ToGlibPtr, ToGlibPtrMut};
+            use gtk::prelude::*;
+            let widget = view.inner();
+            let widget: &gtk::Widget = widget.upcast_ref();
+            let Some(window) = widget.window() else {
+                return;
+            };
+            let display = widget.display();
+            let Some(pointer) = display.default_seat().and_then(|seat| seat.pointer()) else {
+                return;
+            };
+            for kind in [gdk::EventType::ButtonPress, gdk::EventType::ButtonRelease] {
+                let mut event = gdk::Event::new(kind);
+                unsafe {
+                    let raw = ToGlibPtrMut::<*mut gdk_sys::GdkEvent>::to_glib_none_mut(&mut event).0
+                        as *mut gdk_sys::GdkEventButton;
+                    (*raw).window = ToGlibPtr::<*mut gdk_sys::GdkWindow>::to_glib_full(&window);
+                    (*raw).send_event = 1;
+                    (*raw).time = gdk_sys::GDK_CURRENT_TIME as u32;
+                    (*raw).x = x;
+                    (*raw).y = y;
+                    (*raw).button = 1;
+                    (*raw).state = if kind == gdk::EventType::ButtonRelease {
+                        gdk_sys::GDK_BUTTON1_MASK
+                    } else {
+                        0
+                    };
+                }
+                event.set_device(Some(&pointer));
+                widget.event(&event);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (x, y, app);
+    Ok(())
+}
 #[cfg(feature = "smoke-test")]
 #[tauri::command]
 fn smoke_report(report: Value, app: tauri::AppHandle) {
@@ -787,6 +837,12 @@ pub fn run() {
     #[cfg(feature = "smoke-test")]
     let builder = builder.invoke_handler(tauri::generate_handler![
         platform_call,
+        #[cfg(target_os = "linux")]
+        share_rtc::share_peer,
+        #[cfg(target_os = "linux")]
+        share_rtc::share_sample,
+        #[cfg(target_os = "linux")]
+        share_rtc::share_receive,
         wire_open,
         wire_send,
         wire_udp_send,
@@ -796,11 +852,18 @@ pub fn run() {
         wire_relay,
         smoke_report,
         smoke_windows,
+        smoke_click,
         smoke_close_popups
     ]);
     #[cfg(not(feature = "smoke-test"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
         platform_call,
+        #[cfg(target_os = "linux")]
+        share_rtc::share_peer,
+        #[cfg(target_os = "linux")]
+        share_rtc::share_sample,
+        #[cfg(target_os = "linux")]
+        share_rtc::share_receive,
         wire_open,
         wire_send,
         wire_udp_send,
@@ -811,6 +874,31 @@ pub fn run() {
     ]);
     builder
         .setup(|app| {
+            // Test builds: MUMH5_SMOKE_LOG=1 prints the WebRTC crates' own log to stderr
+            #[cfg(all(feature = "smoke-test", target_os = "linux"))]
+            if std::env::var_os("MUMH5_SMOKE_LOG").is_some() {
+                struct Stderr;
+                impl log::Log for Stderr {
+                    fn enabled(&self, m: &log::Metadata) -> bool {
+                        m.target().starts_with("webrtc")
+                    }
+                    fn log(&self, r: &log::Record) {
+                        if self.enabled(r.metadata()) {
+                            let ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() % 100_000)
+                                .unwrap_or(0);
+                            eprintln!("{ms:05} {} {} {}", r.level(), r.target(), r.args());
+                        }
+                    }
+                    fn flush(&self) {}
+                }
+                static LOGGER: Stderr = Stderr;
+                let _ =
+                    log::set_logger(&LOGGER).map(|()| log::set_max_level(log::LevelFilter::Debug));
+            }
+            #[cfg(target_os = "linux")]
+            app.manage(share_rtc::Peers::default());
             let isolated = std::env::var_os("MUMH5_PROFILE").is_some();
             let directory = std::env::var_os("MUMH5_PROFILE")
                 .map(PathBuf::from)
@@ -927,7 +1015,19 @@ pub fn run() {
                 if std::env::var_os("MUMH5_SMOKE_REPORT").is_some()
                     && payload.event() == tauri::webview::PageLoadEvent::Finished
                 {
-                    let _ = webview.eval(include_str!("../tests/smoke.js"));
+                    let script =
+                        std::env::var_os("MUMH5_SMOKE_SCRIPT").map(std::fs::read_to_string);
+                    match script {
+                        Some(Ok(script)) => {
+                            let _ = webview.eval(script);
+                        }
+                        Some(Err(error)) => {
+                            eprintln!("mumh5: could not read the smoke script: {error}")
+                        }
+                        None => {
+                            let _ = webview.eval(include_str!("../tests/smoke.js"));
+                        }
+                    }
                 }
                 #[cfg(not(feature = "smoke-test"))]
                 let _ = (webview, payload);
@@ -1026,6 +1126,13 @@ pub fn run() {
                     // so screen sharing and cameras between people cannot connect.
                     settings.set_enable_webrtc(true);
                     settings.set_enable_media_stream(true);
+                    // Streams play in video elements started from script after a share or camera
+                    // was set up, not inside the click; WebKitGTK refuses those otherwise.
+                    settings.set_media_playback_requires_user_gesture(false);
+                    #[cfg(feature = "smoke-test")]
+                    if std::env::var_os("MUMH5_SMOKE_MOCK_MEDIA").is_some() {
+                        settings.set_enable_mock_capture_devices(true);
+                    }
                 }
             });
             #[cfg(desktop)]

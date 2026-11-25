@@ -9,6 +9,7 @@
   import { userMenu, openProfile } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
+  import { sharePeerAvailable } from '../lib/share-peer.ts';
   import { t } from '../lib/i18n.svelte.ts';
   import { normalizeToolbar, visibleToolbarItems } from '../core/toolbar.ts';
 
@@ -29,8 +30,7 @@
     if (share.screenOn) share.stop();
     else share.start(sessions.active);
   }
-  // Without WebRTC in the WebView (some Linux WebKitGTK builds) nothing can be shared or watched
-  const noWebrtc = typeof RTCPeerConnection === 'undefined';
+  const noWebrtc = !sharePeerAvailable();
   const cameraHint = $derived(noWebrtc ? t('userBar.noWebrtc') : share.cameraOn ? t('userBar.cameraOff') : share.screenOn ? t('userBar.cameraBlockedByScreen') : t('userBar.cameraOn'));
 
   // One button for the whole tree. It follows the tree, which single channels can change too

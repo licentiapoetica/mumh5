@@ -40,6 +40,10 @@ export async function initializePlatform(): Promise<void> {
  const { openUrl } = await import('@tauri-apps/plugin-opener');
  const call = <T = any>(action: string, args: unknown = {}) => invoke<T>('platform_call', { action, args });
  const cache = await call<Record<string, string>>('bootstrap');
+ const shareRtc = typeof RTCPeerConnection === 'undefined'
+  && typeof VideoEncoder !== 'undefined' && typeof VideoDecoder !== 'undefined'
+  && typeof VideoFrame !== 'undefined' && typeof HTMLCanvasElement.prototype.captureStream === 'function'
+  && (await call<{ os: string }>('platformInfo')).os === 'linux';
  const events = new Map<string, Set<(id: string, ...args: any[]) => void>>();
  const emit = (name: string, id: string, args: any[]) => { for (const f of events.get(name) ?? []) f(id, ...args); };
  const channels = new Map<string, InstanceType<typeof Channel<ArrayBuffer>>>();
@@ -154,6 +158,22 @@ export async function initializePlatform(): Promise<void> {
   // WebView/OS picker controls screen access. The normal camera and mic APIs remain unchanged.
   screenSources: async () => ({ sources: [{ id: 'portal', name: 'Choose with system picker', thumbnail: '' }], chosen: false }),
   pickScreenSource() {}, shareInfo: () => call('shareInfo'), shareAudioApps: () => call('shareAudioApps'),
+  screenPickerInWebview: true,
+  shareRtc: shareRtc ? {
+   open(id, config, source, audio, notify) {
+    const events = new Channel<string>();
+    events.onmessage = notify;
+    const iceServers = (config.iceServers ?? []).map(server => ({
+     urls: [server.urls].flat(), username: server.username ?? '', credential: server.credential ?? ''
+    }));
+    return invoke('share_peer', { id, operation: { op: 'open', iceServers, relayOnly: config.iceTransportPolicy === 'relay', source, audio, events } });
+   },
+   negotiate: (id, op, sdp) => invoke('share_peer', { id, operation: { op, sdp } }),
+   stats: id => invoke('share_peer', { id, operation: { op: 'stats' } }),
+   close: id => invoke('share_peer', { id, operation: { op: 'close' } }),
+   send: (source, bytes) => invoke('share_sample', bytes, { headers: { 'mumh5-share': source } }),
+   receive: id => invoke('share_receive', { id })
+  } : undefined,
   shareAudioStart: target => call('shareAudioStart', { target }), shareAudioStop: () => call('shareAudioStop'),
   audioOutputs: () => call('audioOutputs'), setAudioOutput: id => call('setAudioOutput', { id }),
   hotkeysBind: shortcuts => call('hotkeysBind', { shortcuts }), hotkeysUnbind: () => call('hotkeysUnbind'), setZoom: factor => call('setZoom', { factor }),

@@ -3352,7 +3352,11 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "gdk",
+ "gdk-sys",
+ "gtk",
  "image",
+ "log",
  "mumh5-core",
  "mumh5-platform",
  "openssl",
@@ -3369,6 +3373,7 @@ dependencies = [
  "tokio-util",
  "uuid",
  "webkit2gtk",
+ "webrtc",
 ]
 
 [[package]]
