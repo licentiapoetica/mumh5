@@ -4,9 +4,12 @@ set -euo pipefail
 MUMH5_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$MUMH5_ROOT/tools/env.sh"
 mkdir -p "$CARGO_HOME/bin" "$BUN_INSTALL/bin"
+# In Git Bash rustup would pick the GNU host; the native libraries (vcpkg) are MSVC builds
+mumh5_rust_host=""
+case "$(uname -s)" in MINGW*|MSYS*) mumh5_rust_host="--default-host x86_64-pc-windows-msvc" ;; esac
 if [[ ! -x "$CARGO_HOME/bin/rustup" && ! -x "$CARGO_HOME/bin/rustup.exe" ]]; then
   curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o "$MUMH5_ROOT/.tooling/rustup-init.sh"
-  sh "$MUMH5_ROOT/.tooling/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain 1.100.0 --component rustfmt --component clippy
+  sh "$MUMH5_ROOT/.tooling/rustup-init.sh" -y --no-modify-path --profile minimal $mumh5_rust_host --default-toolchain 1.100.0 --component rustfmt --component clippy
 else
   rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
 fi
