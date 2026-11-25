@@ -1,121 +1,81 @@
 # mumh5
 
-A Mumble client with voice chat, rich messages, file transfers, and screen sharing. Available as a Windows or Linux desktop app, or in a browser through a self-hosted proxy.
+A modern Mumble client with a shared Svelte interface, native Rust services, a Tauri desktop/Android application, a Rust browser gateway, and a native headless client/bot library.
 
-Connect to an existing Mumble server without installing a plugin or changing its configuration. Friends using the classic Mumble client can join the same voice channels and chats.
+This branch migrates the existing application and build pipeline to Rust/Tauri. The migration is still under validation: see [todo.md](todo.md) for the exact remaining work and test results. The frontend remains Svelte/TypeScript and is built with Bun. Desktop and server deployments use native Rust binaries.
 
-![mumh5 in the Stacked layout, with channels above a conversation and a shared file](docs/screenshots/stacked.png)
+## Develop
 
-[Download the latest snapshot](https://github.com/licentiapoetica/mumh5/releases/tag/snapshot) · [Host the browser client](docs/self-hosting.md) · [Build from source](docs/development.md)
+On Debian/Ubuntu, install the native dependencies:
 
-## Get started
-
-1. **Install a desktop build** from the table below. Snapshots are rolling prerelease builds from successful builds of `main`; checksums are included on the release page.
-2. **Create or import an identity.** On first launch, choose a name and create a certificate, import a `.p12` backup, or reuse your Mumble desktop identity. Back it up to keep your server registrations.
-3. **Add a server** with the plus button, enter its address and your username, and connect. The desktop app also has a public server browser.
-4. **Join a voice channel** with a double click. A single click opens its chat. Choose voice activity, push to talk, or always on in **Settings > Voice**.
-
-| Platform | Download |
-| --- | --- |
-| Windows x64 | [Installer (.exe)](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-win-x64.exe) |
-| Linux x64 | [AppImage](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.AppImage) — make it executable, then run it |
-| Debian / Ubuntu x64 | [Package (.deb)](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.deb) |
-| Linux x64, portable | [Archive (.tar.gz)](https://github.com/licentiapoetica/mumh5/releases/download/snapshot/mumh5-linux-x64.tar.gz) — includes install and uninstall scripts |
-
-The Windows installer is unsigned, so SmartScreen may warn. Current AppImages bundle a static FUSE runtime. For installation, updates, removal, and older AppImage troubleshooting, see the [desktop installation guide](docs/installation.md). macOS requires a source build on a Mac; automated macOS builds are disabled.
-
-## What you can do
-
-- **Talk:** low-delay voice, noise suppression, echo cancellation, microphone testing, and per-person volume.
-- **Chat:** channel and private messages, reactions, code snippets, profile cards, and optional local chat history with configurable retention.
-- **Send files:** drag, paste, or attach files up to 2 GB. Transfers pass through the Mumble server; no file-hosting service is needed.
-- **Share a screen or camera:** stream to other mumh5 users in your channel, with a preview and quality controls before you start.
-- **Manage a community:** create and arrange channels, set permissions and roles, move users, and moderate from their context menus.
-- **Choose your layout:** Stacked, Modern, or Classic, plus a Rooms interface for smaller screens. Pick from 100 color schemes and add a background image or pattern.
-
-The [feature reference](docs/features.md) covers voice, text channels, notification sound packs, identities, moderation, and the file-transfer protocol.
-
-## A look around
-
-The default **Stacked** layout puts channels above the conversation. **Modern** places channels on the left and members on the right. **Rooms** provides separate chat, voice, people, and profile screens. Change these in **Settings > Appearance**.
-
-| Modern layout | Rooms interface |
-| --- | --- |
-| ![Modern layout showing the channel tree, group chat, shared file, and member list](docs/screenshots/main.png) | ![Rooms interface showing the room list alongside the conversation](docs/screenshots/rooms.png) |
-
-| Profile cards | Voice settings |
-| --- | --- |
-| ![A profile card with an avatar and formatted description](docs/screenshots/profile.png) | ![Voice settings with input and output devices, transmission mode, and noise suppression](docs/screenshots/voice-settings.png) |
-
-Share a screen or window, then let others watch from the channel. A stream can open in its own window. Camera feeds appear in the voice tiles.
-
-![A test client sharing an animated racing scene with three viewers in the channel](docs/screenshots/sharing.png)
-
-Streams use WebRTC, with up to eight viewers per stream. Direct connections may need STUN across routers; restrictive networks may need a TURN relay. The browser proxy provides both. Desktop clients can configure them in **Settings > Screen sharing**.
-
-| Windows 95 | Light | Frost | Midnight |
-| --- | --- | --- | --- |
-| ![Windows 95 color scheme](docs/screenshots/theme-win95.png) | ![Light color scheme](docs/screenshots/theme-light.png) | ![Frost color scheme](docs/screenshots/theme-frost.png) | ![Midnight color scheme](docs/screenshots/theme-midnight.png) |
-
-The Rooms interface at phone width:
-
-<p align="center"><img src="docs/screenshots/mobile.png" alt="Rooms interface at 390 pixels wide, showing the chat and bottom navigation" width="300"></p>
-
-Screenshots use scripted conversations and fresh test clients connected to a local Mumble server. The shared racing scene is a simulated capture source. The [screenshot guide](docs/screenshots/README.md) explains how to reproduce them and what the capture run covers.
-
-## Compatibility and limits
-
-| Feature | Classic Mumble clients | mumh5 clients |
-| --- | --- | --- |
-| Voice, channels, ordinary messages, avatars | Compatible | Compatible |
-| Shared files | Announcement and preview; small inline pictures remain visible | File transfer and media players |
-| Screen and camera streams, reactions | Unavailable | Supported between mumh5 users |
-| Text channels | Appear as ordinary Mumble channels | Read and write without leaving a voice channel |
-
-File transfers and text channels require Mumble 1.4 or newer; text channels also require HTML messages. Text channels are visible to all mumh5 users on the server, with no private text channels yet. Chat history is opt-in and stored locally; the Mumble server does not retain messages or shared files.
-
-System-wide push to talk, whisper/shout, positional audio, the in-game overlay, recording, and dedicated ban-list and registered-user editors are not implemented. The Rooms interface is still incomplete. See the [feature reference and roadmap](docs/features.md) for details.
-
-## Use it in a browser
-
-The browser build uses a proxy you host to serve the app and bridge WebSocket connections to Mumble. From a [source checkout](docs/development.md):
-
-```bash
-npm ci
-npm run build:web
-MUMH5_SERVERS="mumble.example.com=My server" node dist-proxy/proxy.mjs
+```sh
+sudo apt-get install build-essential cmake pkg-config protobuf-compiler libssl-dev \
+  libopus-dev libvpx-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev patchelf
+./tools/bootstrap.sh
+source tools/env.sh
+(cd frontend && bun run build)
+cargo run --locked -p mumh5-desktop
 ```
 
-Open `http://127.0.0.1:8080`. Remote use needs HTTPS for microphone access. The web app can also be installed from a supporting browser; it opens offline, but connecting still requires the proxy.
+The bootstrap installs Rust 1.100, rustfmt, clippy, Bun 1.4.5, and the native Tauri CLI 2.12.6 into `.tooling/`. It does not change shell profiles or global tool installations. Native dependencies remain platform packages. See [testing](docs/TESTING.md) and [architecture](docs/ARCHITECTURE.md).
 
-**Use a proxy you trust.** The browser sends your identity certificate and private key to the proxy on every connection, and your messages and server password pass through it. Voice uses the TCP tunnel rather than UDP. Clearing browser storage removes your identity unless you have a backup.
+For desktop development, run `cargo tauri dev` from `crates/desktop`. The Bun asset server listens on port 1420; rebuild with `bun run build` after frontend edits.
 
-The [self-hosting guide](docs/self-hosting.md) includes Docker, nginx, the server allowlist, a default server for visitors, STUN/TURN ports, sound-pack limits, and the full environment-variable reference.
+For the browser UI:
 
-## Privacy and identity
-
-- Desktop identities stay on your computer with owner-only file permissions. A password-protected `.p12` backup also works with classic Mumble.
-- Server certificates are pinned on first use. If a certificate changes, mumh5 asks before sending your password.
-- Incoming message HTML is sanitized. External media requires an allowed host or a click; YouTube players and link previews are off by default.
-- Screen-sharing peers can see each other's IP addresses. mumh5 explains this before first use.
-
-## Development
-
-You need Node.js 22 or newer, npm, and Git. CI uses Node.js 26. With the GitHub CLI installed:
-
-```bash
-gh repo clone licentiapoetica/mumh5
-cd mumh5
-npm ci
-npm run dev
+```sh
+cargo run --locked -p mumh5-web -- --server localhost:64738
+# Open http://127.0.0.1:8080
 ```
 
-Use `npm run dev:web` for the browser client, `npm run check` for type checking, and `npm test` for unit tests. The [development guide](docs/development.md) covers packaging, real-server tests, screenshots, CI, and the source layout. [CLAUDE.md](CLAUDE.md) documents architecture and project conventions.
+The gateway also supports the existing `MUMH5_SERVERS`, `MUMH5_DEFAULT_SERVER`, bind/port, origin, trusted-proxy, PROXY protocol, connection quota, audio-pack limit, and STUN/TURN settings in [docker-compose.yml](docker-compose.yml). Explicitly listed Mumble targets may be on private networks; arbitrary private targets require `--allow-private` / `MUMH5_ALLOW_PRIVATE=1`. Use HTTPS for remote microphone/camera access. Browser identities remain client-side and are supplied to the gateway when establishing Mumble TLS. With its TURN relay on, the gateway also keeps [mumpeer](docs/mumpeer-relay.md) links for browsers; `MUMH5_MUMPEER_PORTS` (default `443`, comma-separated) lists the relay TLS ports it may dial; set it to `0` to turn this off.
 
-## Credits and license
+```sh
+docker build -t mumh5 .
+docker run --rm -p 127.0.0.1:8080:8080 -e MUMH5_STUN_PORT=0 mumh5 --server HOST:PORT
+```
 
-mumh5 is built by **Kibi**, with substantial code, tests, and documentation written using **Claude** in Claude Code. Kibi directs the project and reviews the results. Report problems in the [issue tracker](https://github.com/licentiapoetica/mumh5/issues).
+Use Compose host networking, or expose the configured STUN/TURN and relay port range, for sharing across networks.
 
-[MIT](LICENSE). Mumble protocol definitions and generated code have a BSD license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## Desktop and Android packaging
 
-mumh5 is not affiliated with the Mumble project. Mumble is a trademark of its respective owners.
+```sh
+source tools/env.sh
+(cd crates/desktop && cargo tauri build --ci --bundles deb,appimage)
+./tools/package-linux.sh --no-build
+# On Windows with MSVC and native libraries:
+# (cd crates/desktop && cargo tauri build --ci --bundles nsis)
+```
+
+GitHub Actions builds Linux AppImage/deb/portable archives, Windows installers, native CLI executables, Android arm64 development APKs, and the Rust gateway container. Main-branch builds retain the rolling `snapshot` release, stable download filenames and SHA256SUMS; version tags have a separate release job. Cross-platform packaging is still being verified in this draft.
+
+Android requires JDK 21, SDK 36, NDK 28.2.13676358, CMake, protoc and the Rust target:
+
+```sh
+export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+export ANDROID_NDK_ROOT="$NDK_HOME"
+rustup target add aarch64-linux-android
+(cd crates/desktop && cargo tauri android build --ci --target aarch64 --apk --debug)
+```
+
+The Android application keeps `org.mumh5.app`; desktop keeps `dev.f0ck.mumh5`. Existing desktop identity IDs/default identity, saved servers/pins/tokens, and sound files are copied from the previous profile on first launch. Source files are preserved. `MUMH5_PROFILE=/path` selects an isolated profile and skips automatic discovery of another profile.
+
+## Interface and native services
+
+The reused interface includes Modern, Classic and Stacked layouts, channels and collapsible private chats, configurable opt-in local chat history, unified media/PDF cards, file transfers, reactions, identity/ACL/role management, themes, backgrounds, sounds, sharing, and connection diagnostics. Settings opens from beside Home and from the toolbar's Configure button. The previously requested Rooms/interface-selector removal remains in place.
+
+The latest main-branch microphone recovery, same-host mumpeer discovery, Android background voice controls, connection log, Web Lock and keepalive changes are merged. Rust ports provide native TLS/OCB2 UDP, certificates/PKCS#12, profile and sound storage, relay/TURN services, PipeWire capture and portal color picking. Hardware/platform behavior and complete feature parity still require the checks listed in todo.md. Global push-to-talk remains an existing platform limitation.
+
+The browser build includes installable/offline support and deployment update checks. Desktop update checks keep mumh5's snapshot repository and links.
+
+## Headless clients and bots
+
+```sh
+cargo build --locked --release -p mumh5-cli
+./target/release/mumh5-cli --server localhost --name helper --trust-new
+```
+
+The CLI connects directly to Mumble. It has one independent incoming and outgoing audio stream, separate video input/output, text messaging, JSON control, and a Rust library API. See the [CLI guide](docs/CLI.md) and [bot/chat-command examples](docs/BOTS.md).
+
+The original MIT license and asset/dependency notices remain in [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

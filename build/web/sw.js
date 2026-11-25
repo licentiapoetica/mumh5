@@ -1,4 +1,4 @@
-// Service worker of the web build. vite.config.ts fills in the version and the file list.
+// Service worker of the web build. the Bun build fills in the version and the file list.
 // It keeps the files of this build so the page opens from the home screen without the network.
 // Only those files: never api/ (identities, ping, relay) and never other hosts. WebSockets do
 // not pass through a service worker at all.

@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-voice"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "tauri-plugin-voice"
+build = "build.rs"
+[dependencies]
+tauri = "2"
+serde_json.workspace = true
+serde.workspace = true
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

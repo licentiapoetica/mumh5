@@ -4,6 +4,25 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ## Unreleased
 
+### Changed
+
+- The desktop app, the Android app and the browser gateway are rebuilt on Rust and Tauri instead of Electron and Node. The interface is the same Svelte app. Identity IDs and the default identity, saved servers, certificate pins, access tokens and sound files are copied from the previous desktop profile on first start; the old files are left as they were. Settings, themes, backgrounds and chat history that the old app kept only in its browser storage are not carried over.
+- The browser gateway (`mumh5-web`, also the Docker image) keeps the `MUMH5_*` settings, the STUN/TURN relay and mumpeer for browsers.
+- The Android app bundles the interface and runs voice natively instead of opening a hosted site.
+- Settings also has a button beside Home, in addition to the Configure button in the audio toolbar.
+
+- Linux desktop: output devices are listed and switched through the sound server (PulseAudio or PipeWire with `pactl`), since the WebView lists no outputs of its own. Every sound of the app follows the choice.
+- Linux desktop: screen sharing and cameras work again. WebKitGTK has no WebRTC, so the app connects shares itself (webrtc-rs) and encodes and decodes in the page with WebCodecs; it interoperates with the browser version and other mumh5 apps. Pictures of shares are drawn on canvases, since WebKitGTK plays no stream made by the page. Shares through mumpeer work too: the app's relay lane also takes TURN over UDP, which is all webrtc-rs speaks.
+
+### Removed
+
+- The Rooms interface (`ui2`) and the interface selector. Saved settings that chose Rooms open the regular layout.
+
+### Known gaps
+
+- Browse public servers: publist.mumble.info answers HTTP 501 to the Rust client.
+- macOS packages are built in CI but have not been tested on a Mac; Windows and Android need testing on real devices.
+
 ### Added
 
 - Browser version: `MUMH5_DEFAULT_SERVER` (also in `docker-compose.yml`) puts one server into the saved servers of every visitor on their first visit. Removing it sticks; the first connect asks for a name.

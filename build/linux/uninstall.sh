@@ -34,11 +34,13 @@ if [ "$mode" = system ]; then
   app=/opt/mumh5
   bin=/usr/local/bin
   menu=/usr/share/applications
+  icons=/usr/local/share/icons/hicolor
 else
   data=${XDG_DATA_HOME:-$HOME/.local/share}
   app=$data/mumh5
   bin=$HOME/.local/bin
   menu=$data/applications
+  icons=$data/icons/hicolor
 fi
 
 found=no
@@ -55,8 +57,9 @@ if [ -f "$bin/mumh5" ] && grep -qF "exec \"$app/mumh5\"" "$bin/mumh5"; then
   rm -f "$bin/mumh5"
   found=yes
 fi
-if [ -f "$menu/mumh5.desktop" ] && grep -qF "Icon=$app/mumh5.png" "$menu/mumh5.desktop"; then
+if [ -f "$menu/mumh5.desktop" ] && grep -qF "Exec=\"$bin/mumh5\"" "$menu/mumh5.desktop"; then
   rm -f "$menu/mumh5.desktop"
+  for size in 32 64 128 256 512; do rm -f "$icons/${size}x${size}/apps/mumh5.png"; done
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$menu" 2>/dev/null || true
   found=yes
 fi
@@ -67,7 +70,7 @@ if [ "$purge" = yes ]; then
     echo "Settings belong to each user: run uninstall.sh --purge as yourself, without sudo." >&2
     exit 1
   fi
-  config=${XDG_CONFIG_HOME:-$HOME/.config}/mumh5
+  config=${XDG_DATA_HOME:-$HOME/.local/share}/dev.f0ck.mumh5
   if [ ! -d "$config" ]; then
     echo "No settings found in $config"
     exit 0
@@ -85,5 +88,5 @@ if [ "$purge" = yes ]; then
   rm -rf "$config"
   echo "Removed $config"
 else
-  echo "Your settings and identities are still in ${XDG_CONFIG_HOME:-$HOME/.config}/mumh5 (remove them with --purge)."
+  echo "Your settings and identities are still in ${XDG_DATA_HOME:-$HOME/.local/share}/dev.f0ck.mumh5 (remove them with --purge)."
 fi

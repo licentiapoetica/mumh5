@@ -1,10 +1,6 @@
-node_modules
-dist
-dist-web
-dist-proxy
-dist-electron
-release
 .git
-docs
-*.log
-.env
+.tooling
+target
+frontend/node_modules
+frontend/dist
+crates/desktop/gen

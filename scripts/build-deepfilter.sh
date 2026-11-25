@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rebuilds vendor/deepfilternet from upstream DeepFilterNet at a pinned commit, source unmodified.
+# Rebuilds frontend/vendor/deepfilternet from upstream DeepFilterNet at a pinned commit, source unmodified.
 # Needs git, cargo, the wasm32-unknown-unknown Rust target and wasm-opt (binaryen).
 # Cargo.lock is kept here because the one upstream ships no longer resolves with --locked.
 # DF_TOOLS: a directory that already has bin/wasm-bindgen 0.2.92, to skip installing it.
@@ -9,7 +9,7 @@ COMMIT=7b14b895fe7fc42cab72b4a4c1e49c982bd6404b
 BINDGEN=0.2.92
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-out="$root/vendor/deepfilternet"
+out="$root/frontend/vendor/deepfilternet"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 tools=${DF_TOOLS:-$work/tools}

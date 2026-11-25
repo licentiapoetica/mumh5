@@ -4,7 +4,7 @@ Protocol references from the original research note include `Mumcord/mumcord` at
 
 ## Enable the relay
 
-The desktop app and the browser build (through its proxy, see below) discover mumpeer on login. By default, when both participants use **Automatic**, a usable relay announced on the Mumble server’s own host is tried first. If it fails, the app retries with the regular ICE routes. Match the announced relay hostname to the address people use to connect to Mumble. The relay and Mumble can listen on different ports.
+The desktop and Android apps and the browser build (through its gateway, see below) discover mumpeer on login. By default, when both participants use **Automatic**, a usable relay announced on the Mumble server’s own host is tried first. If it fails, the app retries with the regular ICE routes. Match the announced relay hostname to the address people use to connect to Mumble. The relay and Mumble can listen on different ports.
 
 **Settings → Screen sharing → Screen sharing connection** also lets you choose direct-first mumpeer fallback or Mumpeer only. Those modes can use a relay announced on a separate host. Mumpeer only fails if either participant cannot use the relay. The relay operator can see connection addresses and timing. WebRTC encrypts the streams between participants.
 
@@ -44,19 +44,19 @@ There are two. The bot API (`/v1/status`, `/v1/pairs`, `/v1/broadcasts`, `DELETE
 - After `ready`, every type-1 payload is copied unchanged to the partner. The relay never parses it. One side may be on QUIC and the other on TCP.
 - Session ends on close, 60 s idle, revoke, or bot gone. Default limit 10 Mbit/s each direction per session.
 
-QUIC is only needed for the UDP path. Node has no usable QUIC, but TCP alone is a valid client: Mumcord itself falls back to it, and mixed UDP/TCP pairs are allowed.
+QUIC is only needed for the UDP path. mumh5 connects over TCP, which is a valid client: Mumcord itself falls back to it, and mixed UDP/TCP pairs are allowed.
 
-## How the desktop app connects
+## How the desktop and Android apps connect
 
 1. An eligible desktop client sends the mumbot-compatible `mumcord.hello` with the `p2p` feature to registered users on login and as they join. Discovery pins the registered bot's certificate hash and the relay's fingerprint for this server and local identity.
 2. The watch request advertises the pinned relay and the viewer's routing requirement before SDP is exchanged. The sharer uses relay-only ICE up front when either side requires it or both prefer the same-host relay. When both can use mumpeer and choose direct-first fallback, an ICE failure can trigger a new offer through the relay.
 3. The lower Mumble session number requests the pair after both clients confirm the same share attempt. A new token replaces any existing link for the certificate pair, so reciprocal shares reuse the same link and tag their packets with a one-byte direction.
-4. Electron main connects over TLS 1.3, verifies ALPN and the pinned relay fingerprint, and binds with the exact client identity from the Mumble connection. After both endpoints bind, Electron starts a credentialed TURN listener on loopback for each active share direction. Its relay address and peer address are virtual. Each TURN allocation forwards media and ICE packets to its one permitted peer over the paired TLS link.
+4. The native Rust core (`crates/platform/src/mumpeer.rs`, called from Tauri) connects over TLS 1.3, verifies ALPN and the pinned relay fingerprint before sending the token, and binds with the exact client identity from the Mumble connection. After both endpoints bind, it starts a credentialed TURN listener on loopback for each active share direction. Its relay address and peer address are virtual. Each TURN allocation forwards media and ICE packets to its one permitted peer over the paired TLS link.
 5. The app closes the allocation when the share ends and closes the link when its last allocation is no longer needed. A TCP-only relay path can add latency on lossy links.
 
-## Browser and Android app
+## Browser build
 
-A browser cannot open TLS sockets or present a client certificate, so the web proxy keeps the link to the relay for it. It needs the proxy's relay on (`MUMH5_TURN`, on by default, and a STUN port); then `/api/config` says `mumpeer: true` and the app offers the same settings and the Server information section as the desktop app. The Android app is the web build and works the same way.
+A browser cannot open TLS sockets or present a client certificate, so the web gateway (`mumh5-web`, `crates/web/src/relay.rs`) keeps the link to the relay for it. It needs the gateway's relay on (`MUMH5_TURN`, on by default, and a STUN port) and at least one relay port in `MUMH5_MUMPEER_PORTS`; then `/api/config` says `mumpeer: true` and the app offers the same settings and the Server information section as the desktop app. The Tauri Android app uses the native path above, not the gateway.
 
 1. After the Mumble connection is secure, the page sends `relay-open` (relay address, fingerprint, token) as a text frame on its WebSocket. The proxy binds with the certificate of that same connection and answers when the relay says ready.
 2. `relay-turn` returns a credential for one lane on the proxy's public relay (`<expiry>:lane-<id>`). That credential reaches only the virtual address of its lane, one allocation at a time, and never a normal relay. The page uses it as the only ICE server of the mumpeer route, over UDP or TCP like the proxy's other relay credentials.
@@ -68,11 +68,10 @@ The proxy operator carries the traffic between the browser and the relay link an
 
 ## Test with stock Mumble and upstream services
 
-Start [mumbot's peer-with-relay example](https://github.com/Mumcord/mumbot/tree/v0.6.0/examples/peer-with-relay) or run the release binaries on loopback. Run the test on an idle relay. Use the relay’s configured `public_host` as the host in `MUMBLE_TEST_HOST` so the test can exercise same-host discovery. It registers two generated identities with the test Mumble server, opens the built Electron app twice, and sends synthetic video through the normal share UI.
+Automated coverage without a real relay:
 
-```bash
-npm run build
-MUMBLE_TEST_HOST=127.0.0.1:64738 MUMBLE_SUPERUSER_PASSWORD="$TEST_SUPERUSER_PASSWORD" MUMPEER_TEST_API=http://127.0.0.1:7480 MUMPEER_API_SECRET="$TEST_RELAY_SECRET" npm run test:e2e:mumpeer
-```
+- `cargo test -p mumh5-platform mumpeer` runs the pinned TLS link against a local relay: bind and token, pin and ALPN rejection before the token is sent, relay refusal, teardown and lane reallocation.
+- `cargo test -p mumh5-platform turn` covers the loopback lane adapter and public-relay lane credentials (one allocation at a time, unknown and removed lanes refused).
+- With a disposable Mumble server, `MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test -p mumh5-web --test mumpeer_gateway` drives the gateway's `relay-*` frames end to end and moves media through a lane.
 
-The relay API must be reachable from the test runner. When the services share a Docker network namespace, run the test against a loopback instance of the relay or expose its API to the test environment according to the relay's configuration.
+For an end-to-end test with the real services, start [mumbot's peer-with-relay example](https://github.com/Mumcord/mumbot/tree/v0.6.0/examples/peer-with-relay) or run the release binaries on loopback, on an idle relay. Use the relay’s configured `public_host` as the Mumble host so same-host discovery is exercised, connect two mumh5 clients with registered identities, and share a screen with the route set to "Mumpeer only". This manual check has not yet been automated for the Rust/Tauri build.

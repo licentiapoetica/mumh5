@@ -29,35 +29,17 @@ fi
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
-if [ -x "$here/mumh5" ] && [ -d "$here/resources" ]; then
-  # The unpacked .tar.gz
+if [ -x "$here/mumh5" ]; then
   src=$here
-elif [ -f "$repo/package.json" ] && grep -q '"name": "mumh5"' "$repo/package.json"; then
-  # A source checkout: build the app for this computer
-  src=$repo/release/linux-unpacked
+elif [ -f "$repo/Cargo.toml" ] && [ -f "$repo/crates/desktop/tauri.conf.json" ]; then
+  src=$repo/target/portable/mumh5
   if [ "$(id -u)" -eq 0 ]; then
-    # Building as root would leave root-owned files in the checkout
-    if [ ! -x "$src/mumh5" ]; then
-      echo "Build it as yourself first (npm run dist:linux), then run: sudo $0 --system" >&2
-      exit 1
-    fi
-    echo "Using the build in $src"
+    [ -x "$src/mumh5" ] || { echo "Build as yourself first: tools/package-linux.sh" >&2; exit 1; }
   else
-    if ! command -v npm >/dev/null 2>&1; then
-      echo "Building from source needs Node.js and npm (https://nodejs.org/)." >&2
-      exit 1
-    fi
-    echo "Building mumh5 from $repo"
-    (
-      cd "$repo"
-      [ -d node_modules ] || npm install
-      npm run build
-      npx electron-builder --linux dir --publish never
-    )
+    (cd "$repo" && bash tools/package-linux.sh)
   fi
 else
-  echo "Could not find mumh5 next to this script, nor a source checkout around it." >&2
-  echo "Run it from the unpacked .tar.gz folder, or as build/linux/install.sh in the repository." >&2
+  echo "Run from the unpacked archive or the repository's build/linux folder." >&2
   exit 1
 fi
 
@@ -65,11 +47,14 @@ if [ "$mode" = system ]; then
   app=/opt/mumh5
   bin=/usr/local/bin
   menu=/usr/share/applications
+  # Not /usr/share: the .deb package owns the mumh5 icons there
+  icons=/usr/local/share/icons/hicolor
 else
   data=${XDG_DATA_HOME:-$HOME/.local/share}
   app=$data/mumh5
   bin=$HOME/.local/bin
   menu=$data/applications
+  icons=$data/icons/hicolor
 fi
 
 if [ "$src" = "$app" ]; then
@@ -90,26 +75,18 @@ mkdir -p "$(dirname "$app")"
 cp -a "$src" "$tmp"
 rm -f "$tmp/install.sh"
 cp "$here/uninstall.sh" "$tmp/uninstall.sh"
-[ -f "$tmp/mumh5.png" ] || cp "$repo/build/icon.png" "$tmp/mumh5.png" 2>/dev/null || true
+[ -f "$tmp/mumh5.png" ] || cp "$repo/crates/desktop/icons/icon.png" "$tmp/mumh5.png" 2>/dev/null || true
 echo "$mode" > "$tmp/.mumh5-install"
 rm -rf "$app"
 mv "$tmp" "$app"
 
-# Chromium's sandbox helper must belong to root with the setuid bit. Installed for you only,
-# that is not possible; the app then relies on user namespaces, which most systems allow.
-if [ "$mode" = system ] && [ -f "$app/chrome-sandbox" ]; then
-  chown root:root "$app/chrome-sandbox"
-  chmod 4755 "$app/chrome-sandbox"
-fi
-
 mkdir -p "$bin" "$menu"
 
-# A launcher rather than a link: in a shell with ELECTRON_RUN_AS_NODE set, the app would start as Node
+# Keep the launcher path stable across upgrades.
 rm -f "$bin/mumh5"
 {
   echo '#!/bin/sh'
   echo '# mumh5 launcher, made by install.sh'
-  echo 'unset ELECTRON_RUN_AS_NODE'
   echo "exec \"$app/mumh5\" \"\$@\""
 } > "$bin/mumh5"
 chmod 755 "$bin/mumh5"
@@ -120,14 +97,28 @@ chmod 755 "$bin/mumh5"
   echo 'Name=mumh5'
   echo 'Comment=Modern Mumble client'
   echo "Exec=\"$bin/mumh5\" %U"
-  echo "Icon=$app/mumh5.png"
+  echo "Icon=mumh5"
   echo 'Terminal=false'
   echo 'Categories=Network;Chat;'
   echo 'Keywords=mumble;voice;chat;voip;'
   echo 'StartupWMClass=mumh5'
 } > "$menu/mumh5.desktop"
 
+# The icon goes into the icon theme under the app's name: Wayland compositors (KWin, Mutter) find
+# a window's icon through its desktop file and load it by name, which a file path does not satisfy.
+for size in 32 64 128 256 512; do
+  icon=$app/icons/$size.png
+  [ -f "$icon" ] || { [ "$size" = 512 ] && icon=$app/mumh5.png; }
+  [ -f "$icon" ] || continue
+  mkdir -p "$icons/${size}x${size}/apps"
+  cp "$icon" "$icons/${size}x${size}/apps/mumh5.png"
+done
+command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -f "$icons/index.theme" ] && gtk-update-icon-cache -q "$icons" 2>/dev/null || true
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$menu" 2>/dev/null || true
+# KDE reads desktop files through its own cache
+if [ "$mode" = user ]; then
+  for k in kbuildsycoca6 kbuildsycoca5; do command -v "$k" >/dev/null 2>&1 && { "$k" >/dev/null 2>&1 || true; break; }; done
+fi
 
 echo "Done. Start it from your app menu or with: mumh5"
 case ":$PATH:" in
