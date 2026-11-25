@@ -14,12 +14,12 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    serve::{Listener, ListenerExt},
+    serve::ListenerExt,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
 use futures_util::SinkExt;
-use mumh5_core::{identity::Identity, transport::Transport};
+use mumh5_core::{identity::Identity, transport};
 use mumh5_platform::turn::TurnServer;
 use mumh5_platform::{certificates, network};
 use serde_json::{Value, json};
@@ -30,7 +30,10 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::Semaphore,
+};
 use tower_http::services::{ServeDir, ServeFile};
 #[derive(Parser)]
 #[command(about = "mumh5 browser UI and native Rust Mumble gateway")]
@@ -363,7 +366,8 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
             cert_pem: text(&hello, "certPem").into(),
             key_pem: text(&hello, "keyPem").into(),
         };
-        let mut transport = Transport::connect_to(
+        // One task owns both ends: no channel hop, split lock or cross-thread wakeup per packet.
+        let mut link = transport::Link::open(
             host,
             port,
             &identity,
@@ -371,10 +375,12 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
             app.config.send_proxy.then_some(address),
         )
         .await?;
+        // Mumble only ever sees the gateway's address; the browser is told its own so the app can
+        // show it (UserInfoDialog)
+        let mut info = link.secure.clone();
+        info["clientAddress"] = json!(address.ip().to_canonical().to_string());
         ws.send(Message::Text(
-            json!({"type":"secure","info":transport.secure})
-                .to_string()
-                .into(),
+            json!({"type":"secure","info":info}).to_string().into(),
         ))
         .await?;
         // Once the connection is secure its identity may open mumpeer links.
@@ -390,10 +396,16 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
                 events.clone(),
             )
         });
+        let mut buffer = vec![0; transport::READ_BUFFER];
         loop {
             tokio::select! {
                 frame = ws.recv() => match frame {
-                    Some(Ok(Message::Binary(b))) => transport.send.send(b.to_vec()).await?,
+                    Some(Ok(Message::Binary(b))) => {
+                        if b.len() > transport::MAX_WRITE {
+                            anyhow::bail!("Frame too large");
+                        }
+                        link.stream.write_all(&b).await.context("Writing Mumble TLS stream")?;
+                    }
                     Some(Ok(Message::Text(t))) => {
                         // Text frames after the handshake are small mumpeer requests; others are ignored.
                         if t.len() > MAX_REQUEST_FRAME {
@@ -429,10 +441,10 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
                 reply = replies.recv() => if let Some(reply) = reply {
                     ws.send(Message::Text(reply.to_string().into())).await?;
                 },
-                data = transport.receive.recv() => match data {
-                    Some(Ok(b)) => ws.send(Message::Binary(b.into())).await?,
-                    Some(Err(e)) => return Err(e),
-                    None => break,
+                // Cancel safe: a read dropped by another branch has consumed nothing.
+                n = link.stream.read(&mut buffer) => match n.context("Reading Mumble TLS stream")? {
+                    0 => return Err(transport::closed_by_server()),
+                    n => ws.send(Message::Binary(buffer[..n].to_vec().into())).await?,
                 },
             }
         }
@@ -520,21 +532,128 @@ async fn main() -> Result<()> {
         .nest("/api", api)
         .fallback_service(static_files)
         .with_state(app);
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    let stop = tokio_util::sync::CancellationToken::new();
+    let Some(shards) = shard_count() else {
+        let listener = tokio::net::TcpListener::bind(bind).await?;
+        println!("mumh5: http://{}", listener.local_addr()?);
+        let stopped = stop.clone();
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            stopped.cancel();
+        });
+        return serve(listener, service, stop).await;
+    };
+    // Each shard is a single-threaded runtime with its own listener on the same port; the
+    // kernel spreads connections over them. A connection's WebSocket, Mumble socket and tunnel
+    // then stay on one thread, while the work-stealing runtime woke idle workers on every packet.
+    let first = listen(bind, shards > 1)?;
+    let bind = first.local_addr()?;
+    let mut listeners = vec![first];
+    for _ in 1..shards {
+        listeners.push(listen(bind, true)?);
+    }
+    println!("mumh5: http://{bind}");
+    let threads = listeners
+        .into_iter()
+        .enumerate()
+        .map(|(n, listener)| {
+            let service = service.clone();
+            let stop = stop.clone();
+            std::thread::Builder::new()
+                .name(format!("mumh5-shard-{n}"))
+                .spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?
+                        .block_on(async {
+                            let listener = tokio::net::TcpListener::from_std(listener)?;
+                            serve(listener, service, stop).await
+                        })
+                })
+        })
+        .collect::<std::io::Result<Vec<_>>>()?;
+    tokio::select! {
+        _ = shutdown_signal() => {}
+        _ = stop.cancelled() => {}
+    }
+    stop.cancel();
+    let joined = tokio::task::spawn_blocking(move || {
+        threads.into_iter().try_for_each(|thread| {
+            thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("Gateway thread panicked"))?
+        })
+    });
+    joined.await?
+}
+
+/// Listener shards (MUMH5_THREADS, default 1). Every thread that sleeps in epoll is woken
+/// per packet, while one busy thread takes many ready sockets per wakeup: at 14,400 voice
+/// packets/s one shard used half the CPU of 16. Raise it when one core is not enough. Only
+/// Linux spreads connections over listeners sharing a port; elsewhere the main runtime serves.
+fn shard_count() -> Option<usize> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    Some(
+        std::env::var("MUMH5_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(1),
+    )
+}
+
+/// `shared` lets the shards bind one port. Only then: a lone listener with SO_REUSEPORT would let
+/// a second gateway started by mistake bind the same port and take part of the connections,
+/// instead of failing with "address in use".
+fn listen(bind: SocketAddr, shared: bool) -> Result<std::net::TcpListener> {
+    let socket = if bind.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    #[cfg(target_os = "linux")]
+    socket.set_reuseport(shared)?;
+    socket.bind(bind)?;
+    Ok(socket.listen(1024)?.into_std()?)
+}
+
+/// Ctrl-C, or SIGTERM from `docker stop` and service managers. Without SIGTERM, Docker waited its
+/// grace period (10 s) and then killed the gateway, so a restart kept web clients offline longer.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
+}
+
+async fn serve(
+    listener: tokio::net::TcpListener,
+    service: axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, SocketAddr>,
+    stop: tokio_util::sync::CancellationToken,
+) -> Result<()> {
     // Without it, Nagle and delayed ACKs hold every later response on a keep-alive
     // connection (and small WebSocket voice frames) for about 40 ms.
-    let listener = tokio::net::TcpListener::bind(bind).await?.tap_io(|tcp| {
+    let listener = listener.tap_io(|tcp| {
         let _ = tcp.set_nodelay(true);
     });
-    println!("mumh5: http://{}", listener.local_addr()?);
-    axum::serve(
-        listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
-    .await?;
-    Ok(())
+    let result = axum::serve(listener, service)
+        .with_graceful_shutdown(stop.clone().cancelled_owned())
+        .await;
+    // One shard failing stops the gateway rather than leaving it half served.
+    stop.cancel();
+    Ok(result?)
 }
 
 /// Only files under `assets/` carry a content hash in their name. The page, the service worker,
