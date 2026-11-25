@@ -4,6 +4,7 @@
   import { share } from '../lib/share.svelte.ts';
   import { sessions } from '../lib/session.svelte.ts';
   import { CAMERA_RATES, CAMERA_SIZES, cameraBitrate, cameraError, openCamera } from '../lib/camera.ts';
+  import { showStream } from '../lib/stream-picture.ts';
 
   const s = store.settings;
   const available = !!navigator.mediaDevices?.getUserMedia;
@@ -73,7 +74,7 @@
   }
   $effect(() => {
     if (!video) return;
-    video.srcObject = shown;
+    showStream(video, shown);
     if (!shown) actual = '';
   });
   const mirrored = $derived(s.cameraMirror && shown?.getVideoTracks()[0]?.getSettings().facingMode !== 'environment');

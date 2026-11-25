@@ -16,6 +16,7 @@ import { store, type ScreenShareRoute } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 import { cameraBitrate, cameraError, cameraWishes, openCamera } from './camera.ts';
+import { createSharePeer, sharePeerAvailable, type SharePeer } from './share-peer.ts';
 
 // Every viewer is a separate upload from the sharer
 const MAX_VIEWERS = 8;
@@ -26,10 +27,6 @@ export const QUALITY = {
   medium: { label: 'Medium (4 Mbit/s, 30 fps)', bitrate: 4_000_000, fps: 30 },
   high: { label: 'High (8 Mbit/s, 60 fps)', bitrate: 8_000_000, fps: 60 }
 } as const;
-
-// Opus is negotiated as mono speech by default; shared sound is stereo and often music
-const stereo = (sdp: string) => sdp.replace(/a=fmtp:(\d+) ([^\r\n]*useinbandfec=1[^\r\n]*)/g,
-  (line, pt, rest) => rest.includes('stereo=1') ? line : `a=fmtp:${pt} ${rest};stereo=1;sprop-stereo=1;maxaveragebitrate=192000`);
 
 // What a stream shows. Sent along with the announcement, so others see the right icon.
 export type ShareKind = 'screen' | 'camera';
@@ -92,8 +89,8 @@ class ScreenShare {
   dialog = $state.raw<Session | null>(null);
   private usesVirtualMic = false;
 
-  private peers = new Map<number, RTCPeerConnection>();
-  private watchPcs = new Map<number, RTCPeerConnection>();
+  private peers = new Map<number, SharePeer>();
+  private watchPcs = new Map<number, SharePeer>();
   private offers = new Map<number, OfferAttempt>();
   private watchAttempts = new Map<number, WatchAttempt>();
   private watchTimers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -112,7 +109,7 @@ class ScreenShare {
   screenSupported(s: Session): boolean { return this.supported(s) && screenRoute() !== 'off'; }
 
   supported(s: Session): boolean {
-    return !!s.client && s.client.serverVersionNum >= 0x010400 && typeof RTCPeerConnection !== 'undefined';
+    return !!s.client && s.client.serverVersionNum >= 0x010400 && sharePeerAvailable();
   }
 
   private async iceServers(direct = false): Promise<RTCIceServer[]> {
@@ -248,14 +245,7 @@ class ScreenShare {
     if (!this.cameraOn) return;
     if (deviceChanged) await this.useCamera(store.settings.cameraDevice);
     else await this.stream?.getVideoTracks()[0]?.applyConstraints(cameraWishes()).catch(e => { this.error = `The camera did not take the new settings: ${(e as Error).message}`; });
-    for (const pc of this.peers.values()) {
-      for (const sender of pc.getSenders()) {
-        if (sender.track?.kind !== 'video') continue;
-        const params = sender.getParameters();
-        for (const enc of params.encodings ?? []) enc.maxBitrate = cameraBitrate();
-        await sender.setParameters(params).catch(() => {});
-      }
-    }
+    for (const pc of this.peers.values()) await pc.setBitrate(cameraBitrate()).catch(() => {});
   }
 
   private async useCamera(deviceId: string): Promise<void> {
@@ -288,10 +278,7 @@ class ScreenShare {
       track.addEventListener('ended', () => { if (this.stream?.getVideoTracks()[0] === track) this.stop(); });
       // Viewers keep their connection; only the picture changes
       for (const pc of this.peers.values()) {
-        for (const sender of pc.getSenders()) {
-          if (sender.track !== old) continue;
-          await sender.replaceTrack(track).catch(e => { this.error = `A viewer did not get the new camera: ${(e as Error).message}`; });
-        }
+        await pc.replaceVideo(track).catch(e => { this.error = `A viewer did not get the new camera: ${(e as Error).message}`; });
       }
       old.stop();
       this.stream = new MediaStream([track, ...stream.getAudioTracks()]);
@@ -490,17 +477,6 @@ class ScreenShare {
     for (const session of Object.keys(s.sharing)) if (Number(session) !== s.client?.session) this.autoWatch(s, Number(session));
   }
 
-  // Candidates travel inside the description, so wait for them instead of sending each one
-  private gathered(pc: RTCPeerConnection): Promise<void> {
-    if (pc.iceGatheringState === 'complete') return Promise.resolve();
-    return new Promise(resolve => {
-      const done = () => { clearTimeout(timer); pc.removeEventListener('icegatheringstatechange', check); resolve(); };
-      const check = () => { if (pc.iceGatheringState === 'complete') done(); };
-      const timer = setTimeout(done, 3000);
-      pc.addEventListener('icegatheringstatechange', check);
-    });
-  }
-
   private offerCurrent(a: OfferAttempt): boolean {
     return this.offers.get(a.viewer) === a && this.host === a.session && !!this.stream && this.inMyChannel(a.session, a.viewer);
   }
@@ -565,34 +541,24 @@ class ScreenShare {
     try {
       const config = await (a.lease?.config ?? this.rtcConfig(route));
       if (!this.offerCurrent(a) || a.route !== route) return;
-      const pc = new RTCPeerConnection(config);
+      const motion = this.kind === 'camera';
+      const bitrate = motion ? cameraBitrate() : QUALITY[store.settings.shareQuality].bitrate;
+      const pc = createSharePeer(config, { stream, bitrate, motion });
       this.peers.set(viewer, pc);
       this.viewers = this.peers.size;
       const current = () => this.offerCurrent(a) && this.peers.get(viewer) === pc;
-      pc.addEventListener('connectionstatechange', () => {
+      pc.onState = state => {
         if (!current()) return;
-        if (pc.connectionState === 'connected' && !this.live.has(viewer)) {
+        if (state === 'connected' && !this.live.has(viewer)) {
           this.live.add(viewer);
           sounds.play('viewerJoined');
-        } else if (pc.connectionState === 'failed') {
+        } else if (state === 'failed') {
           if (a.fallback === 'mumpeer') void this.relayOffer(a);
           else this.failOffer(a, 'Could not connect to the viewer.');
-        } else if (pc.connectionState === 'closed') this.dropPeer(viewer);
-      });
-      for (const track of stream.getTracks()) {
-        const sender = pc.addTrack(track, stream);
-        if (track.kind !== 'video') continue;
-        const params = sender.getParameters();
-        params.degradationPreference = this.kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
-        const wanted = this.kind === 'camera' ? cameraBitrate() : QUALITY[store.settings.shareQuality].bitrate;
-        for (const enc of params.encodings ?? []) enc.maxBitrate = wanted;
-        await sender.setParameters(params).catch(() => {});
-        if (!current()) return;
-      }
-      await pc.setLocalDescription({ type: 'offer', sdp: stereo((await pc.createOffer()).sdp ?? '') });
-      await this.gathered(pc);
-      if (!current() || !pc.localDescription) return;
-      const sdp = pc.localDescription.sdp;
+        } else if (state === 'closed') this.dropPeer(viewer);
+      };
+      const sdp = await pc.offer();
+      if (!current()) return;
       if (request) await this.flow(s, viewer, { t: 'offer', id: request.id, route, sdp, fallback: a.fallback === 'mumpeer' });
       else await this.send(s, [viewer], SHARE.offer, sdp);
     } catch (error) {
@@ -611,23 +577,23 @@ class ScreenShare {
       if (!mine()) return;
       if (route === 'direct' && / typ relay(?: |\r|$)/m.test(sdp)) throw new Error('The other client offered a relay in direct-only mode.');
       this.closeWatchConnection(sharer);
-      const pc = new RTCPeerConnection(config);
+      const pc = createSharePeer(config);
       this.watchPcs.set(sharer, pc);
       const current = () => mine() && this.watchPcs.get(sharer) === pc;
-      pc.addEventListener('track', e => {
-        if (current()) this.setWatchState(sharer, pc.connectionState === 'connected' ? 'live' : 'connecting', e.streams[0], { route });
-      });
-      pc.addEventListener('connectionstatechange', () => {
+      let connected = false;
+      pc.onStream = stream => {
+        if (current()) this.setWatchState(sharer, connected ? 'live' : 'connecting', stream, { route });
+      };
+      pc.onState = state => {
         if (!current()) return;
-        if (pc.connectionState === 'connected') this.setWatchState(sharer, 'live', undefined, { route });
-        else if (pc.connectionState === 'failed') this.watchFailed(sharer);
-      });
-      await pc.setRemoteDescription({ type: 'offer', sdp });
-      await pc.setLocalDescription({ type: 'answer', sdp: stereo((await pc.createAnswer()).sdp ?? '') });
-      await this.gathered(pc);
-      if (!current() || !pc.localDescription) return;
-      if (attempt) await this.flow(s, sharer, { t: 'answer', id: attempt.request.id, route, sdp: pc.localDescription.sdp });
-      else await this.send(s, [sharer], SHARE.answer, pc.localDescription.sdp);
+        connected = state === 'connected';
+        if (connected) this.setWatchState(sharer, 'live', undefined, { route });
+        else if (state === 'failed') this.watchFailed(sharer);
+      };
+      const answer = await pc.answer(sdp);
+      if (!current()) return;
+      if (attempt) await this.flow(s, sharer, { t: 'answer', id: attempt.request.id, route, sdp: answer });
+      else await this.send(s, [sharer], SHARE.answer, answer);
     } catch (error) {
       if (!mine()) return;
       if (route === 'mumpeer' && attempt) this.watchRelayFailed(attempt, (error as Error).message);
@@ -645,7 +611,7 @@ class ScreenShare {
       if (flow.t === 'answer' && offer.route === flow.route) {
         if (offer.route === 'direct' && / typ relay(?: |\r|$)/m.test(flow.sdp)) return this.failOffer(offer, 'The viewer offered a relay in direct-only mode.');
         const pc = this.peers.get(sender);
-        if (pc?.signalingState === 'have-local-offer') void pc.setRemoteDescription({ type: 'answer', sdp: flow.sdp }).catch(() => {
+        if (pc?.waitingForAnswer) void pc.accept(flow.sdp).catch(() => {
           if (this.peers.get(sender) === pc) this.failOffer(offer, 'Could not accept the viewer’s answer.');
         });
       }
@@ -711,9 +677,9 @@ class ScreenShare {
   async reports(own: boolean, session?: number): Promise<{ viewer: number | null; report: RTCStatsReport }[]> {
     if (!own) {
       const pc = session != null ? this.watchPcs.get(session) : undefined;
-      return pc ? [{ viewer: null, report: await pc.getStats() }] : [];
+      return pc ? [{ viewer: null, report: await pc.stats() }] : [];
     }
-    return Promise.all([...this.peers].map(async ([viewer, pc]) => ({ viewer, report: await pc.getStats() })));
+    return Promise.all([...this.peers].map(async ([viewer, pc]) => ({ viewer, report: await pc.stats() })));
   }
 
   // ─── Called by the session ────────────────────────────────────────────────
@@ -743,9 +709,9 @@ class ScreenShare {
       case SHARE.answer: {
         const offer = this.offers.get(sender);
         const pc = this.peers.get(sender);
-        if (offer?.session === s && !offer.request && msg.text && pc?.signalingState === 'have-local-offer') {
+        if (offer?.session === s && !offer.request && msg.text && pc?.waitingForAnswer) {
           if (offer.route === 'direct' && / typ relay(?: |\r|$)/m.test(msg.text)) return this.failOffer(offer, 'The viewer offered a relay in direct-only mode.');
-          void pc.setRemoteDescription({ type: 'answer', sdp: msg.text }).catch(() => {
+          void pc.accept(msg.text).catch(() => {
             if (this.peers.get(sender) === pc) this.dropPeer(sender);
           });
         }

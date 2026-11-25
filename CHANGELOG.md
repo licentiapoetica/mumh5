@@ -12,6 +12,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 - Settings also has a button beside Home, in addition to the Configure button in the audio toolbar.
 
 - Linux desktop: output devices are listed and switched through the sound server (PulseAudio or PipeWire with `pactl`), since the WebView lists no outputs of its own. Every sound of the app follows the choice.
+- Linux desktop: screen sharing and cameras work again. WebKitGTK has no WebRTC, so the app connects shares itself (webrtc-rs) and encodes and decodes in the page with WebCodecs; it interoperates with the browser version and other mumh5 apps. Pictures of shares are drawn on canvases, since WebKitGTK plays no stream made by the page.
 
 ### Removed
 

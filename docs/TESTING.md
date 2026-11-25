@@ -96,6 +96,29 @@ writing the report. It requires the disposable Mumble server on port 64750.
 Hardware capture, system portal interaction, WAN/NAT traversal, and other OS
 WebViews are not covered by this smoke test.
 
+### Screen sharing and cameras on the Linux desktop
+
+WebKitGTK has no WebRTC, so the desktop app shares through its own peer
+(`crates/desktop/src/share_rtc.rs`, webrtc-rs) with WebCodecs in the page
+(`frontend/src/lib/native-share-peer.ts`). Three checks, all with WebKit's mock
+camera and mock screen (`MUMH5_SMOKE_MOCK_MEDIA=1`), never real devices:
+
+- `cargo test -p mumh5-desktop`: two native peers connect and carry VP8.
+- `frontend/tools/native-share-smoke.ts`, bundled with
+  `bun build tools/native-share-smoke.ts --format iife --target browser --outfile X`
+  and run as `MUMH5_SMOKE_SCRIPT=X`: a screen and a camera round trip inside one
+  app, checked by the pixels on the page.
+- `tools/desktop-share-e2e.sh camera|screen [binary]`: two app instances on the
+  test server, through the real buttons and share dialog; the viewer checks the
+  picture on its stage. The screen picker is opened with `smoke_click`, a click
+  delivered through GTK, since `getDisplayMedia` needs a user gesture.
+  `frontend/tools/share-interop.ts` is the browser side for mixed checks
+  (`ROLE=viewer KIND=screen bun tools/share-interop.ts` against a gateway on
+  :18080 while one app instance shares, or `ROLE=sender` while one watches).
+
+Not covered: the real portal picker and PipeWire capture, screen sound, and
+sharing across NAT.
+
 When done, stop the gateway and remove only your disposable test container:
 
 ```sh
