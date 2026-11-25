@@ -116,8 +116,9 @@ jobs:
         run: |
           source tools/env.sh
           cargo build --locked --release -p mumh5-cli
-      # PowerShell on Windows: Git Bash rewrites MSVC arguments such as /nologo into paths
-      # when CMake builds Opus. The variables are those of tools/env.sh.
+      # PowerShell on Windows, with MSYSTEM cleared and NMake as CMake's generator: otherwise
+      # the cmake crate picks "MSYS Makefiles" for Opus, and MSYS make turns MSVC's /nologo
+      # into a path. The other variables are those of tools/env.sh.
       - name: Native Tauri installer and headless client (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -127,6 +128,8 @@ jobs:
           $env:BUN_INSTALL = "$PWD\.tooling\bun"
           $env:BUN_INSTALL_CACHE_DIR = "$PWD\.tooling\bun\cache"
           $env:PATH = "$env:CARGO_HOME\bin;$env:BUN_INSTALL\bin;$env:PATH"
+          Remove-Item Env:MSYSTEM -ErrorAction SilentlyContinue
+          $env:CMAKE_GENERATOR = "NMake Makefiles"
           Push-Location crates/desktop
           cargo tauri build --ci --bundles '${{ matrix.bundles }}'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
