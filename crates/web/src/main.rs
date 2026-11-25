@@ -375,10 +375,12 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
             app.config.send_proxy.then_some(address),
         )
         .await?;
+        // Mumble only ever sees the gateway's address; the browser is told its own so the app can
+        // show it (UserInfoDialog)
+        let mut info = link.secure.clone();
+        info["clientAddress"] = json!(address.ip().to_canonical().to_string());
         ws.send(Message::Text(
-            json!({"type":"secure","info":link.secure})
-                .to_string()
-                .into(),
+            json!({"type":"secure","info":info}).to_string().into(),
         ))
         .await?;
         // Once the connection is secure its identity may open mumpeer links.
@@ -657,6 +659,13 @@ async fn cache_headers(req: Request, next: Next) -> Response {
     // tower-http picks a precompressed variant but does not say so to caches
     res.headers_mut()
         .insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    // As the Node proxy sent them: no type sniffing, and the app is never framed by another page
+    res.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    res.headers_mut()
+        .insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     res
 }
 
