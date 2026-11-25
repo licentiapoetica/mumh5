@@ -56,11 +56,11 @@ QUIC is only needed for the UDP path. Node has no usable QUIC, but TCP alone is 
 
 ## Browser and Android app
 
-A browser cannot open TLS sockets or present a client certificate, so the web proxy keeps the link to the relay for it. It needs the proxy's relay on (`MUMH5_TURN`, on by default, and a STUN port); then `/api/config` says `mumpeer: true` and the app offers the same settings and the Server information section as the desktop app. The Android app is the web build and works the same way.
+A browser cannot open TLS sockets or present a client certificate, so the web proxy (the Rust gateway, `crates/web/src/relay.rs`) keeps the link to the relay for it. It needs the proxy's relay on (`MUMH5_TURN`, on by default, and a STUN port); then `/api/config` says `mumpeer: true` and the app offers the same settings and the Server information section as the desktop app. The Android app is the web build and works the same way.
 
 1. After the Mumble connection is secure, the page sends `relay-open` (relay address, fingerprint, token) as a text frame on its WebSocket. The proxy binds with the certificate of that same connection and answers when the relay says ready.
 2. `relay-turn` returns a credential for one lane on the proxy's public relay (`<expiry>:lane-<id>`). That credential reaches only the virtual address of its lane, one allocation at a time, and never a normal relay. The page uses it as the only ICE server of the mumpeer route, over UDP or TCP like the proxy's other relay credentials.
-3. `relay-lane-close` and `relay-close` end a lane or the link; the proxy also ends all links when the WebSocket closes and reports a link that ends with `relay-closed`. At most nine links per connection.
+3. `relay-lane-close` and `relay-close` end a lane or the link; the proxy also ends all links when the WebSocket closes and reports a link that ends with `relay-closed`. At most nine links per connection, and four requests in flight. A request frame is at most 4 KiB.
 
 Where the proxy may dial: the relay's TLS port has to be one the operator lists (`MUMH5_MUMPEER_PORTS`, default 443), since browsers name the port and an unlisted private server must not become a port scanner. The relay has to be on the same host as the Mumble server being used. Only a proxy that allows any server (`MUMH5_ALLOW_ANY`) also takes a relay on another host, and then never one that resolves to a private address, as for Mumble servers. On a proxy with a fixed server list, "Direct first, with mumpeer fallback" and "Mumpeer only" therefore work only for relays on the server's own host.
 

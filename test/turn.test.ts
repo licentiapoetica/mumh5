@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import dgram from 'node:dgram';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
-import { startTurn, turnCredential, build, parse, xorAddress, unxorAddress, LaneRegistry, type TurnOptions, type VirtualTurnPeer } from '../server/turn.ts';
+import { startTurn, turnCredential, build, parse, xorAddress, unxorAddress, LaneRegistry, type TurnOptions, type VirtualTurnPeer } from '../electron/turn.ts';
 
 const SECRET = 'test-secret';
 const options = (over: Partial<TurnOptions> = {}): TurnOptions => ({
