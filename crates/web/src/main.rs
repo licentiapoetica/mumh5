@@ -14,7 +14,7 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    serve::{Listener, ListenerExt},
+    serve::ListenerExt,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
@@ -522,21 +522,108 @@ async fn main() -> Result<()> {
         .nest("/api", api)
         .fallback_service(static_files)
         .with_state(app);
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
+    let stop = tokio_util::sync::CancellationToken::new();
+    let Some(shards) = shard_count() else {
+        let listener = tokio::net::TcpListener::bind(bind).await?;
+        println!("mumh5: http://{}", listener.local_addr()?);
+        let stopped = stop.clone();
+        tokio::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            stopped.cancel();
+        });
+        return serve(listener, service, stop).await;
+    };
+    // Each shard is a single-threaded runtime with its own listener on the same port; the
+    // kernel spreads connections over them. A connection's WebSocket, Mumble socket and tunnel
+    // then stay on one thread, while the work-stealing runtime woke idle workers on every packet.
+    let first = listen(bind)?;
+    let bind = first.local_addr()?;
+    let mut listeners = vec![first];
+    for _ in 1..shards {
+        listeners.push(listen(bind)?);
+    }
+    println!("mumh5: http://{bind}");
+    let threads = listeners
+        .into_iter()
+        .enumerate()
+        .map(|(n, listener)| {
+            let service = service.clone();
+            let stop = stop.clone();
+            std::thread::Builder::new()
+                .name(format!("mumh5-shard-{n}"))
+                .spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?
+                        .block_on(async {
+                            let listener = tokio::net::TcpListener::from_std(listener)?;
+                            serve(listener, service, stop).await
+                        })
+                })
+        })
+        .collect::<std::io::Result<Vec<_>>>()?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = stop.cancelled() => {}
+    }
+    stop.cancel();
+    let joined = tokio::task::spawn_blocking(move || {
+        threads.into_iter().try_for_each(|thread| {
+            thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("Gateway thread panicked"))?
+        })
+    });
+    joined.await?
+}
+
+/// Listener shards (MUMH5_THREADS, default 1). Every thread that sleeps in epoll is woken
+/// per packet, while one busy thread takes many ready sockets per wakeup: at 14,400 voice
+/// packets/s one shard used half the CPU of 16. Raise it when one core is not enough. Only
+/// Linux spreads connections over listeners sharing a port; elsewhere the main runtime serves.
+fn shard_count() -> Option<usize> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    Some(
+        std::env::var("MUMH5_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(1),
+    )
+}
+
+fn listen(bind: SocketAddr) -> Result<std::net::TcpListener> {
+    let socket = if bind.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    #[cfg(target_os = "linux")]
+    socket.set_reuseport(true)?;
+    socket.bind(bind)?;
+    Ok(socket.listen(1024)?.into_std()?)
+}
+
+async fn serve(
+    listener: tokio::net::TcpListener,
+    service: axum::extract::connect_info::IntoMakeServiceWithConnectInfo<Router, SocketAddr>,
+    stop: tokio_util::sync::CancellationToken,
+) -> Result<()> {
     // Without it, Nagle and delayed ACKs hold every later response on a keep-alive
     // connection (and small WebSocket voice frames) for about 40 ms.
-    let listener = tokio::net::TcpListener::bind(bind).await?.tap_io(|tcp| {
+    let listener = listener.tap_io(|tcp| {
         let _ = tcp.set_nodelay(true);
     });
-    println!("mumh5: http://{}", listener.local_addr()?);
-    axum::serve(
-        listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
-    .await?;
-    Ok(())
+    let result = axum::serve(listener, service)
+        .with_graceful_shutdown(stop.clone().cancelled_owned())
+        .await;
+    // One shard failing stops the gateway rather than leaving it half served.
+    stop.cancel();
+    Ok(result?)
 }
 
 /// Only files under `assets/` carry a content hash in their name. The page, the service worker,
