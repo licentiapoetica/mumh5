@@ -557,6 +557,13 @@ async fn cache_headers(req: Request, next: Next) -> Response {
     // tower-http picks a precompressed variant but does not say so to caches
     res.headers_mut()
         .insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    // As the Node proxy sent them: no type sniffing, and the app is never framed by another page
+    res.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    res.headers_mut()
+        .insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     res
 }
 
