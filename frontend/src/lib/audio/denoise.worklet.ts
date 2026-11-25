@@ -11,6 +11,9 @@ const START = FRAME + 128;
 const WINDOW_FRAMES = 100;
 const MAX_BUSY_MS = 700;
 const MAX_SLOW_WINDOWS = 3;
+// Output lags input by this many frames (look-ahead and window overlap, measured). After a pause
+// these frames still hold audio from before it, so they are dropped.
+const DELAY_FRAMES = 4;
 
 interface DfExports {
   memory: WebAssembly.Memory;
@@ -128,10 +131,21 @@ class DenoiseProcessor extends AudioWorkletProcessor {
   private busyMs = 0;
   private frames = 0;
   private slowWindows = 0;
+  // While nothing of the microphone is sent (muted or deafened), the model is the largest idle cost
+  // of a connection; the signal then passes unfiltered
+  private paused = false;
+  private stale = 0;
 
   constructor(options: AudioWorkletNodeOptions) {
     super();
-    this.port.onmessage = e => { if (e.data?.close) this.close(); };
+    this.port.onmessage = e => {
+      if (e.data?.close) this.close();
+      else if (e.data?.paused !== undefined && e.data.paused !== this.paused) {
+        this.paused = e.data.paused;
+        this.reset();
+        if (!this.paused) this.stale = DELAY_FRAMES;
+      }
+    };
     try {
       this.df = createDf(options.processorOptions.module, options.processorOptions.model);
       this.port.postMessage({ ready: true });
@@ -153,12 +167,17 @@ class DenoiseProcessor extends AudioWorkletProcessor {
   private reset(): void {
     this.fill = this.readPos = this.queued = 0;
     this.started = false;
+    this.frames = this.busyMs = 0;
   }
 
   private runFrame(df: Df): void {
     const begin = Date.now();
-    const out = df.process(this.frame);
+    let out = df.process(this.frame);
     this.busyMs += Date.now() - begin;
+    if (this.stale > 0) {
+      this.stale--;
+      out = new Float32Array(out.length);
+    }
     let pos = (this.readPos + this.queued) % RING;
     for (let i = 0; i < out.length; i++) {
       this.ring[pos] = out[i];
@@ -181,7 +200,7 @@ class DenoiseProcessor extends AudioWorkletProcessor {
     if (!output) return true;
     // No microphone connected: start clean when it comes back
     if (!input) { this.reset(); return true; }
-    if (!this.df) { output.set(input); return true; }
+    if (!this.df || this.paused) { output.set(input); return true; }
 
     for (let i = 0; i < input.length && this.df; i++) {
       this.frame[this.fill++] = input[i];
