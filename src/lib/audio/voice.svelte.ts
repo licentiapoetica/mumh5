@@ -180,6 +180,7 @@ class VoiceEngine {
     }
     if (['inputDevice', 'echoCancellation', 'autoGainControl'].some(k => k in patch)) this.syncInput(true);
     else if ('releaseMicMuted' in patch) this.syncInput();
+    if ('mode' in patch) this.syncDenoisePause();
   }
 
   // ─── Devices ────────────────────────────────────────────────────────────────
@@ -450,6 +451,8 @@ class VoiceEngine {
       node.connect(this.inputGainNode);
       this.denoiser = node;
       this.denoise = 'on';
+      this.denoisePaused = false;
+      this.syncDenoisePause();
       this.routeMic();
       this.applyMicNoise();
       return;
@@ -458,6 +461,21 @@ class VoiceEngine {
     this.closeDenoiser(node);
     this.dropDenoiser();
     this.denoise = msg.overloaded ? 'overloaded' : 'failed';
+  }
+
+  private denoisePaused = false;
+
+  // The filter's output matters only while it can be sent, heard (testing) or trigger the reminder
+  // for speaking while muted. Otherwise it passes the microphone unfiltered, which saves most of the
+  // processing time of an idle connection. Resuming is immediate.
+  private syncDenoisePause(): void {
+    const self = this.client?.self;
+    const silent = !!self && (self.selfMute || self.mute || self.suppress || self.selfDeaf || self.deaf);
+    const reminder = this.settings.mode === 'vad' && !!self && (self.selfMute || self.mute) && !self.selfDeaf;
+    const paused = !this.testing && silent && !reminder;
+    if (!this.denoiser || paused === this.denoisePaused) return;
+    this.denoisePaused = paused;
+    this.denoiser.port.postMessage({ paused });
   }
 
   private dropDenoiser(): void {
@@ -543,9 +561,14 @@ class VoiceEngine {
     this.unsubscribe = [
       client.on('voice', raw => { if (this.client === client) this.receive(raw); }),
       client.on('userRemove', u => this.dropSession(u.session)),
-      client.on('user', u => { if (this.client === client && u.session === client.session) this.syncInput(); })
+      client.on('user', u => {
+        if (this.client !== client || u.session !== client.session) return;
+        this.syncInput();
+        this.syncDenoisePause();
+      })
     ];
     this.limitBitrate();
+    this.syncDenoisePause();
     this.start();
   }
 
@@ -558,6 +581,7 @@ class VoiceEngine {
     this.playback?.port.postMessage({ clear: true });
     this.talking = {};
     this.transmitting = false;
+    this.syncDenoisePause();
     // Release the microphone while not connected (unless testing it)
     if (!this.testing) this.stop();
   }
@@ -866,6 +890,7 @@ class VoiceEngine {
   setTesting(on: boolean): void {
     this.testing = on;
     this.syncInput();
+    this.syncDenoisePause();
     if (on) this.start();
     else {
       this.playback?.port.postMessage({ drop: -1 });
