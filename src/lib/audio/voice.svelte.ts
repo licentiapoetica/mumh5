@@ -289,6 +289,8 @@ class VoiceEngine {
     this.endTransmission();
     if (this.levelTimer) clearInterval(this.levelTimer);
     this.levelTimer = null;
+    this.source?.disconnect();
+    this.source = null;
     this.stream?.getTracks().forEach(t => t.stop());
     this.stream = null;
     this.micOpen = false;
@@ -303,6 +305,8 @@ class VoiceEngine {
     this.stopOutputElement();
     await this.ctx?.close().catch(() => {});
     this.ctx = null;
+    // Kept, it would let a later routeMic connect this closed context's nodes into the next one
+    this.inputGainNode = null;
     this.capture = this.playback = null;
     this.running = false;
     androidVoiceStop();
@@ -339,7 +343,10 @@ class VoiceEngine {
 
   private async restartInput(): Promise<void> {
     if (!this.ctx || !this.inputGainNode) return;
+    // The graph this request is for; a stop and a new start can replace it while the browser answers
+    const ctx = this.ctx, gain = this.inputGainNode;
     this.source?.disconnect();
+    this.source = null;
     this.stream?.getTracks().forEach(t => t.stop());
     this.stream = null;
     this.micOpen = false;
@@ -366,8 +373,8 @@ class VoiceEngine {
     }
     this.openingSince = 0;
     this.autoOpens = 0;
-    // Muted again, or opened a second time, while the browser was getting the microphone
-    if (!this.ctx || !this.inputGainNode || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
+    // Muted again, opened a second time, or the audio graph replaced while the browser was getting the microphone
+    if (this.ctx !== ctx || this.inputGainNode !== gain || this.stream || !this.micWanted()) return stream.getTracks().forEach(t => t.stop());
     this.stream = stream;
     this.lastFrameAt = performance.now();
     // The browser or the sound server can end the microphone (a device change, the audio service
@@ -384,8 +391,8 @@ class VoiceEngine {
     this.micNoise = browserNoise;
     this.micOpen = true;
     this.error = '';
-    this.source = this.ctx.createMediaStreamSource(this.stream);
-    this.source.connect(this.denoiser ?? this.inputGainNode);
+    this.source = ctx.createMediaStreamSource(this.stream);
+    this.source.connect(this.denoiser ?? gain);
     this.refreshDevices();
     // The model became ready, or failed, while the browser was getting the microphone
     this.applyMicNoise();
