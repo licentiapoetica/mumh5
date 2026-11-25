@@ -5,6 +5,7 @@
   import { desktop, type ScreenSource } from '../lib/native.ts';
   import { store } from '../lib/settings.svelte.ts';
   import { cameraError, openCamera } from '../lib/camera.ts';
+  import { showStream } from '../lib/stream-picture.ts';
 
   // Everything is chosen here, with a preview, before anything is sent: what to show, which
   // sound goes with it and the quality. In a browser, and on Wayland, the system's own dialog
@@ -30,7 +31,7 @@
   let error = $state('');
   let handedOver = false;
   let video = $state<HTMLVideoElement>();
-  $effect(() => { if (video) video.srcObject = preview; });
+  $effect(() => { if (video) showStream(video, preview); });
 
   const fps = () => QUALITY[store.settings.shareQuality].fps;
 
@@ -106,14 +107,14 @@
   async function chooseElsewhere() {
     error = '';
     try {
-      if (desktop) {
+      if (desktop && !desktop.screenPickerInWebview) {
         const { sources: picked } = await desktop.screenSources(false);
         if (!picked.length) return;
         sources = picked;
         await show(picked[0].id);
       } else {
         dropPreview();
-        preview = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: fps() }, audio: browserAudio });
+        preview = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: fps() }, audio: !desktop && browserAudio });
       }
     } catch (e) {
       if ((e as Error).name !== 'NotAllowedError') error = `Could not capture the screen: ${(e as Error).message}`;

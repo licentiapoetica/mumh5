@@ -3,6 +3,7 @@ import { HeldData, type Transport, type ServerCertInfo, type CertDetails, type U
 import type { LoadedSoundSettings, SoundSettings } from '../core/sound-events.ts';
 import { webApi, openWebTransport, proxyInfo } from './web.svelte.ts';
 import { WebSocketTransport } from '../core/ws-transport.ts';
+import type { NativeShareRtc } from './native-share-peer.ts';
 
 // What both the desktop app and the browser build (through the web proxy) provide
 export interface PlatformApi {
@@ -61,6 +62,8 @@ export interface NativeApi extends PlatformApi {
   pickScreenSource(id: string): void;
   // portal: the system shows its own source picker (Wayland). audio: how other programs' sound can be captured.
   shareInfo(): Promise<{ portal: boolean; audio: 'pipewire' | 'loopback' | 'none'; micLabel: string }>;
+  screenPickerInWebview?: boolean;
+  shareRtc?: NativeShareRtc;
   shareAudioApps(): Promise<string[]>;
   // Whether mumh5 offers its own pipette: the desktop's color picker, where Chromium's cannot read the screen (Wayland)
   canPickColor(): Promise<boolean>;
