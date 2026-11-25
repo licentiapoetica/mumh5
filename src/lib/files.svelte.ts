@@ -6,7 +6,7 @@
 import {
   FILE, FILE_DATA_ID, MAX_FILE, MAX_PIECES, FileAssembler, Sender, pump, encodeFileSignal, parseBody, okId, validMeta,
   pieceBytes, pieceCount, pieceSize, pieceForm, pieceMessage, parsePiece, encode15, decode15,
-  toRanges, fromRanges, split, sha256, rootHash, type FileMeta, type FileType
+  toRanges, fromRanges, split, sha256, rootHash, windowSize, maxSources, SourceWindow, type FileMeta, type FileType
 } from '../core/file-transfer.ts';
 import { newId } from '../core/text-signal.ts';
 import type { Session } from './session.svelte.ts';
@@ -29,7 +29,6 @@ const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '',
 // What this computer keeps of files it sent and received; the oldest go first
 const KEEP_BYTES = 2 * 1024 ** 3;
 const INDEX = 'files:index';
-const MAX_SOURCES = 4;
 // How long answers to "who has it" may take
 const FIND_MS = 3000;
 // A source that sent nothing for this long is asked again, twice, then the download stops
@@ -40,8 +39,6 @@ const PER_SECOND = 1.5;
 
 interface Kept extends FileMeta { at: number }
 
-interface Source { pieces: Set<number>; retries: number }
-
 interface Download {
   s: Session;
   meta: FileMeta;
@@ -50,7 +47,8 @@ interface Download {
   digests: Promise<Uint8Array>[];
   got: number;
   bytes: number;
-  sources: Map<number, Source>;
+  // Who sends what; empty until the pieces are shared out
+  sources: Map<number, SourceWindow>;
   findUntil: number;
   lastAt: number;
   stalls: number;
@@ -241,7 +239,7 @@ class Files {
     this.downloads.set(meta.i, d);
     this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '' });
     if (author != null && author !== client.session && client.users.has(author)) {
-      d.sources.set(author, { pieces: new Set(), retries: 0 });
+      d.sources.set(author, new SourceWindow([], 0));
       this.assign(d);
     }
     const others = [...client.users.keys()].filter(id => id !== client.session && id !== author);
@@ -259,7 +257,7 @@ class Files {
     clearInterval(d.timer);
     clearTimeout(d.rebalance);
     if (this.downloads.get(d.meta.i) === d) this.downloads.delete(d.meta.i);
-    const busy = [...d.sources].filter(([, src]) => src.pieces.size).map(([id]) => id);
+    const busy = [...d.sources].filter(([, src]) => src.window.size).map(([id]) => id);
     if (d.s.client) this.signal(d.s, busy, FILE.want, { i: d.meta.i, r: [] });
   }
 
@@ -275,19 +273,28 @@ class Files {
     return out;
   }
 
-  // Shares out what is still missing between the sources, one stretch each
-  private assign(d: Download): void {
+  // Shares out what is still missing between the sources, one stretch each. again: what was
+  // asked before got lost, so pieces already sent count as missing
+  private assign(d: Download, again = false): void {
     clearTimeout(d.rebalance);
     d.rebalance = undefined;
     const parts = split(this.missing(d), [...d.sources.keys()]);
-    for (const [id, src] of d.sources) {
-      const pieces = parts.get(id) ?? [];
+    for (const [id, old] of d.sources) {
+      const stretch = parts.get(id) ?? [];
       // Nothing new for a source that has nothing to do
-      if (!pieces.length && !src.pieces.size) continue;
-      src.pieces = new Set(pieces);
-      this.signal(d.s, [id], FILE.want, { i: d.meta.i, r: toRanges(pieces) });
+      if (!stretch.length && !old.window.size) continue;
+      const src = new SourceWindow(stretch, windowSize(d.meta.c));
+      // Request numbers keep counting up, or the source would take this for a new download
+      src.q = old.q;
+      d.sources.set(id, src);
+      this.ask(d, id, src, again);
     }
     this.set(d.meta.i, { sources: d.sources.size });
+  }
+
+  private ask(d: Download, id: number, src: SourceWindow, again: boolean): void {
+    const { pieces, q } = src.ask(k => !!d.parts[k]);
+    this.signal(d.s, [id], FILE.want, { i: d.meta.i, r: toRanges(pieces), q, ...again ? { a: 1 } : {} });
   }
 
   private dropSource(d: Download, id: number): void {
@@ -307,7 +314,7 @@ class Files {
     if (now - d.lastAt > STALL_MS) {
       if (++d.stalls > 2) return this.fail(d, 'The transfer stopped');
       d.lastAt = now;
-      this.assign(d);
+      this.assign(d, true);
     }
     // Speed over the last few seconds
     if (now - d.rateFrom.at >= 4000) {
@@ -329,10 +336,12 @@ class Files {
     d.bytes += bytes.length;
     d.lastAt = Date.now();
     d.stalls = 0;
-    d.sources.get(from)!.pieces.delete(p.index);
+    const src = d.sources.get(from)!;
     if (this.transfers[d.meta.i]?.state === 'finding' && d.rateFrom.bytes === 0) d.rateFrom = { at: Date.now(), bytes: 0 };
     this.set(d.meta.i, { state: 'loading', got: d.bytes });
     if (d.got === d.count) this.finish(d);
+    // More before the source runs out, so it keeps sending without getting ahead of us
+    else if (src.got(p.index)) this.ask(d, from, src, false);
   }
 
   private async finish(d: Download): Promise<void> {
@@ -371,8 +380,8 @@ class Files {
         if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id });
         break;
       case FILE.have:
-        if (!mine || mine.sources.has(from) || mine.sources.size >= MAX_SOURCES) return;
-        mine.sources.set(from, { pieces: new Set(), retries: 0 });
+        if (!mine || mine.sources.has(from) || mine.sources.size >= maxSources(mine.meta.c)) return;
+        mine.sources.set(from, new SourceWindow([], 0));
         mine.lastAt = Date.now();
         // Answers come in together; share out once they are in
         clearTimeout(mine.rebalance);
@@ -383,21 +392,29 @@ class Files {
         const pieces = found && fromRanges(body.r, pieceCount(found.meta));
         if (!found || found.meta.c > pieceBytes(client.config)) return this.signal(s, [from], FILE.gone, { i: id });
         if (!pieces) return;
-        rt.sender.want(id, from, pieces);
+        const q = Number.isSafeInteger(body.q) ? body.q as number : undefined;
+        // At most one window, also when asked for more: the server would hold the rest
+        // Older versions number nothing and only ask again for what got lost
+        const idle = rt.sender.want(id, from, pieces, { cap: windowSize(found.meta.c), again: body.a === 1 || q === undefined, q });
         this.set(id, { sending: rt.sender.receivers(id) });
+        // Everything asked for is on its way already
+        if (idle && pieces.length) this.signal(s, [from], FILE.done, { i: id, q });
         this.pump(s, rt);
         break;
       }
       case FILE.done: {
         const src = mine?.sources.get(from);
-        if (!mine || !src) return;
+        // An answer to an earlier request; a newer one is on its way
+        if (!mine || !src || (body.q !== undefined && body.q !== src.q)) return;
         mine.lastAt = Date.now();
-        const left = [...src.pieces].filter(k => !mine.parts[k]);
-        if (!left.length) return;
+        const lost = [...src.window].some(k => !mine.parts[k]);
+        if (!lost) {
+          if (src.more) this.ask(mine, from, src, false);
+          return;
+        }
         // Something got lost on the way: ask again, or leave it to the others
         if (++src.retries > 2) return this.dropSource(mine, from);
-        src.pieces = new Set(left);
-        this.signal(s, [from], FILE.want, { i: id, r: toRanges(left) });
+        this.ask(mine, from, src, true);
         break;
       }
       case FILE.gone:
@@ -420,7 +437,7 @@ class Files {
         const bytes = new Uint8Array(await blob.slice(k * meta.c, k * meta.c + pieceSize(meta, k)).arrayBuffer());
         return pieceMessage(pieceForm(client.config), file, k, encode15(bytes));
       },
-      done: (r, file) => this.signal(s, [r], FILE.done, { i: file }),
+      done: (r, file) => this.signal(s, [r], FILE.done, { i: file, q: rt.sender.serial(file, r) }),
       gone: (rs, file) => { this.signal(s, rs, FILE.gone, { i: file }); this.set(file, { sending: 0 }); },
       sent: file => this.set(file, { sending: rt.sender.receivers(file) })
     }).finally(() => {
