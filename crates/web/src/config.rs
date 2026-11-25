@@ -88,7 +88,7 @@ impl Config {
             None
         } else {
             Some(turn::Options {
-                bind: SocketAddr::new(value("MUMH5_STUN_BIND", "0.0.0.0").parse()?, stun),
+                bind: SocketAddr::new(value("MUMH5_STUN_BIND", "::").parse()?, stun),
                 relay: !matches!(env("MUMH5_TURN").as_deref(), Some("0" | "false")),
                 public_ip: env("MUMH5_TURN_IP").map(|v| v.parse()).transpose()?,
                 min_port: min.parse()?,

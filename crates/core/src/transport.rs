@@ -17,6 +17,22 @@ use tokio::{
 use tokio_openssl::SslStream;
 use tokio_util::sync::CancellationToken;
 
+/// Largest single write the transports accept; Mumble frames are far smaller.
+pub const MAX_WRITE: usize = 8 * 1024 * 1024;
+/// TLS records carry at most 16 KiB, so a larger read buffer never gets more per read.
+pub const READ_BUFFER: usize = 16 * 1024;
+/// The error for an orderly close by the server, which the UI shows as the reason.
+pub fn closed_by_server() -> anyhow::Error {
+    anyhow::anyhow!("Mumble server closed the TLS connection")
+}
+
+/// A handshaked TLS stream, for callers that pump it on their own task (the gateway).
+pub struct Link {
+    pub stream: SslStream<TcpStream>,
+    pub secure: Value,
+    pub peer: std::net::SocketAddr,
+}
+
 pub struct Transport {
     pub secure: Value,
     pub peer: std::net::SocketAddr,
@@ -30,6 +46,67 @@ impl Transport {
     }
     /// Connect to an already resolved/authorized address, optionally announcing the browser via PROXY v1.
     pub async fn connect_to(
+        host: &str,
+        port: u16,
+        identity: &Identity,
+        address: Option<std::net::SocketAddr>,
+        proxy_client: Option<std::net::SocketAddr>,
+    ) -> Result<Self> {
+        let Link {
+            stream,
+            secure,
+            peer,
+        } = Link::open(host, port, identity, address, proxy_client).await?;
+        let (send, mut outgoing) = mpsc::channel::<Vec<u8>>(32);
+        let (incoming, receive) = mpsc::channel(16);
+        let cancel = CancellationToken::new();
+        let stop = cancel.clone();
+        tokio::spawn(async move {
+            let (mut reader, mut writer) = tokio::io::split(stream);
+            let read = async {
+                let mut buffer = vec![0; READ_BUFFER];
+                loop {
+                    let n = reader
+                        .read(&mut buffer)
+                        .await
+                        .context("Reading Mumble TLS stream")?;
+                    if n == 0 {
+                        return Err(closed_by_server());
+                    }
+                    if incoming.send(Ok(buffer[..n].to_vec())).await.is_err() {
+                        break;
+                    }
+                }
+                anyhow::Ok(())
+            };
+            let write = async {
+                while let Some(bytes) = outgoing.recv().await {
+                    if bytes.len() > MAX_WRITE {
+                        bail!("Frame too large");
+                    }
+                    writer
+                        .write_all(&bytes)
+                        .await
+                        .context("Writing Mumble TLS stream")?;
+                }
+                anyhow::Ok(())
+            };
+            let result = tokio::select! {_ = stop.cancelled()=>Ok(()), r=read=>r,r=write=>r};
+            if let Err(e) = result {
+                let _ = incoming.send(Err(e)).await;
+            }
+        });
+        Ok(Self {
+            secure,
+            peer,
+            send,
+            receive,
+            cancel,
+        })
+    }
+}
+impl Link {
+    pub async fn open(
         host: &str,
         port: u16,
         identity: &Identity,
@@ -78,51 +155,10 @@ impl Transport {
         }
         let verification = tls.ssl().verify_result();
         let secure = json!({"fingerprint":certificates::digest(&leaf,MessageDigest::sha256())?,"authorized":verification==X509VerifyResult::OK,"authError":if verification==X509VerifyResult::OK {None} else {Some(verification.error_string())},"chain":chain});
-        let (send, mut outgoing) = mpsc::channel::<Vec<u8>>(32);
-        let (incoming, receive) = mpsc::channel(16);
-        let cancel = CancellationToken::new();
-        let stop = cancel.clone();
-        tokio::spawn(async move {
-            let (mut reader, mut writer) = tokio::io::split(tls);
-            let read = async {
-                let mut buffer = vec![0; 65536];
-                loop {
-                    let n = reader
-                        .read(&mut buffer)
-                        .await
-                        .context("Reading Mumble TLS stream")?;
-                    if n == 0 {
-                        bail!("Mumble server closed the TLS connection");
-                    }
-                    if incoming.send(Ok(buffer[..n].to_vec())).await.is_err() {
-                        break;
-                    }
-                }
-                anyhow::Ok(())
-            };
-            let write = async {
-                while let Some(bytes) = outgoing.recv().await {
-                    if bytes.len() > 8 * 1024 * 1024 {
-                        bail!("Frame too large");
-                    }
-                    writer
-                        .write_all(&bytes)
-                        .await
-                        .context("Writing Mumble TLS stream")?;
-                }
-                anyhow::Ok(())
-            };
-            let result = tokio::select! {_ = stop.cancelled()=>Ok(()), r=read=>r,r=write=>r};
-            if let Err(e) = result {
-                let _ = incoming.send(Err(e)).await;
-            }
-        });
         Ok(Self {
+            stream: tls,
             secure,
             peer,
-            send,
-            receive,
-            cancel,
         })
     }
 }
