@@ -895,15 +895,14 @@ impl TurnServer {
             allocated: Allocated::default(),
         };
         let mut tasks = vec![];
-        let port;
-        if state.virtual_bridge.is_none() {
-            let socket = Arc::new(UdpSocket::bind(opts.bind).await?);
-            port = socket.local_addr()?.port();
+        // UDP also for a mumpeer lane on loopback: the Linux app's own WebRTC stack (webrtc-rs)
+        // reaches TURN over UDP only.
+        let socket = Arc::new(UdpSocket::bind(opts.bind).await?);
+        let port = socket.local_addr()?.port();
+        {
             let state = state.clone();
             let stop = cancel.clone();
             tasks.push(tokio::spawn(udp_loop(socket, state, stop)));
-        } else {
-            port = 0;
         }
         let port = if opts.relay {
             let listener = match TcpListener::bind(SocketAddr::new(opts.bind.ip(), port)).await {
@@ -1140,7 +1139,7 @@ mod integration_tests {
     async fn virtual_lane_carries_media_without_binding_documentation_addresses() -> Result<()> {
         tokio::time::timeout(Duration::from_secs(15),async{
  let(a_tx,mut a_rx)=mpsc::channel(64);let(b_tx,mut b_rx)=mpsc::channel(64);let(a_in,_)=broadcast::channel(64);let(b_in,_)=broadcast::channel(64);let a=a_in.clone();let b=b_in.clone();let cancel=CancellationToken::new();let stop=cancel.clone();let pump=tokio::spawn(async move{loop{tokio::select!{_=stop.cancelled()=>break,p=a_rx.recv()=>{if let Some(p)=p{let _=b.send(p);}else{break;}},p=b_rx.recv()=>{if let Some(p)=p{let _=a.send(p);}else{break;}}}}});
- let low="192.0.2.1:40001".parse()?;let high="192.0.2.2:40001".parse()?;let opts=Options{bind:"127.0.0.1:0".parse()?,max_allocations:1,max_per_address:1,..Default::default()};let mut left=TurnServer::start(opts.clone(),Some(VirtualBridge{local:low,remote:high,outgoing:a_tx,incoming:a_in,cancel:cancel.clone()})).await?;let mut right=TurnServer::start(opts,Some(VirtualBridge{local:high,remote:low,outgoing:b_tx,incoming:b_in,cancel:cancel.clone()})).await?;let a=client(&left,true).await?;let b=client(&right,true).await?;let ar=a.allocate().await?;let br=b.allocate().await?;assert_eq!(ar.local_addr()?,low);assert_eq!(br.local_addr()?,high);
+ let low="192.0.2.1:40001".parse()?;let high="192.0.2.2:40001".parse()?;let opts=Options{bind:"127.0.0.1:0".parse()?,max_allocations:1,max_per_address:1,..Default::default()};let mut left=TurnServer::start(opts.clone(),Some(VirtualBridge{local:low,remote:high,outgoing:a_tx,incoming:a_in,cancel:cancel.clone()})).await?;let mut right=TurnServer::start(opts,Some(VirtualBridge{local:high,remote:low,outgoing:b_tx,incoming:b_in,cancel:cancel.clone()})).await?;let a=client(&left,true).await?;let b=client(&right,false).await?;let ar=a.allocate().await?;let br=b.allocate().await?;assert_eq!(ar.local_addr()?,low);assert_eq!(br.local_addr()?,high);
  // Permissions are established by sending in both directions, as ICE connectivity checks do.
  ar.send_to(b"probe",high).await?;br.send_to(b"back",low).await?;ar.send_to(b"forward",high).await?;let mut bytes=[0;2048];let(n,from)=ar.recv_from(&mut bytes).await?;assert_eq!(&bytes[..n],b"back");assert_eq!(from,high);loop{let(n,from)=br.recv_from(&mut bytes).await?;assert_eq!(from,low);if &bytes[..n]==b"forward"{break;}}
  ar.close().await?;br.close().await?;a.close().await?;b.close().await?;cancel.cancel();pump.await?;left.close().await;right.close().await;anyhow::Ok(())}).await??;
