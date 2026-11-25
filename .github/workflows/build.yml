@@ -31,6 +31,38 @@ jobs:
       # The browser build can fail on what type checking and the tests accept (a name exported twice)
       - run: npm run build:web
 
+  # The web gateway (crates/web and the crates it uses). The workspace tests build crates/core with
+  # its video feature, hence libvpx; the gateway itself does not need it.
+  gateway:
+    name: Web gateway (Rust)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Native libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config protobuf-compiler libssl-dev libopus-dev libvpx-dev
+      # The version and components come from rust-toolchain.toml
+      - run: rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: gateway-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - name: Live tests against Murmur
+        run: |
+          docker run -d --name mumh5-ci -p 127.0.0.1:64750:64738/tcp -p 127.0.0.1:64750:64738/udp -e MUMBLE_CONFIG_AUTOBAN_ATTEMPTS=0 -e MUMBLE_SUPERUSER_PASSWORD=ci-superuser mumblevoip/mumble-server:latest
+          trap 'docker rm -f mumh5-ci' EXIT
+          timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
+          MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-core --test live_server -- --nocapture
+          MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64750 cargo test --locked -p mumh5-web --test mumpeer_gateway -- --nocapture
+
   # The Android shell around the hosted site. Its own packages are in android/, so the other jobs
   # never install them. The APK is debug-signed; set the repository variable MUMH5_APP_URL to the
   # address of the site the app should open, otherwise it opens a page saying none was given.
@@ -119,7 +151,7 @@ jobs:
 
   docker:
     name: Docker image
-    needs: check
+    needs: [check, gateway]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
