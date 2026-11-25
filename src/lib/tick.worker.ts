@@ -12,3 +12,6 @@ scope.onmessage = e => {
     timers.delete(id);
   }
 };
+
+// Lets the page stop its own timers only once this script really runs
+scope.postMessage({ type: 'ready' });

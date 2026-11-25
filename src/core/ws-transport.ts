@@ -51,8 +51,9 @@ export class WebSocketTransport implements Transport, RelayTransport {
         else call?.reject(new Error(String(msg.reason ?? 'Mumpeer failed')));
       } else if (msg.type === 'relay-closed') for (const fn of this.relayEnded) fn(String(msg.rid), String(msg.reason ?? ''));
     };
-    ws.onclose = () => {
-      reason ||= opened ? 'Connection closed' : 'Could not reach the proxy';
+    ws.onclose = e => {
+      // The close code tells a dropped network (1006) from a proxy that ended the connection
+      reason ||= e.reason || (opened ? `Connection closed (code ${e.code}${e.wasClean ? '' : ', unclean'})` : `Could not reach the proxy (code ${e.code})`);
       for (const call of this.calls.values()) call.reject(new Error(reason));
       this.calls.clear();
       rejectSecure(new Error(reason));
