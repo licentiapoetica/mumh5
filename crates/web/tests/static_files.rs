@@ -57,6 +57,8 @@ async fn static_files_are_cached_by_path_and_answer_without_delay() -> Result<()
         header(&asset, "cache-control"),
         "public, max-age=31536000, immutable"
     );
+    assert_eq!(header(&asset, "x-content-type-options"), "nosniff");
+    assert_eq!(header(&asset, "x-frame-options"), "DENY");
     for path in [
         "/",
         "/index.html",
