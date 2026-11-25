@@ -106,18 +106,33 @@ jobs:
           key: desktop-${{ runner.os }}-rust-1.100-bun-1.4.5-${{ hashFiles('Cargo.lock', 'frontend/bun.lock') }}
       - run: ./tools/bootstrap.sh
       - name: Native Tauri installers
-        env:
-          # Git Bash on Windows rewrites arguments like /nologo into paths for MSVC tools
-          MSYS_NO_PATHCONV: 1
-          MSYS2_ARG_CONV_EXCL: '*'
+        if: runner.os != 'Windows'
         run: |
           source tools/env.sh
           cd crates/desktop
           cargo tauri build --ci --bundles '${{ matrix.bundles }}'
       - name: Headless client
+        if: runner.os != 'Windows'
         run: |
           source tools/env.sh
           cargo build --locked --release -p mumh5-cli
+      # PowerShell on Windows: Git Bash rewrites MSVC arguments such as /nologo into paths
+      # when CMake builds Opus. The variables are those of tools/env.sh.
+      - name: Native Tauri installer and headless client (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CARGO_HOME = "$PWD\.tooling\cargo"
+          $env:RUSTUP_HOME = "$PWD\.tooling\rustup"
+          $env:BUN_INSTALL = "$PWD\.tooling\bun"
+          $env:BUN_INSTALL_CACHE_DIR = "$PWD\.tooling\bun\cache"
+          $env:PATH = "$env:CARGO_HOME\bin;$env:BUN_INSTALL\bin;$env:PATH"
+          Push-Location crates/desktop
+          cargo tauri build --ci --bundles '${{ matrix.bundles }}'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Pop-Location
+          cargo build --locked --release -p mumh5-cli
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Linux portable archive and AppImage runtime check
         if: runner.os == 'Linux'
         run: |
