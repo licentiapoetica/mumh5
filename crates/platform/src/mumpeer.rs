@@ -256,7 +256,14 @@ impl Link {
             .await
             .and_then(|server| {
                 let (username, credential) = server.credentials()?;
-                let ice = json!({"urls":format!("turn:127.0.0.1:{}?transport=tcp",server.port),"username":username,"credential":credential});
+                let tcp = format!("turn:127.0.0.1:{}?transport=tcp", server.port);
+                // The Linux app shares through webrtc-rs, which reaches TURN over UDP only
+                let urls = if cfg!(target_os = "linux") {
+                    json!([format!("turn:127.0.0.1:{}?transport=udp", server.port), tcp])
+                } else {
+                    json!(tcp)
+                };
+                let ice = json!({"urls":urls,"username":username,"credential":credential});
                 Ok((Served::Loopback(server), ice))
             }),
             Lanes::Public { issuer, extra } => issuer.credentials().map(|(username, credential)| {
@@ -446,11 +453,16 @@ mod tests {
         assert_eq!(link.turn(3).await.unwrap(), first);
         link.close_lane(3).await;
         let again = link.turn(3).await.unwrap();
-        assert!(
-            again["urls"]
-                .as_str()
-                .unwrap()
-                .starts_with("turn:127.0.0.1:")
+        let urls: Vec<&str> = match &again["urls"] {
+            Value::Array(list) => list.iter().filter_map(Value::as_str).collect(),
+            other => other.as_str().into_iter().collect(),
+        };
+        assert!(urls.iter().all(|u| u.starts_with("turn:127.0.0.1:")));
+        assert!(urls.iter().any(|u| u.ends_with("?transport=tcp")));
+        // The Linux app's webrtc-rs reaches TURN over UDP only
+        assert_eq!(
+            urls.iter().any(|u| u.ends_with("?transport=udp")),
+            cfg!(target_os = "linux")
         );
         let reason = timeout(Duration::from_secs(5), closed_rx)
             .await
