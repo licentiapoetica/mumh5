@@ -24,6 +24,7 @@ Tools are local to the checkout: `./tools/bootstrap.sh` installs the pinned Rust
 (cd frontend && bun run check)       # svelte-check; must report 0 errors and 0 warnings
 (cd frontend && bun run test)        # frontend unit tests (Bun)
 (cd frontend && bun run build)       # UI to frontend/dist (also the gateway's static files)
+(cd frontend && bun run build:web)   # same plus .br/.gz copies for the gateway; never for desktop builds, which embed all of dist
 (cd frontend && bun run dev)         # UI dev server on :1420 (debug Tauri builds load it)
 (cd frontend && bun run themes)      # regenerate the theme catalog (tools/gen-themes.ts)
 (cd frontend && bun run proto)       # regenerate src/core/mumble-pb.js and mumble-udp-pb.js from proto/

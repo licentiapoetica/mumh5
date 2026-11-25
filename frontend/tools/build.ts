@@ -1,5 +1,7 @@
 import { compile, compileModule } from 'svelte/compiler';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
+import { promisify } from 'node:util';
+import { brotliCompress, constants, gzip } from 'node:zlib';
 // Output paths become URLs: always forward slashes, also on Windows
 const url = (p: string) => p.split(sep).join('/');
 const root = Bun.fileURLToPath(new URL('../', import.meta.url));
@@ -92,3 +94,29 @@ const files: string[] = [];
 for await (const found of new Bun.Glob('**/*').scan({ cwd: out, onlyFiles: true })) { const path = url(found); if (path !== 'version.json' && path !== 'sw.js' && path !== 'index.html') files.push(`./${path}`); }
 const sw = (await Bun.file(`${root}../build/web/sw.js`).text()).replace('__VERSION__', buildId).replace('__FILES__', JSON.stringify(files.sort()));
 await Bun.write(`${out}/sw.js`, sw);
+
+// Web build only (`bun run build:web`): `.br` and `.gz` beside each compressible file for the
+// gateway. Written last, so the build id and the service worker's file list stay the same.
+// Tauri embeds every file in dist and compresses it itself, so desktop builds leave them out.
+if (process.argv.includes('--precompress')) {
+ const started = performance.now();
+ const br = promisify(brotliCompress), gz = promisify(gzip);
+ // Fonts, pictures, the zip and the model (already gzip inside) do not get smaller
+ const compressible = /\.(js|mjs|css|html|json|svg|wasm|webmanifest|txt|md|map)$/;
+ let before = 0, after = 0;
+ await Promise.all(Array.from(new Bun.Glob('**/*').scanSync({ cwd: out, onlyFiles: true })).filter(path => compressible.test(path)).map(async path => {
+  const data = new Uint8Array(await Bun.file(`${out}/${path}`).arrayBuffer());
+  if (data.length < 512) return;
+  // Quality 11 costs about 1.5 s per MB; the multi-MB wasm gets 9, a few percent larger
+  const quality = data.length > 2_000_000 ? 9 : 11;
+  const [b, g] = await Promise.all([
+   br(data, { params: { [constants.BROTLI_PARAM_QUALITY]: quality, [constants.BROTLI_PARAM_LGWIN]: 24, [constants.BROTLI_PARAM_SIZE_HINT]: data.length } }),
+   gz(data, { level: 9 })
+  ]);
+  before += data.length; after += b.length;
+  // A variant that saves little is not worth the extra file
+  if (b.length < data.length * 0.9) await Bun.write(`${out}/${path}.br`, b);
+  if (g.length < data.length * 0.9) await Bun.write(`${out}/${path}.gz`, g);
+ }));
+ console.log(`Precompressed ${(before / 1048576).toFixed(1)} MiB to ${(after / 1048576).toFixed(1)} MiB (brotli) in ${((performance.now() - started) / 1000).toFixed(1)} s.`);
+}

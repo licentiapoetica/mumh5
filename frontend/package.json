@@ -6,6 +6,7 @@
   "packageManager": "bun@1.4.5",
   "scripts": {
     "build": "bun tools/build.ts",
+    "build:web": "bun tools/build.ts --precompress",
     "dev": "bun tools/dev.ts",
     "check": "bun --bun svelte-check --tsconfig ./tsconfig.json",
     "test": "bun test ./tests",

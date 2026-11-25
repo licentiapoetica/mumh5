@@ -503,8 +503,16 @@ async fn main() -> Result<()> {
         .route("/relay", get(relay))
         .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(app.clone(), origin_guard));
+    // `.br` and `.gz` beside a file (written by `bun run build:web`) are sent to clients that
+    // accept them; without them, or without Accept-Encoding, the plain file goes out.
     let assets = ServeDir::new(&assets_path)
-        .not_found_service(ServeFile::new(assets_path.join("index.html")));
+        .precompressed_br()
+        .precompressed_gzip()
+        .not_found_service(
+            ServeFile::new(assets_path.join("index.html"))
+                .precompressed_br()
+                .precompressed_gzip(),
+        );
     let static_files = Router::new()
         .fallback_service(assets)
         .layer(middleware::from_fn(cache_headers));
@@ -546,6 +554,9 @@ async fn cache_headers(req: Request, next: Next) -> Response {
     };
     res.headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static(value));
+    // tower-http picks a precompressed variant but does not say so to caches
+    res.headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("accept-encoding"));
     res
 }
 
