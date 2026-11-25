@@ -10,6 +10,12 @@
 // It counts characters, not bytes, so every character carries 15 bits (code points U+4000 to
 // U+BFFF, all plain XML text): about 240 KB per message. A message addressed to several
 // people costs the sender one message; the server copies it to each of them.
+//
+// Murmur never limits what it holds for a receiver: whatever it cannot write to a slow or stalled
+// connection stays in its memory. So the receiver sets the pace. It asks each source for a
+// window of a few pieces and asks for more as they arrive, and a source never sends more than
+// one window ahead of what was asked, whatever a request says. The server then holds at most
+// one window per source and receiver.
 import { encodeSignal, SignalAssembler } from './share-signal.ts';
 import type { MumbleClient } from './client.ts';
 
@@ -117,6 +123,12 @@ export function pieceBytes(l: Limits): number {
   return Math.max(0, Math.floor(chars / 8) * 15);
 }
 
+// File bytes one source may have on the way to one receiver (pieces travel as about 1.6 times
+// as many bytes): a few seconds of sending at the server's message rate, so asking for more
+// in time keeps the source busy
+const WINDOW_BYTES = 2 * 1024 * 1024;
+export const windowSize = (c: number) => Math.max(2, Math.floor(WINDOW_BYTES / c));
+
 export const pieceCount = (m: { s: number; c: number }) => Math.ceil(m.s / m.c);
 export const pieceSize = (m: { s: number; c: number }, k: number) => Math.min(m.c, m.s - k * m.c);
 
@@ -194,16 +206,20 @@ export function toRanges(pieces: Iterable<number>): [number, number][] {
   return out;
 }
 
+// Ranges must come in order without overlapping, so a request costs at most the file's piece
+// count to read, however many ranges it holds
 export function fromRanges(v: unknown, count: number): number[] | null {
   if (!Array.isArray(v) || v.length > 10000) return null;
-  const out = new Set<number>();
+  const out: number[] = [];
+  let end = 0;
   for (const r of v) {
     if (!Array.isArray(r) || r.length !== 2) return null;
     const [a, b] = r;
-    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b > count || a >= b) return null;
-    for (let p = a; p < b; p++) out.add(p);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < end || b > count || a >= b) return null;
+    for (let p = a; p < b; p++) out.push(p);
+    end = b;
   }
-  return [...out].sort((x, y) => x - y);
+  return out;
 }
 
 // Splits what is missing into one stretch per source, in the order given
@@ -232,23 +248,58 @@ export async function rootHash(digests: Uint8Array[]): Promise<string> {
 
 // ─── What a source sends next ────────────────────────────────────────────────
 
+interface Want {
+  pieces: Set<number>; // still to send
+  sent: Set<number>;   // sent since the receiver started this download
+  q: number | undefined;
+}
+
+export interface WantOptions {
+  // Pieces taken from a request, from its start
+  cap?: number;
+  // The pieces got lost: send them even if they were sent before
+  again?: boolean;
+  // The receiver's request number; it counts up during a download and starts over with a new one
+  q?: number;
+}
+
 // Takes turns between the people asking, so one large download does not hold up the others,
 // and sends each piece to everyone who wants it at once
 export class Sender {
-  private wants = new Map<string, Map<number, Set<number>>>();
+  private wants = new Map<string, Map<number, Want>>();
   private turns: [string, number][] = [];
 
-  want(file: string, receiver: number, pieces: number[]): void {
+  // Replaces what this receiver asked for. Pieces already sent to it are on their way and are
+  // not sent twice. Returns true when nothing new is left to send for this request.
+  want(file: string, receiver: number, pieces: number[], opts: WantOptions = {}): boolean {
     let byReceiver = this.wants.get(file);
+    const queued = () => this.turns.some(([f, r]) => f === file && r === receiver);
     if (!pieces.length) {
       byReceiver?.delete(receiver);
       if (byReceiver && !byReceiver.size) this.wants.delete(file);
       this.turns = this.turns.filter(([f, r]) => f !== file || r !== receiver);
-      return;
+      return true;
     }
     if (!byReceiver) this.wants.set(file, byReceiver = new Map());
-    byReceiver.set(receiver, new Set(pieces));
-    if (!this.turns.some(([f, r]) => f === file && r === receiver)) this.turns.push([file, receiver]);
+    let w = byReceiver.get(receiver);
+    if (!w) byReceiver.set(receiver, w = { pieces: new Set(), sent: new Set(), q: undefined });
+    // A new download from the same receiver
+    if (opts.q != null && w.q != null && opts.q <= w.q) w.sent.clear();
+    w.q = opts.q;
+    const asked = opts.cap ? pieces.slice(0, opts.cap) : pieces;
+    if (opts.again) for (const p of asked) w.sent.delete(p);
+    w.pieces = new Set(asked.filter(p => !w.sent.has(p)));
+    if (!w.pieces.size) {
+      this.turns = this.turns.filter(([f, r]) => f !== file || r !== receiver);
+      return true;
+    }
+    if (!queued()) this.turns.push([file, receiver]);
+    return false;
+  }
+
+  // The request number a "done" answers
+  serial(file: string, receiver: number): number | undefined {
+    return this.wants.get(file)?.get(receiver)?.q;
   }
 
   // Someone left
@@ -258,7 +309,7 @@ export class Sender {
 
   // The file cannot be sent; returns who was waiting for it
   dropFile(file: string): number[] {
-    const waiting = [...this.wants.get(file)?.keys() ?? []];
+    const waiting = [...this.wants.get(file) ?? []].filter(([, w]) => w.pieces.size).map(([r]) => r);
     this.wants.delete(file);
     this.turns = this.turns.filter(([f]) => f !== file);
     return waiting;
@@ -270,7 +321,9 @@ export class Sender {
 
   // People waiting for pieces of a file
   receivers(file: string): number {
-    return this.wants.get(file)?.size ?? 0;
+    let n = 0;
+    for (const w of this.wants.get(file)?.values() ?? []) if (w.pieces.size) n++;
+    return n;
   }
 
   // The next piece, who it goes to, and who has everything they asked for once it is sent
@@ -280,20 +333,59 @@ export class Sender {
     const [file, receiver] = turn;
     const byReceiver = this.wants.get(file)!;
     let piece = Infinity;
-    for (const p of byReceiver.get(receiver)!) if (p < piece) piece = p;
+    for (const p of byReceiver.get(receiver)!.pieces) if (p < piece) piece = p;
     const to: number[] = [], finished: number[] = [];
-    for (const [r, set] of byReceiver) {
-      if (!set.delete(piece)) continue;
+    for (const [r, w] of byReceiver) {
+      if (!w.pieces.delete(piece)) continue;
+      w.sent.add(piece);
       to.push(r);
-      if (!set.size) finished.push(r);
+      if (!w.pieces.size) finished.push(r);
     }
     for (const r of finished) {
-      byReceiver.delete(r);
       if (r !== receiver) this.turns = this.turns.filter(([f, x]) => f !== file || x !== r);
     }
-    if (!byReceiver.size) this.wants.delete(file);
     if (!finished.includes(receiver)) this.turns.push(turn);
     return { file, piece, to, finished };
+  }
+}
+
+// ─── What a receiver asks one source for ─────────────────────────────────────
+
+// The source's stretch of the file, asked for one window at a time
+export class SourceWindow {
+  readonly stretch: number[];
+  readonly size: number;
+  // Asked for and not arrived yet
+  readonly window = new Set<number>();
+  q = 0;
+  retries = 0;
+  private next = 0;
+
+  constructor(stretch: number[], size: number) {
+    this.stretch = stretch;
+    this.size = size;
+  }
+
+  // The request to send now: what is still on its way, filled up with the next pieces
+  ask(have: (piece: number) => boolean): { pieces: number[]; q: number } {
+    for (const k of [...this.window]) if (have(k)) this.window.delete(k);
+    while (this.window.size < this.size && this.next < this.stretch.length) {
+      const k = this.stretch[this.next++];
+      if (!have(k)) this.window.add(k);
+    }
+    return { pieces: [...this.window].sort((a, b) => a - b), q: ++this.q };
+  }
+
+  // A piece arrived from this source; true when it is time to ask for more
+  got(piece: number): boolean {
+    this.window.delete(piece);
+    this.retries = 0;
+    return this.window.size <= this.size / 2 && this.more;
+  }
+
+  // Pieces of the stretch not asked for yet
+  get more(): boolean {
+    return this.next < this.stretch.length;
   }
 }
 
