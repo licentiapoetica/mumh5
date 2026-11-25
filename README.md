@@ -78,13 +78,15 @@ System-wide push to talk, whisper/shout, positional audio, the in-game overlay, 
 
 ## Use it in a browser
 
-The browser build uses a proxy you host to serve the app and bridge WebSocket connections to Mumble. From a [source checkout](docs/development.md):
+The browser build uses a proxy you host to serve the app and bridge WebSocket connections to Mumble: the mumh5 gateway, written in Rust (`crates/web`). From a [source checkout](docs/development.md), with Node and Rust installed:
 
 ```bash
 npm ci
 npm run build:web
-MUMH5_SERVERS="mumble.example.com=My server" node dist-proxy/proxy.mjs
+MUMH5_SERVERS="mumble.example.com=My server" MUMH5_STATIC=dist-web cargo run --locked --release -p mumh5-web
 ```
+
+Or with Docker, see [self-hosting](docs/self-hosting.md).
 
 Open `http://127.0.0.1:8080`. Remote use needs HTTPS for microphone access. The web app can also be installed from a supporting browser; it opens offline, but connecting still requires the proxy.
 
