@@ -263,8 +263,8 @@ test('image messages over the text limit must be well-formed XML', { skip: !targ
   const alice = await connect('imgA' + Date.now() % 1000);
   const bob = await connect('imgB' + Date.now() % 1000);
   try {
-    // Longer than the default 5000-char text limit, under the 128 KB image limit
-    const img = `<img src="data:image/jpeg;base64,${'A'.repeat(8000)}"/>`;
+    // Longer than the server's text limit (5000 by default), under its image limit
+    const img = `<img src="data:image/jpeg;base64,${'A'.repeat(Math.max(8000, alice.config.messageLength + 1000))}"/>`;
 
     const denied = until<number>(res => alice.on('permissionDenied', d => res(d.type)));
     alice.sendText({ channels: [0] }, `<a href="https://x.example/f.png">f.png</a><br>${img}`);

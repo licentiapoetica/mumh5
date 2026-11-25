@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encode15, decode15, encodedLength, pieceBytes, pieceForm, pieceMessage, parsePiece, isPiece, announce, takeFiles,
-  validMeta, toRanges, fromRanges, split, rootHash, sha256, Sender, SourceWindow, windowSize, pieceCount, pieceSize, type FileMeta
+  validMeta, toRanges, fromRanges, split, rootHash, sha256, Sender, SourceWindow, windowSize, maxSources, pieceCount, pieceSize, type FileMeta
 } from '../src/core/file-transfer.ts';
 
 const random = (n: number) => {
@@ -182,8 +182,12 @@ test('a window asks for what is on its way plus the next pieces, and for more at
   for (const k of [4, 6, 7, 8]) { have.add(k); w.got(k); }
   assert.deepEqual(w.ask(k => have.has(k)).pieces, [9, 10]);
   assert.equal(w.more, false);
+  // Stock limits: 8 small pieces from each of 4 sources; imagemessagelength=1048576: 4 large
+  // pieces from each of 2, so a browser behind the proxy is not dropped as too slow
   assert.equal(windowSize(245_745), 8);
-  assert.equal(windowSize(1_966_020), 2);
+  assert.equal(maxSources(245_745), 4);
+  assert.equal(windowSize(1_965_840), 4);
+  assert.equal(maxSources(1_965_840), 2);
 });
 
 // The server in between: a queue per receiver that the receiver may stop reading

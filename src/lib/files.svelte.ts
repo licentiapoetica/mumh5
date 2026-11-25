@@ -6,7 +6,7 @@
 import {
   FILE, FILE_DATA_ID, MAX_FILE, MAX_PIECES, FileAssembler, Sender, pump, encodeFileSignal, parseBody, okId, validMeta,
   pieceBytes, pieceCount, pieceSize, pieceForm, pieceMessage, parsePiece, encode15, decode15,
-  toRanges, fromRanges, split, sha256, rootHash, windowSize, SourceWindow, type FileMeta, type FileType
+  toRanges, fromRanges, split, sha256, rootHash, windowSize, maxSources, SourceWindow, type FileMeta, type FileType
 } from '../core/file-transfer.ts';
 import { newId } from '../core/text-signal.ts';
 import type { Session } from './session.svelte.ts';
@@ -29,7 +29,6 @@ const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '',
 // What this computer keeps of files it sent and received; the oldest go first
 const KEEP_BYTES = 2 * 1024 ** 3;
 const INDEX = 'files:index';
-const MAX_SOURCES = 4;
 // How long answers to "who has it" may take
 const FIND_MS = 3000;
 // A source that sent nothing for this long is asked again, twice, then the download stops
@@ -381,7 +380,7 @@ class Files {
         if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id });
         break;
       case FILE.have:
-        if (!mine || mine.sources.has(from) || mine.sources.size >= MAX_SOURCES) return;
+        if (!mine || mine.sources.has(from) || mine.sources.size >= maxSources(mine.meta.c)) return;
         mine.sources.set(from, new SourceWindow([], 0));
         mine.lastAt = Date.now();
         // Answers come in together; share out once they are in
