@@ -19,7 +19,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clap::Parser;
 use futures_util::SinkExt;
-use mumh5_core::{identity::Identity, transport::Transport};
+use mumh5_core::{identity::Identity, transport};
 use mumh5_platform::turn::TurnServer;
 use mumh5_platform::{certificates, network};
 use serde_json::{Value, json};
@@ -30,7 +30,10 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::Semaphore,
+};
 use tower_http::services::{ServeDir, ServeFile};
 #[derive(Parser)]
 #[command(about = "mumh5 browser UI and native Rust Mumble gateway")]
@@ -363,7 +366,8 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
             cert_pem: text(&hello, "certPem").into(),
             key_pem: text(&hello, "keyPem").into(),
         };
-        let mut transport = Transport::connect_to(
+        // One task owns both ends: no channel hop, split lock or cross-thread wakeup per packet.
+        let mut link = transport::Link::open(
             host,
             port,
             &identity,
@@ -372,7 +376,7 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
         )
         .await?;
         ws.send(Message::Text(
-            json!({"type":"secure","info":transport.secure})
+            json!({"type":"secure","info":link.secure})
                 .to_string()
                 .into(),
         ))
@@ -390,10 +394,16 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
                 events.clone(),
             )
         });
+        let mut buffer = vec![0; transport::READ_BUFFER];
         loop {
             tokio::select! {
                 frame = ws.recv() => match frame {
-                    Some(Ok(Message::Binary(b))) => transport.send.send(b.to_vec()).await?,
+                    Some(Ok(Message::Binary(b))) => {
+                        if b.len() > transport::MAX_WRITE {
+                            anyhow::bail!("Frame too large");
+                        }
+                        link.stream.write_all(&b).await.context("Writing Mumble TLS stream")?;
+                    }
                     Some(Ok(Message::Text(t))) => {
                         // Text frames after the handshake are small mumpeer requests; others are ignored.
                         if t.len() > MAX_REQUEST_FRAME {
@@ -429,10 +439,10 @@ async fn tunnel(mut ws: WebSocket, app: Shared, address: SocketAddr) -> Result<(
                 reply = replies.recv() => if let Some(reply) = reply {
                     ws.send(Message::Text(reply.to_string().into())).await?;
                 },
-                data = transport.receive.recv() => match data {
-                    Some(Ok(b)) => ws.send(Message::Binary(b.into())).await?,
-                    Some(Err(e)) => return Err(e),
-                    None => break,
+                // Cancel safe: a read dropped by another branch has consumed nothing.
+                n = link.stream.read(&mut buffer) => match n.context("Reading Mumble TLS stream")? {
+                    0 => return Err(transport::closed_by_server()),
+                    n => ws.send(Message::Binary(buffer[..n].to_vec().into())).await?,
                 },
             }
         }
