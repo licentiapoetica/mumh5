@@ -9,7 +9,10 @@
  try {
   await wait(() => window.mumh5Native && document.querySelector('[role=dialog]'), 'Tauri UI mounted');
   // No hardware access during tests. Normal builds use the WebView's own user-media API.
-  if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = async () => { const ctx = new AudioContext(); return ctx.createMediaStreamDestination().stream; };
+  // One context for every call: a new one per call stayed open and running, which added 8-15 % CPU to
+  // measurements of a connected app. A fresh destination each time, since the app stops its tracks.
+  let fakeMic = null;
+  if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = async () => (fakeMic ??= new AudioContext({ sampleRate: 48000 })).createMediaStreamDestination().stream;
   const wizardButton = await wait(() => [...document.querySelectorAll('button')].find(e => e.textContent.includes('Create a new identity')), 'identity wizard');
   // A notice the wizard shows (a damaged profile that was set aside), for the report
   const wizardAlert = document.querySelector('[role=dialog] [role=alert]')?.textContent?.trim() ?? null;
