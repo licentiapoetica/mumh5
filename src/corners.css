@@ -11,9 +11,9 @@
 .shades { overflow: clip; }
 
 input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]), textarea, select,
-.composer .frame, .rooms .find, .people .find { border-radius: var(--r-fields) !important; }
+.composer .frame { border-radius: var(--r-fields) !important; }
 
-.row.channel, .row.user, .me .profile, .rooms .person, .stage > header .title, .modal .list button, .modal .list li, .dm-row, .entry, .menu button, button[data-select-user], .home .server { border-radius: var(--r-rows) !important; }
+.row.channel, .row.user, .me .profile, .stage > header .title, .modal .list button, .modal .list li, .dm-row, .entry, .menu button, button[data-select-user], .home .server { border-radius: var(--r-rows) !important; }
 /* Below this width the settings tabs are underlined, and an underline does not bend well */
 @media (min-width: 761px) {
   .layout > .tabs button { border-radius: var(--r-rows) !important; }

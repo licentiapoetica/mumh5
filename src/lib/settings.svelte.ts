@@ -39,7 +39,7 @@ export interface Settings {
   backgroundColor: string;
   backgroundMark: number | null;    // dot size or grid line width in px; null: the design's own
   backgroundSpacing: number | null; // distance between dots or grid lines in px; null: the design's own
-  // The channel list (and the Rooms list): nothing, the chat's background, or its own
+  // The channel list: nothing, the chat's background, or its own
   treeBackground: 'none' | 'same' | 'own';
   treeBackgroundStyle: BackgroundStyle;
   publicListUrl: string;  // where the public server list comes from
@@ -47,8 +47,6 @@ export interface Settings {
   tabBarBackground: 'none' | 'tree' | 'chat'; // the tab bar above the chat in the Stacked layout: plain, the channel list's or the chat's background
   classicSide: 'left' | 'right'; // the side of the chat the channel list is on in the Classic layout
   railHidden: boolean;   // the server list is closed; the current server's button brings it back
-  // standard: the channel tree in one of the layouts above. rooms: one screen at a time, made for phones.
-  interface: 'standard' | 'rooms';
   shareQuality: 'low' | 'medium' | 'high'; // bitrate and frame rate of our own stream
   autoCameras: boolean;   // show other people's cameras as they come on
   cameraDevice: string;   // the webcam; empty is the system's default
@@ -126,7 +124,6 @@ const defaults: Settings = {
   tabBarBackground: 'none',
   classicSide: 'right',
   railHidden: true,
-  interface: 'standard',
   shareQuality: 'medium',
   autoCameras: true,
   cameraDevice: '',
@@ -152,7 +149,7 @@ const defaults: Settings = {
 // Where in Settings each setting is reset; parts of Appearance are its headings.
 // kept: not picked in Settings (window state, notices already seen).
 export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'files' | 'about' | 'kept'
-  | 'appearance.roles' | 'appearance.people' | 'appearance.interface' | 'appearance.layout'
+  | 'appearance.roles' | 'appearance.people' | 'appearance.layout'
   | 'appearance.background' | 'appearance.tree' | 'appearance.corners' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
   embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files',
@@ -166,7 +163,6 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   arrangement: 'appearance.layout', classicSide: 'appearance.layout', tabBarBackground: 'appearance.layout',
   toolbar: 'appearance.layout', treeLines: 'appearance.layout',
   railHidden: 'kept',
-  interface: 'appearance.interface',
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
   shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',

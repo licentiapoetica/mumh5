@@ -67,8 +67,7 @@
 
 ## Interfaces and look
 
-- Standard interface in three layouts: channels on top (the default), channels left and members right, or chat left and channels right
-- Rooms interface: rooms as a list with the people inside, a voice screen, a people screen, and mute and deafen always in reach. New and not complete: channels and people cannot be moved by dragging there yet
+- Three layouts: channels on top (the default), channels left and members right, or chat left and channels right
 - 100 color schemes with a search box. Eleven are made by hand, the rest are generated from a hue and an accent
 
 ## Sounds
@@ -110,7 +109,6 @@ Servers can raise the limits for faster transfers: `imagemessagelength` (larger 
 - System-wide push to talk
 - Whisper and shout
 - Text channels: private ones, and history while nobody is online (needs a helper on the server)
-- Rooms interface: moving channels and people without dragging, gestures, more polish
 - Rich chat between mumh5 users: replies, edits, typing indicators
 - Screen sharing: a media server for large rounds (today every sender uploads once per viewer, up to 8)
 - Release builds for all platforms
