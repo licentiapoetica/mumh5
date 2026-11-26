@@ -8,6 +8,7 @@
 // For headless Chromium, build with npm run build:web, then set MUMH5_SCREENSHOT_WEB=1
 // and CHROMIUM_PATH to the Chromium executable. Always use a disposable test server:
 // this script replaces its channels with the screenshot scene.
+import './english.ts';
 import { _electron as electron, chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
