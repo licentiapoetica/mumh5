@@ -69,8 +69,7 @@ electron/   main process: window, TLS sockets, identities, tray
 crates/     web gateway (Rust): web/ serves dist-web and bridges WebSocket to TLS, platform/ STUN and TURN, core/ Mumble
 src/core/   Mumble protocol: framing, codec, client state, voice packets
 src/lib/    shared app state, actions and menus, voice engine, sanitizing, file transfers
-src/ui/     standard interface, shared components and dialogs
-src/ui2/    Rooms interface, using the same state, actions and dialogs
+src/ui/     interface components and dialogs
 proto/      Mumble.proto and MumbleUDP.proto from upstream
 test/       unit, server and end-to-end tests
 ```

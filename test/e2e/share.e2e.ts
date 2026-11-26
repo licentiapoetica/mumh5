@@ -581,29 +581,6 @@ try {
   await layout('Modern');
   console.log('ok: stacked layout plays cameras in the screen sharing window');
 
-  // Rooms: the same button on the voice screen, and all four large buttons fit a phone
-  await bob.page.getByTitle('Configure').click();
-  await bob.page.getByRole('tab', { name: 'Appearance' }).click();
-  await bob.page.getByRole('radio', { name: 'Rooms' }).click();
-  await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
-  await bob.page.setViewportSize({ width: 360, height: 720 });
-  const screens = bob.page.getByRole('navigation', { name: 'Screens' });
-  await screens.getByRole('button', { name: 'Voice' }).click();
-  const voiceScreen = bob.page.getByRole('region', { name: 'Voice', exact: true });
-  await voiceScreen.getByRole('button', { name: 'Turn on your camera' }).click();
-  await bob.page.waitForFunction(() => (document.querySelector('.stage .tile.self video') as HTMLVideoElement | null)?.videoWidth! > 0, null, { timeout: 15000 });
-  const buttonsFit = await bob.page.evaluate(() => [...document.querySelectorAll('.controls.large button')].map(b => b.getBoundingClientRect()).every(r => r.left >= 0 && r.right <= innerWidth));
-  assert.ok(buttonsFit, 'the large buttons fit a phone');
-  if (process.env.SHOTS_DIR) await bob.page.screenshot({ path: `${process.env.SHOTS_DIR}/rooms-phone.png` });
-  await voiceScreen.getByRole('button', { name: 'Turn off your camera' }).click();
-  await bob.page.locator('.stage .tile.self video').waitFor({ state: 'detached' });
-  await bob.page.setViewportSize({ width: 1280, height: 800 });
-  await screens.getByRole('button', { name: 'You' }).click();
-  await bob.page.getByRole('region', { name: 'You' }).getByRole('button', { name: /^Appearance/ }).click();
-  await bob.page.getByRole('radio', { name: 'Standard' }).click();
-  await bob.page.getByRole('button', { name: 'Done', exact: true }).click();
-  await bob.page.locator('.me').getByRole('button', { name: 'Turn on your camera' }).waitFor();
-  console.log('ok: camera button in Rooms, on a phone-sized window');
   await bob.page.evaluate(() => localStorage.removeItem('mumh5.iceDebug'));
   console.log(`ok: cameras of several people at once, in the tiles, through the relay (${camStats.match(/Picture \| [^|]+/)?.[0]})`);
   void liveCams;

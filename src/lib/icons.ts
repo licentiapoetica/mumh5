@@ -62,7 +62,6 @@ export const ICON_PATHS: Record<string, string> = {
   'zoom-in': 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5M7 10.5h7M10.5 7v7',
   'zoom-out': 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM16 16l5 5M7 10.5h7',
   user: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1',
-  rooms: 'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
   eraser: 'M20 20H7L3 16l10-10 7 7-6.5 7M6 11l7 7',
   smile: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM8 14a4.5 4.5 0 0 0 8 0M9 9h.01M15 9h.01',
   leaf: 'M4 20C4 11 10 5 20 4c0 10-6 16-15 16M4 20l8-8',

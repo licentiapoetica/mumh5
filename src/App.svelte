@@ -27,7 +27,6 @@
   import Home from './ui/Home.svelte';
   import { share } from './lib/share.svelte.ts';
   import ResizeHandle from './ui/ResizeHandle.svelte';
-  import Shell from './ui2/Shell.svelte';
   import Icon from './ui/Icon.svelte';
   import { updates } from './lib/updates.svelte.ts';
   import { identities } from './lib/identities.svelte.ts';
@@ -223,9 +222,6 @@
     <button class="icon-btn" aria-label="Not now" title="Hide until there is another update" onclick={() => updates.dismiss()}><Icon name="x" size={16} /></button>
   </div>
 {/if}
-{#if store.settings.interface === 'rooms'}
-<Shell onadd={() => (editing = { server: null })} onedit={s => (editing = { server: s })} onbrowse={() => (ui.publicServers = true)} />
-{:else}
 <div class="app {layout} {arrangement}" class:home bind:this={appEl}>
   {#if home}
     {#if !railHidden}{@render rail()}{/if}
@@ -271,7 +267,6 @@
     {/if}
   {/if}
 </div>
-{/if}
 </div>
 
 {#if studio.place === 'inline'}<ThemeCreator docked />{/if}

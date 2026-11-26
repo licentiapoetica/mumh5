@@ -122,7 +122,7 @@ try {
   await design('Image').click();
   await homeArt.waitFor();
 
-  // Every Standard layout and both narrow and wide Rooms screens use the same design.
+  // Every layout uses the same design.
   for (const layout of ['Modern', 'Classic', 'Stacked']) {
     await page.getByRole('radio', { name: layout, exact: true }).click();
     await homeArt.waitFor();
@@ -132,29 +132,13 @@ try {
     await homeArt.waitFor();
     assert.match(await homeArt.evaluate(el => getComputedStyle(el).backgroundImage), /blob:/);
   }
-  await page.getByRole('radio', { name: 'Rooms', exact: true }).click();
-  // The channel list (the room list here) has none by default, the chat's or its own design.
+  // The channel list has none by default, the chat's or its own design.
   const treeMode = (name: string) => page.getByRole('group', { name: 'Channel list background', exact: true }).getByRole('button', { name, exact: true });
   await treeMode('Own design').click();
   await page.getByRole('group', { name: 'Channel list background design', exact: true }).getByRole('button', { name: 'Dots', exact: true }).click();
   assert.equal((await saved()).treeBackgroundStyle.design, 'dots');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await page.locator('.chat2 > .background-art').waitFor();
-  const treeArt = page.locator('.rooms .tree-bg > .background-art[data-design="dots"]');
-  await treeArt.waitFor();
-  // It starts under the bar with the connection wave, not behind it.
-  const topBar = await page.locator('.rooms .top').boundingBox();
-  assert.ok((await treeArt.boundingBox())!.y >= topBar!.y + topBar!.height);
-  assert.match(await page.locator('.chat2 > .background-art').evaluate(el => getComputedStyle(el).backgroundImage), /blob:/);
-  await shot('background-rooms');
-  for (const width of [1280, 390]) {
-    await page.setViewportSize({ width, height: 800 });
-    for (const name of ['Chat', 'Voice', 'People', 'You']) {
-      await page.getByRole('navigation', { name: 'Screens' }).getByRole('button', { name, exact: true }).click();
-      await page.locator('main .background-art').waitFor();
-    }
-  }
-  await page.locator('.you').getByRole('button', { name: /^Appearance/ }).click();
+  await open();
   await page.getByRole('button', { name: 'Remove image', exact: true }).click();
   await design('None').waitFor();
   await treeMode('None').click();
@@ -165,11 +149,11 @@ try {
     return !!await (await import(module)).getBlob('appearance.background');
   }), false, 'removal deletes the stored image');
   await page.reload();
-  await page.getByRole('navigation', { name: 'Screens' }).waitFor();
+  await page.locator('.home').waitFor();
   assert.equal(await page.locator('.background-art').count(), 0);
   assert.deepEqual(remoteImages, [], 'backgrounds never fetch remote images');
   assert.deepEqual(failures, []);
-  console.log('BACKGROUND E2E PASSED: designs, color, strength, image import, fit, validation, replacement, reload, layouts, Rooms and removal');
+  console.log('BACKGROUND E2E PASSED: designs, color, strength, image import, fit, validation, replacement, reload, layouts and removal');
 } finally {
   await browser.close();
   await server.close();

@@ -31,17 +31,17 @@ The Windows installer is unsigned, so SmartScreen may warn. Current AppImages bu
 - **Send files:** drag, paste, or attach files up to 2 GB. Transfers pass through the Mumble server; no file-hosting service is needed.
 - **Share a screen or camera:** stream to other mumh5 users in your channel, with a preview and quality controls before you start.
 - **Manage a community:** create and arrange channels, set permissions and roles, move users, and moderate from their context menus.
-- **Choose your layout:** Stacked, Modern, or Classic, plus a Rooms interface for smaller screens. Pick from 100 color schemes and add a background image or pattern.
+- **Choose your layout:** Stacked, Modern, or Classic. Pick from 100 color schemes and add a background image or pattern.
 
 The [feature reference](docs/features.md) covers voice, text channels, notification sound packs, identities, moderation, and the file-transfer protocol.
 
 ## A look around
 
-The default **Stacked** layout puts channels above the conversation. **Modern** places channels on the left and members on the right. **Rooms** provides separate chat, voice, people, and profile screens. Change these in **Settings > Appearance**.
+The default **Stacked** layout puts channels above the conversation. **Modern** places channels on the left and members on the right. **Classic** puts the chat on the left and the channels on the right, like Mumble. Change these in **Settings > Appearance**.
 
-| Modern layout | Rooms interface |
+| Modern layout | Stacked layout |
 | --- | --- |
-| ![Modern layout showing the channel tree, group chat, shared file, and member list](docs/screenshots/main.png) | ![Rooms interface showing the room list alongside the conversation](docs/screenshots/rooms.png) |
+| ![Modern layout showing the channel tree, group chat, shared file, and member list](docs/screenshots/main.png) | ![Stacked layout showing the channel tree above the conversation](docs/screenshots/stacked.png) |
 
 | Profile cards | Voice settings |
 | --- | --- |
@@ -57,10 +57,6 @@ Streams use WebRTC, with up to eight viewers per stream. Direct connections may 
 | --- | --- | --- | --- |
 | ![Windows 95 color scheme](docs/screenshots/theme-win95.png) | ![Light color scheme](docs/screenshots/theme-light.png) | ![Frost color scheme](docs/screenshots/theme-frost.png) | ![Midnight color scheme](docs/screenshots/theme-midnight.png) |
 
-The Rooms interface at phone width:
-
-<p align="center"><img src="docs/screenshots/mobile.png" alt="Rooms interface at 390 pixels wide, showing the chat and bottom navigation" width="300"></p>
-
 Screenshots use scripted conversations and fresh test clients connected to a local Mumble server. The shared racing scene is a simulated capture source. The [screenshot guide](docs/screenshots/README.md) explains how to reproduce them and what the capture run covers.
 
 ## Compatibility and limits
@@ -74,7 +70,7 @@ Screenshots use scripted conversations and fresh test clients connected to a loc
 
 File transfers and text channels require Mumble 1.4 or newer; text channels also require HTML messages. Text channels are visible to all mumh5 users on the server, with no private text channels yet. Chat history is opt-in and stored locally; the Mumble server does not retain messages or shared files.
 
-System-wide push to talk, whisper/shout, positional audio, the in-game overlay, recording, and dedicated ban-list and registered-user editors are not implemented. The Rooms interface is still incomplete. See the [feature reference and roadmap](docs/features.md) for details.
+System-wide push to talk, whisper/shout, positional audio, the in-game overlay, recording, and dedicated ban-list and registered-user editors are not implemented. See the [feature reference and roadmap](docs/features.md) for details.
 
 ## Use it in a browser
 

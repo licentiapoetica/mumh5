@@ -40,24 +40,24 @@ function connectionItems(s: SavedServer): MenuItem[] {
   ];
 }
 
-function editItems(s: SavedServer, onedit = (server: SavedServer) => { ui.editServer = server; }): MenuItem[] {
+function editItems(s: SavedServer): MenuItem[] {
   return [
     { label: 'Change icon...', action: () => pickIcon(s.id) },
     ...(s.icon ? [{ label: 'Remove icon', action: () => store.setServerIcon(s.id, undefined) }] : []),
-    { label: 'Edit...', action: () => onedit(s) }
+    { label: 'Edit...', action: () => { ui.editServer = s; } }
   ];
 }
 
 // A tile in the server list
-export function railMenu(s: SavedServer, i: number, options: { horizontal?: boolean; onedit?: (server: SavedServer) => void } = {}): MenuItem[] {
+export function railMenu(s: SavedServer, i: number): MenuItem[] {
   return [
     { header: true, label: s.label },
     ...connectionItems(s),
     { separator: true, label: '' },
-    { label: options.horizontal ? 'Move left' : 'Move up', disabled: i === 0, action: () => store.moveServer(s.id, i - 1) },
-    { label: options.horizontal ? 'Move right' : 'Move down', disabled: i === store.servers.length - 1, action: () => store.moveServer(s.id, i + 1) },
+    { label: 'Move up', disabled: i === 0, action: () => store.moveServer(s.id, i - 1) },
+    { label: 'Move down', disabled: i === store.servers.length - 1, action: () => store.moveServer(s.id, i + 1) },
     { separator: true, label: '' },
-    ...editItems(s, options.onedit)
+    ...editItems(s)
   ];
 }
 

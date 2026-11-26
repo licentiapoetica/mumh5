@@ -40,8 +40,6 @@ For Electron captures, run `npm run build` and omit `MUMH5_SCREENSHOT_WEB` and `
 | --- | --- |
 | `stacked.png` | Default Stacked layout, channels above chat |
 | `main.png` | Modern layout, channels left and members right |
-| `rooms.png` | Rooms interface in a wide window |
-| `mobile.png` | Rooms chat at 390 × 844 pixels |
 | `profile.png` | A member's profile card |
 | `voice-settings.png` | Voice settings |
 | `settings-appearance.png` | Appearance settings |

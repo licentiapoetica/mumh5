@@ -337,15 +337,6 @@ try {
     console.log('ok: works with Settings in its own window');
   }
 
-  // Rooms has the same creator
-  await page.getByRole('radio', { name: 'Rooms', exact: true }).click();
-  win = await opening(button(page, 'Create theme'));
-  await page.locator('.shell').waitFor();
-  assert.equal((await page.locator('.frame').boundingBox())!.width, 1400);
-  await closing(win, button(panel(win), 'Close theme creator'));
-  await settings.waitFor();
-  console.log('ok: Rooms');
-
   assert.deepEqual(failures, []);
   console.log('THEME CREATOR E2E PASSED');
 } finally {
