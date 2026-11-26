@@ -157,21 +157,14 @@ try {
   assert.equal(media.url(), 'http://media.example/open.png');
   assert.equal(await media.evaluate(() => document.contentType), 'image/png', 'remote action opens actual cross-origin media');
   await media.close();
-  for (const mode of ['standard', 'rooms']) {
-    await page.evaluate(async mode => {
-      const module = '/src/lib/settings.svelte.ts';
-      (await import(module)).store.settings.interface = mode;
-    }, mode);
-    for (const width of [1280, 390]) {
-      await page.setViewportSize({ width, height: 800 });
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))));
-      if (mode === 'rooms' && width < 900) await page.getByRole('navigation', { name: 'Screens' }).getByRole('button', { name: 'Chat', exact: true }).click();
-      const overflow = await page.locator('.media-card').evaluateAll(cards => Math.max(...cards.map(el => el.scrollWidth - el.clientWidth)));
-      assert.ok(overflow < 2, `${mode} cards fit at ${width}px`);
-    }
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))));
+    const overflow = await page.locator('.media-card').evaluateAll(cards => Math.max(...cards.map(el => el.scrollWidth - el.clientWidth)));
+    assert.ok(overflow < 2, `cards fit at ${width}px`);
   }
   assert.deepEqual(errors, []);
-  console.log('ok: local download, remote open, image zoom, PDF failure, remote privacy and responsive cards in both interfaces');
+  console.log('ok: local download, remote open, image zoom, PDF failure, remote privacy and responsive cards');
 } finally {
   await browser.close();
   await server.close();

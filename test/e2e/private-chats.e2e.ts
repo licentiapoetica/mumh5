@@ -48,17 +48,16 @@ try {
   const frame = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))));
   const tabs = page.getByRole('tablist', { name: 'Open chats' });
 
-  for (const mode of ['side', 'classic', 'stacked', 'rooms']) {
+  for (const mode of ['side', 'classic', 'stacked']) {
     await page.evaluate(async mode => {
       const module = '/src/lib/settings.svelte.ts';
       const { store } = await import(module);
-      store.settings.interface = mode === 'rooms' ? 'rooms' : 'standard';
-      store.settings.arrangement = mode === 'rooms' ? 'side' : mode;
+      store.settings.arrangement = mode;
     }, mode);
     for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 700 }]) {
       await page.setViewportSize(viewport);
       await frame();
-      const narrow = viewport.width < (mode === 'rooms' ? 900 : 760);
+      const narrow = viewport.width < 760;
       const tabbed = mode === 'stacked' || narrow;
       const where = `${mode} at ${viewport.width}px`;
       await populate(0);
@@ -109,7 +108,7 @@ try {
         } else await tabs.waitFor({ state: 'detached' });
       } else {
         assert.equal(await tabs.count(), 0, `${where}: no tabs beside a list`);
-        const list = mode === 'rooms' ? page.getByRole('region', { name: 'Rooms' }) : page.locator('.sidebar');
+        const list = page.locator('.sidebar');
         await list.getByText('Person 101').click();
         assert.equal(await view(), 'dm:101', `${where}: one click from the list`);
         await populate(0);

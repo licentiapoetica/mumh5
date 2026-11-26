@@ -282,20 +282,6 @@ try {
     if (t !== 'dark') await page.screenshot({ path: path.join(out, `theme-${t}.png`) });
   }
 
-  await page.getByTitle('Settings').click();
-  await tab('Appearance');
-  await page.getByRole('radio', { name: 'Rooms', exact: true }).click();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await page.mouse.move(0, 0);
-  await wait(400);
-  await page.screenshot({ path: path.join(out, 'rooms.png') });
-  // Use the same connected test client at phone width.
-  await page.setViewportSize({ width: 390, height: 844 });
-  if (await page.locator('.scrim').count()) await page.locator('.scrim').first().click();
-  await page.getByRole('navigation', { name: 'Screens' }).getByRole('button', { name: 'Chat', exact: true }).click();
-  await wait(500);
-  await page.screenshot({ path: path.join(out, 'mobile.png') });
-
   // ─── Screen sharing: v0id streams a game from a window of their own, three people watch ──
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'You', exact: true }).click();

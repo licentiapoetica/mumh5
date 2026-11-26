@@ -94,12 +94,8 @@ export function channelMenu(c: Channel): MenuItem[] {
     { header: true, label: c.name || 'Root' },
     ...open,
     ...(!session.isText(c.id) ? [{ label: 'Select people in this channel', disabled: session.movingUsers || !session.usersIn(c.id).length,
-      action: () => { userLists.last = store.settings.interface === 'rooms' ? 'rooms' : 'tree'; session.selectChannelUsers(c.id); } }] : []),
-    // The tree shows it next to the channel; the Rooms interface has no tree and uses its panel
-    { label: 'Show description', action: () => {
-      if (store.settings.interface === 'rooms') { session.showChannel(c.id, 'info'); ui.panelOpen = true; }
-      else ui.channelPreview = { id: c.id, ...menu.last };
-    } },
+      action: () => { userLists.last = 'tree'; session.selectChannelUsers(c.id); } }] : []),
+    { label: 'Show description', action: () => { ui.channelPreview = { id: c.id, ...menu.last }; } },
     { separator: true, label: '' },
     { label: session.isExpanded(c.id) ? 'Collapse' : 'Expand', action: () => session.toggleExpanded(c.id), disabled: c.id === 0 },
     { label: 'Expand all', action: () => session.setAllExpanded(true) },
