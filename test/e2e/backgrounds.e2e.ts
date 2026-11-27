@@ -1,5 +1,6 @@
 // Standalone Appearance checks; no Mumble server required.
 // CHROMIUM_PATH=/path/to/chromium npm run test:e2e:backgrounds
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
