@@ -76,9 +76,10 @@ jobs:
           cp target/release/mumh5-web .perf/gateway-new
           (cd .perf-base && cargo build --locked --release -p mumh5-web)
           cp target/release/mumh5-web .perf/gateway-base
-          (cd frontend && bun run build)
+          # build:web as deployed (Dockerfile), so the static numbers include precompressed responses
+          (cd frontend && bun run build:web)
           # The base's own web build, so a change in frontend/tools/build.ts shows in the static numbers
-          (cd .perf-base/frontend && bun install --frozen-lockfile && bun run build)
+          (cd .perf-base/frontend && bun install --frozen-lockfile && { bun run build:web || bun run build; })
       - name: Compare
         if: steps.base.outputs.gateway == 'true'
         run: |
