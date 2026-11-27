@@ -13,6 +13,8 @@ import { readAudioPack } from '../../src/core/audio-pack.ts';
 import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
+import { bannerMark, parseBanner } from '../../src/core/banner.ts';
+import { encodeGif } from '../../src/lib/animated.ts';
 import { channelPassword, withPassword } from '../../src/core/channel-password.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
@@ -1354,10 +1356,76 @@ try {
   await ownCard.getByRole('button', { name: 'Remove picture' }).click();
   assert.equal(await within(pictureGone, 'picture removed'), 0);
   await ownCard.locator('.avatar img').waitFor({ state: 'detached' });
+  // An animated picture stays animated, as WebP where the browser encodes WebP
+  const anim = path.join(userData, 'anim.gif');
+  const solid = (r: number, b: number) => ({ rgba: new Uint8ClampedArray(Array.from({ length: 64 * 64 }, () => [r, 0, b, 255]).flat()), delay: 80 });
+  writeFileSync(anim, encodeGif({ width: 64, height: 64, frames: [solid(255, 0), solid(0, 255), solid(255, 255)] }, 32, 1, false));
+  const animSet = new Promise<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
+  await ownCard.getByLabel('Picture file').setInputFiles(anim);
+  await within(animSet, 'animated picture announced');
+  const animBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
+  bob.requestBlob({ textures: [aliceId] });
+  const animSent = await within(animBytes, 'animated picture fetched');
+  assert.equal(new TextDecoder().decode(animSent.subarray(8, 12)), 'WEBP', 'sent as WebP');
+  assert.ok(new TextDecoder().decode(animSent).includes('ANMF'), 'with its frames');
+  const animGone = new Promise<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
+  await ownCard.getByRole('button', { name: 'Remove picture' }).click();
+  assert.equal(await within(animGone, 'animated picture removed'), 0);
   await page.keyboard.press('Escape');
   bob.setTexture(new Uint8Array(0));
   await bobInTree.locator('.avatar img').waitFor({ state: 'detached' });
   console.log('ok: profile cards, pictures sent, shown and removed');
+
+  // Banners travel in the comment: bob's color shows on his card, alice's color and picture reach bob
+  bob.setComment(bannerMark({ color: '#ff8800', image: null }));
+  await bobInTree.click();
+  await within(new Promise<void>(res => {
+    const check = () => bobCard.locator('.banner').evaluate(e => getComputedStyle(e).backgroundColor).then(c => c === 'rgb(255, 136, 0)' ? res() : setTimeout(check, 100), () => setTimeout(check, 100));
+    check();
+  }), 'bob banner color shown');
+  await page.keyboard.press('Escape');
+  await bobCard.waitFor({ state: 'detached' });
+  assert.equal(await bobInTree.getByTitle('Has a description').count(), 0, 'a banner alone is no description');
+  const aliceBanner = (want: (b: ReturnType<typeof parseBanner>) => boolean) => new Promise<void>(res => {
+    const seen = () => {
+      const u = bob.users.get(aliceId);
+      if (!u) return;
+      if (u.commentHash && !u.comment) bob.requestBlob({ comments: [aliceId] });
+      else if (want(parseBanner(u.comment))) { off(); res(); }
+    };
+    const off = bob.on('user', u => { if (u.session === aliceId) seen(); });
+    seen();
+  });
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  const colorSent = aliceBanner(b => b?.color === '#3366cc' && !b.image);
+  await ownCard.getByLabel('Banner color').fill('#3366cc');
+  await within(colorSent, 'own banner color published');
+  const pictureSent = aliceBanner(b => b?.color === '#3366cc' && !!b.image);
+  await ownCard.getByLabel('Banner picture file').setInputFiles(pic);
+  // The picture is placed in the frame first; dragging moves it, the slider zooms
+  const frame = ownCard.getByRole('slider', { name: /^Banner picture position/ });
+  await ownCard.getByLabel('Zoom').fill('2');
+  const frameBox = (await frame.boundingBox())!;
+  await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frameBox.x + frameBox.width / 2 + 60, frameBox.y + frameBox.height / 2 + 10, { steps: 5 });
+  await page.mouse.up();
+  assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'dragged right shows more of the left');
+  await ownCard.getByRole('button', { name: 'Use this part' }).click();
+  await within(pictureSent, 'own banner picture published');
+  await ownCard.locator('.banner img').waitFor();
+  // The original stays here, so the picture can be moved again
+  await ownCard.getByRole('button', { name: 'Move banner picture' }).click();
+  assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'opens where it was left');
+  await ownCard.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+  await ownCard.locator('.banner img').waitFor();
+  const reset = aliceBanner(b => b === null);
+  await ownCard.getByRole('button', { name: 'Reset banner' }).click();
+  await within(reset, 'own banner removed');
+  await page.keyboard.press('Escape');
+  await ownCard.waitFor({ state: 'detached' });
+  bob.setComment('');
+  console.log('ok: profile banners published and shown');
 
 
   // Server information from the button next to mute

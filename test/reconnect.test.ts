@@ -31,6 +31,7 @@ const stubs = `
   export const sounds = { play() {} };
   export const connLog = { add() {}, hidden: false };
   export const ownAvatar = { loaded: Promise.resolve(), bytes: null };
+  export const ownBanner = { ready: true, loaded: Promise.resolve(), color: '', image: null, mark: '' };
   export const renderIncoming = x => x, textToHtml = x => x, escapeHtml = x => x;
   export const formatBytes = x => String(x), fileKind = () => 'file';
   export const makeInlineImage = () => {}, originalImage = () => {}, videoPoster = () => {};
