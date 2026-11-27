@@ -19,7 +19,7 @@
   import { sessions } from '../lib/session.svelte.ts';
   import type { Channel } from '../core/client.ts';
   import { stripMark } from '../core/text-signal.ts';
-  import { stripDisplayName } from '../core/display-name.ts';
+  import { stripProfileMarks } from '../core/banner.ts';
   import { planMove } from '../core/channel-order.ts';
 
   let { channel, depth = 0, last = true, onnavigate }: { channel: Channel; depth?: number; last?: boolean; onnavigate: () => void } = $props();
@@ -318,7 +318,7 @@
                   onkeydown={e => { if (e.key === 'Enter') { e.stopPropagation(); share.watch(sessions.active, u.session); } }}><Icon name={kind} size={14} /></span>
               {/if}
             {/if}
-            {#if u.comment ? stripDisplayName(u.comment) : u.commentHash}<span class="state slot" title="Has a description"><Icon name="message" size={12} /></span>{/if}
+            {#if u.comment ? stripProfileMarks(u.comment) : u.commentHash}<span class="state slot" title="Has a description"><Icon name="message" size={12} /></span>{/if}
             {#if u.prioritySpeaker}<span class="state" title="Priority speaker"><Icon name="channel" size={14} /></span>{/if}
             {#if u.recording}<span class="rec" title="Recording">REC</span>{/if}
           </button>

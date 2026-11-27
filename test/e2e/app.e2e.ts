@@ -13,6 +13,7 @@ import { readAudioPack } from '../../src/core/audio-pack.ts';
 import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
+import { bannerMark, parseBanner } from '../../src/core/banner.ts';
 import { channelPassword, withPassword } from '../../src/core/channel-password.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
@@ -1358,6 +1359,42 @@ try {
   bob.setTexture(new Uint8Array(0));
   await bobInTree.locator('.avatar img').waitFor({ state: 'detached' });
   console.log('ok: profile cards, pictures sent, shown and removed');
+
+  // Banners travel in the comment: bob's color shows on his card, alice's color and picture reach bob
+  bob.setComment(bannerMark({ color: '#ff8800', image: null }));
+  await bobInTree.click();
+  await within(new Promise<void>(res => {
+    const check = () => bobCard.locator('.banner').evaluate(e => getComputedStyle(e).backgroundColor).then(c => c === 'rgb(255, 136, 0)' ? res() : setTimeout(check, 100), () => setTimeout(check, 100));
+    check();
+  }), 'bob banner color shown');
+  await page.keyboard.press('Escape');
+  await bobCard.waitFor({ state: 'detached' });
+  assert.equal(await bobInTree.getByTitle('Has a description').count(), 0, 'a banner alone is no description');
+  const aliceBanner = (want: (b: ReturnType<typeof parseBanner>) => boolean) => new Promise<void>(res => {
+    const seen = () => {
+      const u = bob.users.get(aliceId);
+      if (!u) return;
+      if (u.commentHash && !u.comment) bob.requestBlob({ comments: [aliceId] });
+      else if (want(parseBanner(u.comment))) { off(); res(); }
+    };
+    const off = bob.on('user', u => { if (u.session === aliceId) seen(); });
+    seen();
+  });
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  const colorSent = aliceBanner(b => b?.color === '#3366cc' && !b.image);
+  await ownCard.getByLabel('Banner color').fill('#3366cc');
+  await within(colorSent, 'own banner color published');
+  const pictureSent = aliceBanner(b => b?.color === '#3366cc' && !!b.image);
+  await ownCard.getByLabel('Banner picture file').setInputFiles(pic);
+  await within(pictureSent, 'own banner picture published');
+  await ownCard.locator('.banner img').waitFor();
+  const reset = aliceBanner(b => b === null);
+  await ownCard.getByRole('button', { name: 'Reset banner' }).click();
+  await within(reset, 'own banner removed');
+  await page.keyboard.press('Escape');
+  await ownCard.waitFor({ state: 'detached' });
+  bob.setComment('');
+  console.log('ok: profile banners published and shown');
 
 
   // Server information from the button next to mute

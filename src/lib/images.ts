@@ -151,3 +151,35 @@ export async function makeAvatar(file: Blob, maxBytes: number): Promise<Uint8Arr
     bmp.close();
   }
 }
+
+// A profile banner: 5:1 like the card's banner, cut from the middle. WebP where the browser
+// encodes it, JPEG otherwise; whichever first fits maxBytes.
+export async function makeBanner(file: Blob, maxBytes: number): Promise<Uint8Array | null> {
+  const bmp = await createImageBitmap(file);
+  const encode = (canvas: HTMLCanvasElement, type: string, quality: number) =>
+    new Promise<Blob | null>(res => canvas.toBlob(res, type, quality));
+  try {
+    const ratio = 5;
+    const sw = Math.min(bmp.width, bmp.height * ratio), sh = sw / ratio;
+    for (const width of [640, 480, 320]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.min(width, Math.round(sw));
+      canvas.height = Math.max(1, Math.round(canvas.width / ratio));
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#1a1b1f';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bmp, (bmp.width - sw) / 2, (bmp.height - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.85, 0.7, 0.55]) {
+        for (const type of ['image/webp', 'image/jpeg']) {
+          const blob = await encode(canvas, type, quality);
+          // A browser that cannot encode WebP hands back PNG
+          if (blob && blob.type === type && blob.size <= maxBytes) return new Uint8Array(await blob.arrayBuffer());
+        }
+      }
+    }
+    return null;
+  } finally {
+    bmp.close();
+  }
+}

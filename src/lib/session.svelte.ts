@@ -13,12 +13,14 @@ import { docFromRoles, isBuiltinRole, parseRoles, prepareRoles, refreshDoc, role
 import { effectivePermissions } from '../core/access.ts';
 import { withPassword } from '../core/channel-password.ts';
 import { cleanDisplayName, withDisplayName } from '../core/display-name.ts';
+import { bannerMark, withBanner, type Banner } from '../core/banner.ts';
 import type { ServerCertInfo } from '../core/transport.ts';
 import { store, type SavedServer } from './settings.svelte.ts';
 import { renderIncoming, textToHtml, formatBytes, type Embed } from './html.ts';
 import { escapeHtml } from '../core/html.ts';
 import { makeInlineImage, originalImage, videoPoster } from './images.ts';
 import { ownAvatar } from './avatar.svelte.ts';
+import { ownBanner } from './banner.svelte.ts';
 import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
 import { encodePoke, decodePoke } from '../core/poke.ts';
@@ -137,9 +139,12 @@ export class Session {
   // Blob hashes already requested, so a preview does not ask the server repeatedly
   private requested = new Set<string>();
   // Your chosen name waits for your own long description, which must not be overwritten
-  private nameTask: { set: string } | 'restore' | 'persist' | null = null;
+  private nameTask: { set: string } | 'restore' | 'persist' | 'banner' | null = null;
   // A new name on its way to the server, undone if the server refuses the longer comment
   private nameWrite: { key: string; before: string; at: number } | null = null;
+  // A comment with your banner picture on its way; if refused, it goes again without the picture
+  private bannerWrite: { base: string; name: string; at: number } | null = null;
+  private bannerColorOnly = false;
   private namesStarted = false;
   // Long comments to fetch for the names inside them, asked for a few at a time
   private wantedComments = new Set<number>();
@@ -467,6 +472,8 @@ export class Session {
     this.requested.clear();
     this.nameTask = null;
     this.nameWrite = null;
+    this.bannerWrite = null;
+    this.bannerColorOnly = false;
     this.namesStarted = false;
     this.wantedComments.clear();
     if (this.commentTimer) clearTimeout(this.commentTimer);
@@ -740,7 +747,7 @@ export class Session {
       const self = client.self;
       if (changed.includes('comment') && user.commentHash) this.requested.delete(commentTag(user.session, user.commentHash));
       if (user.session === client.session) {
-        if (changed.includes('comment') || changed.includes('commentHash')) this.nameWrite = null;
+        if (changed.includes('comment') || changed.includes('commentHash')) this.nameWrite = this.bannerWrite = null;
         // Murmur stores only what is written after registering, not the comment a guest already had
         if (client.synced && !isNew && changed.includes('userId') && user.userId != null) this.nameTask ??= 'persist';
         this.runNameTask(client);
@@ -861,6 +868,14 @@ export class Session {
         && (d.channelId === this.userMove.channelId || this.userMove.people.some(p => p.id === d.session && p.channelId === d.channelId))) {
         failUserMove(this.userMove, describeDenial(d, this.channel(d.channelId!)?.name), d.session);
         this.updateUserMove();
+      }
+      const bannerWrite = this.bannerWrite;
+      if (d.type === 4 && bannerWrite && Date.now() - bannerWrite.at < 5000) {
+        this.bannerWrite = null;
+        this.bannerColorOnly = true;
+        this.system(this.view, 'This server refused your banner picture, so it is left out here.');
+        this.writeComment(client, bannerWrite.base, bannerWrite.name);
+        return;
       }
       const nameWrite = this.nameWrite;
       if (d.type === 4 && nameWrite && Date.now() - nameWrite.at < 5000) {
@@ -1108,26 +1123,60 @@ export class Session {
       this.loadComment(self.session);
       return;
     }
+    // The banner is read from this device's storage, normally long before connecting
+    if (!ownBanner.ready) {
+      void ownBanner.loaded.then(() => { if (this.client === client) this.runNameTask(client); });
+      return;
+    }
     this.nameTask = null;
+    const outdated = (name: string) => this.composeComment(self.comment, name) !== self.comment;
     if (task === 'persist') {
-      if (self.comment) client.setComment(self.comment);
+      if (self.comment || this.bannerMark()) this.writeComment(client, self.comment, self.chosenName);
+      return;
+    }
+    if (task === 'banner') {
+      if (outdated(self.chosenName)) this.writeComment(client, self.comment, self.chosenName);
       return;
     }
     const key = this.nameKey(self);
     // The server keeps a registered user's comment, so it is newer than this computer's copy,
-    // also when the name was removed on another device
+    // also when the name was removed on another device. The banner is this device's.
     if (task === 'restore' && self.userId != null) {
       store.setDisplayName(key, self.chosenName);
+      if (outdated(self.chosenName)) this.writeComment(client, self.comment, self.chosenName);
       return;
     }
     const saved = store.displayNames[key] ?? '';
     const name = task === 'restore' ? saved : task.set;
     store.setDisplayName(key, name);
     // Saved differs while an earlier change is still on its way back from the server
-    if (name !== self.chosenName || name !== saved) {
+    if (name !== self.chosenName || name !== saved || outdated(name)) {
       if (name !== saved) this.nameWrite = { key, before: saved, at: Date.now() };
-      client.setComment(withDisplayName(self.comment, name));
+      this.writeComment(client, self.comment, name);
     }
+  }
+
+  private bannerMark(): string {
+    return this.bannerColorOnly ? bannerMark({ color: ownBanner.color, image: null }) : ownBanner.mark;
+  }
+
+  private composeComment(base: string, name: string): string {
+    return withBanner(withDisplayName(base, name), this.bannerMark());
+  }
+
+  // Every write of your own comment carries your chosen name and banner
+  private writeComment(client: MumbleClient, base: string, name: string): void {
+    this.bannerWrite = ownBanner.image && !this.bannerColorOnly ? { base, name, at: Date.now() } : null;
+    client.setComment(this.composeComment(base, name));
+  }
+
+  // After the banner changed in the profile editor
+  publishBanner(): void {
+    const client = this.client;
+    if (!client || this.status !== 'connected' || !this.namesStarted || client.config.allowHtml === false) return;
+    this.bannerColorOnly = false;
+    this.nameTask ??= 'banner';
+    this.runNameTask(client);
   }
 
   private wantComment(client: MumbleClient, session: number): void {
@@ -1153,6 +1202,7 @@ export class Session {
     const self = client?.self;
     if (!client || !self) return;
     const task = typeof this.nameTask === 'object' ? this.nameTask : null;
+    if (this.nameTask === 'banner') this.nameTask = null;
     if (task) {
       const key = this.nameKey(self);
       const before = store.displayNames[key] ?? '';
@@ -1160,7 +1210,7 @@ export class Session {
       store.setDisplayName(key, task.set);
       this.nameTask = null;
     }
-    client.setComment(withDisplayName(html, task ? task.set : self.chosenName));
+    this.writeComment(client, html, task ? task.set : self.chosenName);
   }
 
   // Largest description or image message the server accepts (0: no limit)
@@ -1725,6 +1775,12 @@ class Sessions {
   async setAvatar(bytes: Uint8Array | null): Promise<void> {
     await ownAvatar.save(bytes);
     for (const s of this.list) if (s.status === 'connected') s.sendPicture(bytes ?? new Uint8Array(0));
+  }
+
+  // Your banner for every server, published in your comment on the ones you are on
+  async setBanner(banner: Banner): Promise<void> {
+    await ownBanner.save(banner);
+    for (const s of this.list) s.publishBanner();
   }
 
   // Show a server, connecting if needed
