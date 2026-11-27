@@ -1,7 +1,8 @@
 // Animated pictures. Browsers decode GIF, animated WebP and APNG frame by frame (ImageDecoder) but
-// cannot encode any animation, so frames are cut and scaled here and written as GIF, which every
-// browser plays in <img>. Desktop Mumble shows the first frame.
+// cannot encode any animation, so frames are cut and scaled here and written as animated WebP
+// (frames encoded as still WebP by the browser) or, where the browser has no WebP encoder, GIF.
 import * as gifencModule from 'gifenc';
+import { writeAnimatedWebp, type WebpFrame } from './webp-anim.ts';
 
 // Vite takes gifenc's ES build; Node (the tests) its CommonJS one, which has the functions on default
 type Gifenc = typeof gifencModule;
@@ -186,6 +187,120 @@ export function fitGif(src: Frames, sizes: [number, number][], maxBytes: number,
   let count = all.frames.length;
   while (count > 2) {
     const bytes = encodeGif({ ...all, frames: all.frames.slice(0, count) }, last.colors, last.step, transparent, last.loss);
+    if (bytes.length <= maxBytes) return bytes;
+    count = Math.min(count - 1, Math.floor(count * Math.max(0.5, maxBytes / bytes.length * 0.95)));
+  }
+  return null;
+}
+
+// ─── Animated WebP ─────────────────────────────────────────────────────────────
+// Far better looking than GIF (all colors, soft edges), where the browser encodes still WebP;
+// Safari does not, and gets GIF.
+
+let webpSupport: Promise<boolean> | null = null;
+export function canEncodeWebp(): Promise<boolean> {
+  return webpSupport ??= new Promise(res => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 2;
+    c.toBlob(b => res(b?.type === 'image/webp'), 'image/webp', 0.8);
+  });
+}
+
+// The smallest rectangle around pixels that differ from what is shown by more than tolerance
+export function changedBox(shown: Uint8ClampedArray, next: Uint8ClampedArray, width: number, height: number, tolerance: number): { x: number; y: number; w: number; h: number } | null {
+  let x0 = width, y0 = height, x1 = -1, y1 = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const a = shown[i + 3], b = next[i + 3];
+      const differs = Math.abs(a - b) > tolerance || ((a | b) && (Math.abs(shown[i] - next[i]) > tolerance
+        || Math.abs(shown[i + 1] - next[i + 1]) > tolerance || Math.abs(shown[i + 2] - next[i + 2]) > tolerance));
+      if (differs) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        y1 = y;
+      }
+    }
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+function grouped(src: Frames, step: number): Frame[] {
+  const frames: Frame[] = [];
+  for (let i = 0; i < src.frames.length; i += step) {
+    let delay = 0;
+    for (let j = i; j < Math.min(src.frames.length, i + step); j++) delay += src.frames[j].delay;
+    frames.push({ rgba: src.frames[i].rgba, delay: Math.max(MIN_DELAY, delay) });
+  }
+  return frames;
+}
+
+// Each frame carries only the rectangle that changed; a frame without changes lengthens the one before
+export async function encodeWebp(src: Frames, quality: number, step: number, tolerance: number): Promise<Uint8Array> {
+  const { width, height } = src;
+  const alpha = hasTransparency(src);
+  const shown = new Uint8ClampedArray(width * height * 4);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  const out: WebpFrame[] = [];
+  for (const f of grouped(src, step)) {
+    const box = out.length ? changedBox(shown, f.rgba, width, height, tolerance) : { x: 0, y: 0, w: width, h: height };
+    if (!box) {
+      out[out.length - 1].duration += f.delay;
+      continue;
+    }
+    const x = box.x & ~1, y = box.y & ~1, w = box.x + box.w - x, h = box.y + box.h - y;
+    const part = new Uint8ClampedArray(w * h * 4);
+    for (let row = 0; row < h; row++) {
+      const from = ((y + row) * width + x) * 4;
+      part.set(f.rgba.subarray(from, from + w * 4), row * w * 4);
+      shown.set(f.rgba.subarray(from, from + w * 4), from);
+    }
+    canvas.width = w;
+    canvas.height = h;
+    ctx.putImageData(new ImageData(part, w, h), 0, 0);
+    const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/webp', quality));
+    if (blob?.type !== 'image/webp') throw new Error('this browser does not encode WebP');
+    out.push({ x, y, width: w, height: h, duration: f.delay, still: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  return writeAnimatedWebp(width, height, alpha, out);
+}
+
+// Like fitGif: lower quality, more tolerance and a smaller size first, then every other frame
+// (not below 8 fps), then a shorter animation. Quality stays at 0.55 or more except at the
+// smallest size.
+export async function fitWebp(src: Frames, sizes: [number, number][], maxBytes: number): Promise<Uint8Array | null> {
+  const average = src.frames.reduce((n, f) => n + Math.max(MIN_DELAY, f.delay), 0) / src.frames.length;
+  const steps = average * 2 <= SLOWEST ? [1, 2] : [1];
+  type WebpTry = { width: number; height: number; quality: number; step: number; tolerance: number };
+  const tries: WebpTry[] = [];
+  for (const step of steps) {
+    sizes.forEach(([width, height], i) => {
+      const qualities = i === sizes.length - 1 ? [0.85, 0.7, 0.55, 0.4] : [0.85, 0.7, 0.55];
+      for (const tolerance of [4, 10]) for (const quality of qualities) tries.push({ width, height, quality, step, tolerance });
+    });
+  }
+  const sized = new Map<number, Frames>();
+  const at = (t: WebpTry) => {
+    if (!sized.has(t.width)) sized.set(t.width, scaled(src, t.width, t.height));
+    return sized.get(t.width)!;
+  };
+  // Bytes per pixel, kept per setting, since sizes scale about with the pixels
+  const rate = new Map<string, number>();
+  const kind = (t: WebpTry) => `${t.step}:${t.tolerance}:${t.quality}`;
+  for (const t of tries) {
+    const known = rate.get(kind(t));
+    if (known !== undefined && known * t.width * t.height > maxBytes * 1.3) continue;
+    const bytes = await encodeWebp(at(t), t.quality, t.step, t.tolerance);
+    if (bytes.length <= maxBytes) return bytes;
+    rate.set(kind(t), Math.min(known ?? Infinity, bytes.length / (t.width * t.height)));
+  }
+  const last = tries[tries.length - 1];
+  const all = at(last);
+  let count = all.frames.length;
+  while (count > 2) {
+    const bytes = await encodeWebp({ ...all, frames: all.frames.slice(0, count) }, last.quality, last.step, last.tolerance);
     if (bytes.length <= maxBytes) return bytes;
     count = Math.min(count - 1, Math.floor(count * Math.max(0.5, maxBytes / bytes.length * 0.95)));
   }

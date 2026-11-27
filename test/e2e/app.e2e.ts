@@ -1356,7 +1356,7 @@ try {
   await ownCard.getByRole('button', { name: 'Remove picture' }).click();
   assert.equal(await within(pictureGone, 'picture removed'), 0);
   await ownCard.locator('.avatar img').waitFor({ state: 'detached' });
-  // An animated picture stays animated, as GIF
+  // An animated picture stays animated, as WebP where the browser encodes WebP
   const anim = path.join(userData, 'anim.gif');
   const solid = (r: number, b: number) => ({ rgba: new Uint8ClampedArray(Array.from({ length: 64 * 64 }, () => [r, 0, b, 255]).flat()), delay: 80 });
   writeFileSync(anim, encodeGif({ width: 64, height: 64, frames: [solid(255, 0), solid(0, 255), solid(255, 255)] }, 32, 1, false));
@@ -1365,7 +1365,9 @@ try {
   await within(animSet, 'animated picture announced');
   const animBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
   bob.requestBlob({ textures: [aliceId] });
-  assert.equal(new TextDecoder().decode((await within(animBytes, 'animated picture fetched')).subarray(0, 4)), 'GIF8', 'sent as GIF');
+  const animSent = await within(animBytes, 'animated picture fetched');
+  assert.equal(new TextDecoder().decode(animSent.subarray(8, 12)), 'WEBP', 'sent as WebP');
+  assert.ok(new TextDecoder().decode(animSent).includes('ANMF'), 'with its frames');
   const animGone = new Promise<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
   await ownCard.getByRole('button', { name: 'Remove picture' }).click();
   assert.equal(await within(animGone, 'animated picture removed'), 0);

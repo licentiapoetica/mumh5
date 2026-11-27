@@ -1,5 +1,5 @@
 import { isRoleImage } from '../core/roles.ts';
-import { decodeFrames, fitGif } from './animated.ts';
+import { canEncodeWebp, decodeFrames, fitGif, fitWebp } from './animated.ts';
 
 const readDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
   const r = new FileReader();
@@ -124,14 +124,15 @@ export async function makeServerIcon(file: File, size = 128): Promise<string> {
 // A profile picture: square, cut from the middle, small enough for the server's image limit.
 // PNG keeps transparency when it fits; otherwise JPEG on a dark background. Both formats are
 // ones the desktop Mumble client can show.
-// An animated picture stays animated as GIF, center-cut the same way; one that does not get small
+// An animated picture stays animated (WebP, or GIF without a WebP encoder), center-cut the same way; one that does not get small
 // enough becomes a still picture, and still says so.
 export async function makeAnimatedAvatar(file: Blob, maxBytes: number): Promise<{ bytes: Uint8Array; still: boolean } | null> {
   const square = (w: number, h: number) => { const side = Math.min(w, h); return { sx: (w - side) / 2, sy: (h - side) / 2, sw: side, sh: side }; };
   const frames = await decodeFrames(file, square, 128, 128).catch(() => null);
   if (frames) {
-    const gif = fitGif(frames, [[128, 128], [96, 96], [64, 64]], maxBytes);
-    if (gif) return { bytes: gif, still: false };
+    const sizes: [number, number][] = [[128, 128], [96, 96], [64, 64]];
+    const anim = await canEncodeWebp() ? await fitWebp(frames, sizes, maxBytes) : fitGif(frames, sizes, maxBytes);
+    if (anim) return { bytes: anim, still: false };
   }
   const bytes = await makeAvatar(file, maxBytes);
   return bytes ? { bytes, still: !!frames } : null;
@@ -182,13 +183,14 @@ export function bannerSourceRect(w: number, h: number, crop: BannerCrop): { sx: 
 
 // A profile banner: 5:1 like the card's banner, the part chosen with crop. WebP where the browser
 // encodes it, JPEG otherwise; whichever first fits maxBytes.
-// An animated one stays animated as GIF, up to animatedBytes; one that does not get small enough
+// An animated one stays animated (WebP, or GIF without a WebP encoder), up to animatedBytes; one that does not get small enough
 // becomes a still picture, and still says so.
 export async function makeAnimatedBanner(file: Blob, stillBytes: number, animatedBytes: number, crop: BannerCrop): Promise<{ bytes: Uint8Array; still: boolean } | null> {
   const frames = await decodeFrames(file, (w, h) => bannerSourceRect(w, h, crop), 400, 80, '#1a1b1f').catch(() => null);
   if (frames) {
-    const gif = fitGif(frames, [[400, 80], [320, 64], [240, 48], [200, 40]], animatedBytes, false);
-    if (gif) return { bytes: gif, still: false };
+    const sizes: [number, number][] = [[400, 80], [320, 64], [240, 48], [200, 40]];
+    const anim = await canEncodeWebp() ? await fitWebp(frames, sizes, animatedBytes) : fitGif(frames, sizes, animatedBytes, false);
+    if (anim) return { bytes: anim, still: false };
   }
   const bytes = await makeBanner(file, stillBytes, crop);
   return bytes ? { bytes, still: !!frames } : null;
