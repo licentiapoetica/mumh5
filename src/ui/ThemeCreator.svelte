@@ -6,7 +6,7 @@
   import { THEMES } from '../lib/settings.svelte.ts';
   import { studio, type MainColor } from '../lib/theme-studio.svelte.ts';
   import {
-    CHAT_SIZE, COLOR_GROUPS, ORB_GLOW_MAX, ORB_SHAPES, ORB_SIZE, THEME_FONTS, THEME_NAME_MAX, colorProblems, normalizeHex,
+    CHAT_SIZE, COLOR_GROUPS, WAVE_STRENGTH, ORB_GLOW_MAX, ORB_SHAPES, ORB_SIZE, THEME_FONTS, THEME_NAME_MAX, colorProblems, normalizeHex,
     type ColorKey, type OrbShape, type OrbState, type ThemeFont
   } from '../lib/custom-themes.ts';
 
@@ -43,6 +43,12 @@
       onchange={e => typed(e.currentTarget, value, set)} />
     <PickColor label="Pick {name} from the screen" size={16} onpick={set} />
   </div>
+{/snippet}
+
+{#snippet waveStrength()}
+  {@const d = studio.draft!}
+  <label for="tc-wave-strength" title="How strongly the connection wave shows">Wave brightness <span class="value">{d.waveStrength}%</span></label>
+  <input id="tc-wave-strength" type="range" min={WAVE_STRENGTH.min} max={WAVE_STRENGTH.max} step="5" bind:value={d.waveStrength} />
 {/snippet}
 
 {#snippet orbState(state: OrbState, title: string)}
@@ -93,14 +99,21 @@
   {@const d = studio.draft}
   <section class="creator" class:docked aria-label="Theme creator">
     <header>
-      <h2>Theme creator</h2>
+      <h2>{studio.editing ? d.name : 'Theme creator'}</h2>
+      {#if studio.editing}
+        <button class="btn" title="Back to the colors this scheme came with" onclick={() => studio.restore()}>Original</button>
+      {/if}
       <button class="btn" disabled={!studio.canUndo} onclick={() => studio.undo()}>Undo</button>
       <button class="icon-btn" aria-label="Close theme creator" onclick={() => studio.discard()}><Icon name="x" /></button>
     </header>
 
     <div class="body">
-      <label for="tc-name">Name</label>
-      <input id="tc-name" maxlength={THEME_NAME_MAX} bind:value={d.name} />
+      {#if studio.editing}
+        <p class="help">Changes to this color scheme. Reset in Appearance brings the original back.</p>
+      {:else}
+        <label for="tc-name">Name</label>
+        <input id="tc-name" maxlength={THEME_NAME_MAX} bind:value={d.name} />
+      {/if}
 
       <div class="sample" aria-hidden="true">
         <div class="people">
@@ -159,11 +172,15 @@
           {#each MAIN as c (c.key)}
             {@render colorRow(`tc-main-${c.key}`, c.key, c.name, c.note, hex => studio.setMain(c.key, hex))}
           {/each}
+          <h3>Connection wave</h3>
+          {@render colorRow('tc-quick-wave', 'wave', 'Wave color', 'The moving wave behind the server name', hex => studio.setColor('wave', hex))}
+          {@render waveStrength()}
         {:else}
           {#each COLOR_GROUPS as group (group.name)}
             <h3>{group.name}</h3>
             {#each group.colors as c (c.key)}
               {@render colorRow(`tc-${c.key}`, c.key, c.name, c.note, hex => studio.setColor(c.key, hex))}
+              {#if c.key === 'wave'}{@render waveStrength()}{/if}
             {/each}
           {/each}
         {/if}

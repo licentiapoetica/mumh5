@@ -10,16 +10,16 @@ import { menu, type MenuItem } from './menu.svelte.ts';
 import { PERM, type Channel, type User } from '../core/client.ts';
 import { POKE_MAX } from '../core/poke.ts';
 import { roleSubmenu } from './quick-roles.svelte.ts';
-import { makeAvatar } from './images.ts';
+import { makeAnimatedAvatar } from './images.ts';
 
 // Sets your picture from a file; returns what went wrong, if anything
 export async function setPictureFromFile(file: Blob): Promise<string | null> {
   try {
     const limit = session.htmlLimit > 0 ? Math.min(session.htmlLimit, 131072) : 131072;
-    const bytes = await makeAvatar(file, limit);
-    if (!bytes) return 'This picture does not get small enough for the server.';
-    await sessions.setAvatar(bytes);
-    return null;
+    const made = await makeAnimatedAvatar(file, limit);
+    if (!made) return 'This picture does not get small enough for the server.';
+    await sessions.setAvatar(made.bytes);
+    return made.still ? 'This animation does not get small enough for the server, so your picture is still.' : null;
   } catch {
     return 'This file could not be read as a picture.';
   }

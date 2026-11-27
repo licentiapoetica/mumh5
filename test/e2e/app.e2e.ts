@@ -1,6 +1,7 @@
 // Drives the built Electron app against a real Mumble server, with a headless second client.
 //   npm run build && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e
 // Optional: E2E_INTERNET=1 to also test link previews (fetches github.com), SHOTS_DIR to save screenshots.
+import './english.ts';
 import { _electron as electron, type Locator } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
@@ -13,6 +14,8 @@ import { readAudioPack } from '../../src/core/audio-pack.ts';
 import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
+import { bannerMark, parseBanner } from '../../src/core/banner.ts';
+import { encodeGif } from '../../src/lib/animated.ts';
 import { channelPassword, withPassword } from '../../src/core/channel-password.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
@@ -94,6 +97,8 @@ try {
   const page = await app.firstWindow();
   page.on('console', m => { if (m.type() === 'error') console.log('[renderer]', m.text()); });
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Settings in the main window, where the steps look for it; one step covers its own window
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
 
   // First start: identity setup wizard
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor();
@@ -183,11 +188,14 @@ try {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   console.log('ok: save applies changes and keeps settings open');
-  // Settings in a window of its own changes the app beside it
-  const [settingsPopup] = await Promise.all([app.waitForEvent('window'), page.getByRole('button', { name: 'Open in a new window' }).click()]);
+  // Settings opens in a window of its own, which changes the app beside it. The other steps keep
+  // it in the main window (mumh5.settingsInline), this one shows the default.
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.evaluate(() => localStorage.removeItem('mumh5.settingsInline'));
+  const [settingsPopup] = await Promise.all([app.waitForEvent('window'), page.getByTitle('Settings').click()]);
   await settingsPopup.getByRole('dialog', { name: 'Settings' }).waitFor();
-  await settingsPopup.getByRole('tab', { name: 'Appearance', selected: true }).waitFor();
-  assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'moved out of the main window');
+  await settingsPopup.getByRole('tab', { name: 'Appearance' }).click();
+  assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'not in the main window');
   assert.ok(await settingsPopup.evaluate(() => {
     const r = document.querySelector('.modal')!.getBoundingClientRect();
     return r.x === 0 && r.y === 0 && r.width === innerWidth && r.height === innerHeight;
@@ -200,11 +208,14 @@ try {
   await settingsPopup.getByRole('button', { name: 'Reset rounded corners', exact: true }).click();
   await settingsPopup.getByRole('button', { name: 'Reset', exact: true }).click();
   await rootCorner('0px');
-  // The Settings button does not open a second copy
+  // The Settings button does not open a second copy. The pointer is still on it from opening the
+  // window, and with hints off its title is set aside until the pointer moves away.
+  await page.mouse.move(1, 1);
   await page.getByTitle('Settings').click();
   await page.waitForTimeout(100);
   assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'no second settings');
   await Promise.all([settingsPopup.waitForEvent('close'), settingsPopup.getByRole('button', { name: 'Done', exact: true }).click()]);
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   await page.getByTitle('Settings').click();
   await page.getByRole('dialog', { name: 'Settings' }).waitFor();
   await page.getByRole('tab', { name: 'Appearance' }).click();
@@ -1336,7 +1347,7 @@ try {
   await shownCard.waitFor({ state: 'detached' });
   await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
   const ownCard = page.getByRole('dialog', { name: 'Edit profile' });
-  await ownCard.getByLabel('Picture file').setInputFiles(pic);
+  await ownCard.getByLabel('Picture file', { exact: true }).setInputFiles(pic);
   await within(pictureSet, 'own picture announced');
   const pictureBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
   bob.requestBlob({ textures: [aliceId] });
@@ -1348,10 +1359,76 @@ try {
   await ownCard.getByRole('button', { name: 'Remove picture' }).click();
   assert.equal(await within(pictureGone, 'picture removed'), 0);
   await ownCard.locator('.avatar img').waitFor({ state: 'detached' });
+  // An animated picture stays animated, as WebP where the browser encodes WebP
+  const anim = path.join(userData, 'anim.gif');
+  const solid = (r: number, b: number) => ({ rgba: new Uint8ClampedArray(Array.from({ length: 64 * 64 }, () => [r, 0, b, 255]).flat()), delay: 80 });
+  writeFileSync(anim, encodeGif({ width: 64, height: 64, frames: [solid(255, 0), solid(0, 255), solid(255, 255)] }, 32, 1, false));
+  const animSet = new Promise<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
+  await ownCard.getByLabel('Picture file', { exact: true }).setInputFiles(anim);
+  await within(animSet, 'animated picture announced');
+  const animBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
+  bob.requestBlob({ textures: [aliceId] });
+  const animSent = await within(animBytes, 'animated picture fetched');
+  assert.equal(new TextDecoder().decode(animSent.subarray(8, 12)), 'WEBP', 'sent as WebP');
+  assert.ok(new TextDecoder().decode(animSent).includes('ANMF'), 'with its frames');
+  const animGone = new Promise<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
+  await ownCard.getByRole('button', { name: 'Remove picture' }).click();
+  assert.equal(await within(animGone, 'animated picture removed'), 0);
   await page.keyboard.press('Escape');
   bob.setTexture(new Uint8Array(0));
   await bobInTree.locator('.avatar img').waitFor({ state: 'detached' });
   console.log('ok: profile cards, pictures sent, shown and removed');
+
+  // Banners travel in the comment: bob's color shows on his card, alice's color and picture reach bob
+  bob.setComment(bannerMark({ color: '#ff8800', image: null }));
+  await bobInTree.click();
+  await within(new Promise<void>(res => {
+    const check = () => bobCard.locator('.banner').evaluate(e => getComputedStyle(e).backgroundColor).then(c => c === 'rgb(255, 136, 0)' ? res() : setTimeout(check, 100), () => setTimeout(check, 100));
+    check();
+  }), 'bob banner color shown');
+  await page.keyboard.press('Escape');
+  await bobCard.waitFor({ state: 'detached' });
+  assert.equal(await bobInTree.getByTitle('Has a description').count(), 0, 'a banner alone is no description');
+  const aliceBanner = (want: (b: ReturnType<typeof parseBanner>) => boolean) => new Promise<void>(res => {
+    const seen = () => {
+      const u = bob.users.get(aliceId);
+      if (!u) return;
+      if (u.commentHash && !u.comment) bob.requestBlob({ comments: [aliceId] });
+      else if (want(parseBanner(u.comment))) { off(); res(); }
+    };
+    const off = bob.on('user', u => { if (u.session === aliceId) seen(); });
+    seen();
+  });
+  await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
+  const colorSent = aliceBanner(b => b?.color === '#3366cc' && !b.image);
+  await ownCard.getByLabel('Banner color').fill('#3366cc');
+  await within(colorSent, 'own banner color published');
+  const pictureSent = aliceBanner(b => b?.color === '#3366cc' && !!b.image);
+  await ownCard.getByLabel('Banner picture file').setInputFiles(pic);
+  // The picture is placed in the frame first; dragging moves it, the slider zooms
+  const frame = ownCard.getByRole('slider', { name: /^Banner picture position/ });
+  await ownCard.getByLabel('Zoom', { exact: true }).fill('2');
+  const frameBox = (await frame.boundingBox())!;
+  await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frameBox.x + frameBox.width / 2 + 60, frameBox.y + frameBox.height / 2 + 10, { steps: 5 });
+  await page.mouse.up();
+  assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'dragged right shows more of the left');
+  await ownCard.getByRole('button', { name: 'Use this part', exact: true }).click();
+  await within(pictureSent, 'own banner picture published');
+  await ownCard.locator('.banner img').waitFor();
+  // The original stays here, so the picture can be moved again
+  await ownCard.getByRole('button', { name: 'Move banner picture', exact: true }).click();
+  assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'opens where it was left');
+  await ownCard.getByRole('button', { name: 'Cancel', exact: true }).first().click();
+  await ownCard.locator('.banner img').waitFor();
+  const reset = aliceBanner(b => b === null);
+  await ownCard.getByRole('button', { name: 'Reset banner', exact: true }).click();
+  await within(reset, 'own banner removed');
+  await page.keyboard.press('Escape');
+  await ownCard.waitFor({ state: 'detached' });
+  bob.setComment('');
+  console.log('ok: profile banners published and shown');
 
 
   // Server information from the button next to mute
@@ -1741,6 +1818,25 @@ try {
       await d.getByLabel('New role name').waitFor();
       return d;
     };
+    // Like Settings, Roles and members opens in a window of its own; the other steps keep it inline
+    await page.evaluate(() => localStorage.removeItem('mumh5.settingsInline'));
+    await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
+    const [rolesPopup] = await Promise.all([app.waitForEvent('window'), page.getByRole('menuitem', { name: 'Roles and members...' }).click()]);
+    await rolesPopup.getByRole('dialog', { name: 'Roles and members' }).getByLabel('New role name').waitFor();
+    assert.equal(await page.getByRole('dialog', { name: 'Roles and members' }).count(), 0, 'not in the main window');
+    assert.ok(await rolesPopup.evaluate(() => {
+      const r = document.querySelector('.modal')!.getBoundingClientRect();
+      return r.x === 0 && r.y === 0 && r.width === innerWidth && r.height === innerHeight;
+    }), 'roles fill their window');
+    // Opening it again brings the same window forward, on the tab asked for
+    await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Roles and members...' }).click();
+    await page.waitForTimeout(100);
+    const titles = await Promise.all(app.windows().map(w => w.title()));
+    assert.equal(titles.filter(t => t === 'Roles and members').length, 1, 'one roles window');
+    await Promise.all([rolesPopup.waitForEvent('close'), rolesPopup.getByRole('button', { name: 'Cancel', exact: true }).click()]);
+    await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
+    console.log('ok: roles and members in a window of its own');
     const rolesDlg = await openRoles();
     await rolesDlg.getByLabel('New role name').fill('Moderator');
     await rolesDlg.getByRole('button', { name: 'Add', exact: true }).click();

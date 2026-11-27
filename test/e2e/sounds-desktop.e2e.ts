@@ -1,5 +1,6 @@
 // Built desktop app: native IPC, user config files, file:// assets and playback.
 // npm run build && npm run test:e2e:sounds:desktop (requires DISPLAY on Linux)
+import './english.ts';
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
@@ -20,6 +21,8 @@ const app = await electron.launch({
 });
 try {
   const page = await app.firstWindow();
+  // Settings in the main window, where the steps look for it
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   const failures: string[] = [];
   page.on('pageerror', e => failures.push(e.message));
   const open = async () => {

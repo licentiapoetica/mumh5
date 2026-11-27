@@ -1,13 +1,15 @@
 import { loadList, save } from './storage.ts';
-import { store } from './settings.svelte.ts';
+import { store, THEMES } from './settings.svelte.ts';
 import { ui, type PromptRequest } from './ui.svelte.ts';
 import {
-  CHAT_SIZE, COLOR_KEYS, THEME_FILE_MAX, defaultIndicator, deriveColors, fixColors, hoverLabel, isCustomTheme, normalizeHex, parseThemeFile,
+  CHAT_SIZE, COLOR_KEYS, WAVE_STRENGTH, THEME_FILE_MAX, defaultIndicator, deriveColors, fixColors, hoverLabel, isCustomTheme, normalizeHex, parseThemeFile,
   sanitizeTheme, themeFile, themeFileName, uniqueThemeName, type ColorKey, type CustomTheme, type CustomThemeId, type OrbLook,
   type OrbState, type ThemeColors, type ThemeIndicator
 } from './custom-themes.ts';
 
 const KEY = 'mumh5.customThemes';
+// Changes to the built-in schemes, one per scheme; the scheme keeps its name and place
+const EDITS_KEY = 'mumh5.schemeEdits';
 export type MainColor = 'bg-2' | 'text' | 'accent';
 
 // getRandomValues also works on a web build served over plain http, randomUUID does not
@@ -23,23 +25,53 @@ function stored(): CustomTheme[] {
   });
 }
 
+const scheme = (id: unknown) => typeof id === 'string' && !isCustomTheme(id) ? THEMES.find(t => t.id === id) ?? null : null;
+const editId = (id: string): CustomThemeId => `custom:scheme-${id}`;
+
+function storedEdits(): Record<string, CustomTheme> {
+  return Object.fromEntries(loadList<{ scheme?: unknown }>(EDITS_KEY).flatMap(raw => {
+    const s = scheme(raw?.scheme);
+    const theme = s && sanitizeTheme(raw, editId(s.id));
+    return theme ? [[s.id, { ...theme, name: s.name }]] : [];
+  }));
+}
+
 // A built-in scheme's colors, read from the stylesheet so there is one source for them
 function builtInColors(id: string): ThemeColors {
+  // The wrapper stops the colors on the root (a theme or an edit) from reaching the probe
+  const wrap = document.createElement('div');
+  wrap.hidden = true;
+  for (const k of COLOR_KEYS) wrap.style.setProperty(`--${k}`, 'initial');
   const probe = document.createElement('div');
-  probe.hidden = true;
   probe.dataset.themePreview = id || 'dark';
-  document.body.append(probe);
+  wrap.append(probe);
+  document.body.append(wrap);
   const css = getComputedStyle(probe);
   const read = (k: ColorKey) => normalizeHex(css.getPropertyValue(`--${k}`));
   const filled = deriveColors(read('bg-2') ?? '#1a1b1f', read('text') ?? '#e6e7ea', read('accent') ?? '#7c6cff');
   const colors = Object.fromEntries(COLOR_KEYS.map(k => [k, read(k) ?? filled[k]])) as ThemeColors;
   colors['accent-hover-text'] = hoverLabel(colors['accent-text'], colors['accent-hover']);
-  probe.remove();
+  // The built-in schemes draw the wave in their status color
+  colors.wave = read('wave') ?? colors.speaking;
+  colors['server-header'] = read('server-header') ?? colors['bg-0'];
+  wrap.remove();
   return colors;
+}
+
+// A scheme as it comes, in the shape of a theme. The talking name keeps the status color it had.
+function original(id: string): CustomTheme {
+  const colors = builtInColors(id);
+  return {
+    id: editId(id), name: scheme(id)?.name ?? id, colors, font: 'inter', chatSize: CHAT_SIZE.normal, waveStrength: WAVE_STRENGTH.normal,
+    indicator: { ...defaultIndicator(colors.accent), name: colors.speaking }
+  };
 }
 
 class ThemeStudio {
   list = $state<CustomTheme[]>(stored());
+  edits = $state<Record<string, CustomTheme>>(storedEdits());
+  // The built-in scheme the draft changes; null when it is one of your themes
+  editing = $state<string | null>(null);
   // The theme in the creator; it shows on the whole app while the creator is open
   draft = $state<CustomTheme | null>(null);
   // window: its own. inline: over the app (phones, or a blocked pop-up). closed with a draft:
@@ -51,12 +83,20 @@ class ThemeStudio {
   private history = $state<{ colors: ThemeColors; indicator: ThemeIndicator }[]>([]);
   private lastEdit: string | null = null;
   private opened = '';
+  private pristine = '';
 
   get active(): CustomTheme | null {
     const id = store.settings.theme;
-    return isCustomTheme(id) ? this.list.find(t => t.id === id) ?? null : null;
+    return isCustomTheme(id) ? this.list.find(t => t.id === id) ?? null : this.edits[id] ?? null;
   }
   get shown(): CustomTheme | null { return this.place !== 'closed' && this.draft ? this.draft : this.active; }
+  /** The root's data-theme: an edited scheme keeps its own, so what it has beyond colors stays. */
+  get scheme(): string {
+    if (this.place !== 'closed' && this.draft) return this.editing ?? 'custom';
+    const id = store.settings.theme;
+    if (isCustomTheme(id)) return this.active ? 'custom' : 'dark';
+    return id || 'dark';
+  }
   get waiting(): boolean { return !!this.draft && this.place === 'closed'; }
   // Built-in schemes color a talking name; in a custom theme that is its own choice
   get colorsTalkingName(): boolean { return !this.shown || this.shown.indicator.name !== null; }
@@ -64,7 +104,7 @@ class ThemeStudio {
   get dirty(): boolean { return !!this.draft && JSON.stringify($state.snapshot(this.draft)) !== this.opened; }
 
   private colorsOf(id: string): ThemeColors {
-    const own = this.list.find(t => t.id === id);
+    const own = this.list.find(t => t.id === id) ?? this.edits[id];
     return own ? { ...$state.snapshot(own.colors) } : builtInColors(id);
   }
 
@@ -72,7 +112,12 @@ class ThemeStudio {
 
   private persist() { save(KEY, $state.snapshot(this.list)); }
 
-  private open(theme: CustomTheme) {
+  private persistEdits() {
+    save(EDITS_KEY, Object.entries($state.snapshot(this.edits)).map(([id, { id: _local, name: _name, ...t }]) => ({ scheme: id, ...t })));
+  }
+
+  private open(theme: CustomTheme, editing: string | null = null) {
+    this.editing = editing;
     this.draft = theme;
     this.opened = JSON.stringify(theme);
     this.history = [];
@@ -87,6 +132,7 @@ class ThemeStudio {
 
   private close() {
     this.draft = null;
+    this.editing = null;
     this.history = [];
     this.question = null;
     this.place = 'closed';
@@ -97,7 +143,7 @@ class ThemeStudio {
   /** Its window was closed by the window manager: nothing is lost, and nothing is applied. */
   windowClosed() {
     this.question = null;
-    if (!this.dirty) this.draft = null;
+    if (!this.dirty) { this.draft = null; this.editing = null; }
     this.place = 'closed';
     this.backToSettings();
   }
@@ -105,6 +151,7 @@ class ThemeStudio {
   /** Drops the unsaved changes left by a closed window. */
   dropWaiting() {
     this.draft = null;
+    this.editing = null;
     this.history = [];
   }
 
@@ -118,6 +165,7 @@ class ThemeStudio {
       colors,
       font: active?.font ?? 'inter',
       chatSize: active?.chatSize ?? CHAT_SIZE.normal,
+      waveStrength: active?.waveStrength ?? WAVE_STRENGTH.normal,
       indicator: active?.indicator ?? defaultIndicator(colors.accent)
     });
   }
@@ -125,6 +173,34 @@ class ThemeStudio {
   edit(id: string) {
     const theme = this.list.find(t => t.id === id);
     if (theme) this.open(structuredClone($state.snapshot(theme)));
+  }
+
+  /** A built-in scheme, changed in place: it keeps its name, and Reset brings the original back. */
+  editScheme(id: string) {
+    if (!scheme(id)) return;
+    this.pristine = JSON.stringify(sanitizeTheme(original(id), editId(id)));
+    const saved = this.edits[id];
+    this.open(saved ? structuredClone($state.snapshot(saved)) : original(id), id);
+  }
+
+  /** The draft back to the scheme as it comes; one step to undo. */
+  restore() {
+    if (!this.draft || !this.editing) return;
+    const o = original(this.editing);
+    this.remember(null);
+    this.draft.colors = o.colors;
+    this.draft.indicator = o.indicator;
+    this.draft.font = o.font;
+    this.draft.chatSize = o.chatSize;
+    this.draft.waveStrength = o.waveStrength;
+  }
+
+  /** Drops the saved changes to a built-in scheme. */
+  resetScheme(id: string) {
+    if (!this.edits[id]) return;
+    const { [id]: _gone, ...rest } = this.edits;
+    this.edits = rest;
+    this.persistEdits();
   }
 
   // The real app is the preview, so a Settings dialog over it makes way
@@ -156,10 +232,15 @@ class ThemeStudio {
 
   setColor(key: ColorKey, value: string) {
     if (!this.draft || this.draft.colors[key] === value) return;
+    const previous = this.draft.colors[key];
     this.remember(key);
     this.draft.colors[key] = value;
     // The label on a hovered button follows when the new color would hide it
     if (key === 'accent-hover') this.draft.colors['accent-hover-text'] = hoverLabel(this.draft.colors['accent-hover-text'], value);
+    // The wave and the server header keep following the color they started from until given their own
+    if (key === 'speaking' && this.draft.colors.wave === previous) this.draft.colors.wave = value;
+    if (key === 'speaking' && this.draft.indicator.name === previous) this.draft.indicator.name = value;
+    if (key === 'bg-0' && this.draft.colors['server-header'] === previous) this.draft.colors['server-header'] = value;
   }
 
   /** One of the three main colors; the shades follow it. */
@@ -194,6 +275,7 @@ class ThemeStudio {
 
   save() {
     if (!this.draft || !this.draft.name.trim()) return;
+    if (this.editing) { this.saveScheme(this.editing); return; }
     const theme = sanitizeTheme($state.snapshot(this.draft), this.draft.id);
     if (!theme) return;
     theme.name = uniqueThemeName(theme.name, this.names(theme.id));
@@ -202,6 +284,22 @@ class ThemeStudio {
     else this.list[i] = theme;
     this.persist();
     store.settings.theme = theme.id;
+    store.saveSettings();
+    this.close();
+  }
+
+  private saveScheme(id: string) {
+    const theme = sanitizeTheme($state.snapshot(this.draft), editId(id));
+    if (!theme) return;
+    // Saved as it came: nothing to keep
+    if (JSON.stringify(theme) === this.pristine) {
+      const { [id]: _gone, ...rest } = this.edits;
+      this.edits = rest;
+    } else {
+      this.edits = { ...this.edits, [id]: { ...theme, name: scheme(id)?.name ?? theme.name } };
+    }
+    this.persistEdits();
+    store.settings.theme = id as typeof store.settings.theme;
     store.saveSettings();
     this.close();
   }

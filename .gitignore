@@ -7,3 +7,14 @@ dist-electron/
 release/
 *.log
 .env
+
+# Local tool caches (bun and friends)
+.tooling/
+
+# Leftovers from the Rust/Tauri branches, which git keeps when switching back
+/frontend/
+/crates/
+/tools/
+/src-tauri/
+target/
+*.rs.bk

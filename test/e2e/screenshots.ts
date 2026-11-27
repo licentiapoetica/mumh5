@@ -8,6 +8,7 @@
 // For headless Chromium, build with npm run build:web, then set MUMH5_SCREENSHOT_WEB=1
 // and CHROMIUM_PATH to the Chromium executable. Always use a disposable test server:
 // this script replaces its channels with the screenshot scene.
+import './english.ts';
 import { _electron as electron, chromium } from 'playwright-core';
 import { startGateway, type Gateway } from './gateway.ts';
 import assert from 'node:assert/strict';
@@ -172,6 +173,8 @@ try {
   apps.push(app);
   const page = await app.firstWindow();
   await page.setViewportSize({ width: 1440, height: 900 });
+  // Settings in the main window, where the shots are taken
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
 
   await page.getByRole('button', { name: /Create a new identity/ }).click();
   await page.getByLabel('Name', { exact: true }).fill('n3on');
@@ -296,6 +299,7 @@ try {
     apps.push(instance);
     const p = await instance.firstWindow();
     await p.setViewportSize({ width: 1440, height: 900 });
+    await p.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
     await p.getByRole('button', { name: /Create a new identity/ }).click();
     await p.getByLabel('Name', { exact: true }).fill(name);
     await p.getByRole('button', { name: 'Create', exact: true }).click();
@@ -322,7 +326,7 @@ try {
       const file = path.join(work, `${name}.png`);
       writeFileSync(file, neon(256, colors[0], colors[1]));
       await p.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
-      await p.getByRole('dialog', { name: 'Edit profile' }).getByLabel('Picture file').setInputFiles(file);
+      await p.getByRole('dialog', { name: 'Edit profile' }).getByLabel('Picture file', { exact: true }).setInputFiles(file);
       await p.getByRole('dialog', { name: 'Edit profile' }).locator('.avatar img').waitFor();
       await p.keyboard.press('Escape');
     }

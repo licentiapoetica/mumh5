@@ -34,11 +34,12 @@
   import { ui } from './lib/ui.svelte.ts';
   import { desktop } from './lib/native.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
-  import { applyThemeStyle, isCustomTheme } from './lib/custom-themes.ts';
+  import { applyThemeStyle } from './lib/custom-themes.ts';
   import { studio } from './lib/theme-studio.svelte.ts';
   import ThemeCreator from './ui/ThemeCreator.svelte';
   import { applyCorners } from './lib/corners.ts';
   import { settingsWindow } from './lib/settings-window.svelte.ts';
+  import { rolesWindow } from './lib/roles-window.svelte.ts';
   import { chatHistory } from './lib/chat-history.ts';
 
   $effect(() => {
@@ -124,9 +125,9 @@
   // Color scheme on the root element; dark is the stylesheet default
   $effect(() => {
     const own = studio.shown;
-    // A theme that no longer exists falls back to dark
-    const t = own ? 'custom' : isCustomTheme(store.settings.theme) ? 'dark' : store.settings.theme;
-    if (t && t !== 'dark') document.documentElement.dataset.theme = t;
+    // A theme that no longer exists falls back to dark; an edited scheme keeps its own
+    const t = studio.scheme;
+    if (t !== 'dark') document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
     applyThemeStyle(document.documentElement.style, own);
     // Title bar of the installed web app and phone status bars
@@ -136,13 +137,21 @@
 
   $effect(() => applyCorners(document.documentElement.style, store.settings.corners));
 
-  // Settings already has its own window: bring that forward. Voice is the tab every plain
-  // Settings button asks for, so it does not move the window off the section in use.
-  $effect(() => {
-    if (!ui.settingsOpen || !settingsWindow.isOpen) return;
-    settingsWindow.show(ui.settingsTab === 'voice' ? undefined : ui.settingsTab);
+  // Settings opens in a window of its own; the dialog is only for phones and blocked pop-ups.
+  // Before the page updates, so the dialog never shows for a moment first.
+  $effect.pre(() => {
+    if (!ui.settingsOpen) return;
+    const tab = ui.settingsTab;
+    if (!untrack(() => settingsWindow.present(tab))) return;
     ui.settingsOpen = false;
     ui.settingsTab = 'voice';
+  });
+
+  // Roles and members too, the same way
+  $effect.pre(() => {
+    const request = ui.rolesDialog;
+    if (!request || !untrack(() => rolesWindow.present(request))) return;
+    ui.rolesDialog = null;
   });
 
   // The panel starts open only where it sits inline

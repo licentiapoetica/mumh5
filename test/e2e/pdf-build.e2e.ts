@@ -1,4 +1,5 @@
 // Check the emitted PDF module/worker over HTTP and Electron's file:// origin.
+import './english.ts';
 import { chromium, _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import { build, preview } from 'vite';

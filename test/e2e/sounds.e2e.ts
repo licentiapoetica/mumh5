@@ -1,5 +1,6 @@
 // Standalone sound settings and real media playback; no Mumble server required.
 // CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e:sounds
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
@@ -17,6 +18,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 try {
   const page = await browser.newPage();
   await page.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
+  // Settings in the page, where the steps look for it, not in a window of its own
+  await page.addInitScript(() => localStorage.setItem('mumh5.settingsInline', '1'));
   const failures: string[] = [];
   page.on('pageerror', e => { failures.push(e.message); console.error(e.message); });
   await page.addInitScript(() => {

@@ -2,6 +2,7 @@
   import { desktop } from '../lib/native.ts';
   import { session } from '../lib/session.svelte.ts';
   import type { LinkTone } from '../core/link-quality.ts';
+  import { WAVE_STRENGTH } from '../lib/custom-themes.ts';
 
   // Slow translucent ribbons that draw the live connection (src/core/link-quality.ts). It only
   // changes the wave's own motion: latency sets the speed, jitter makes the shape choppier, and
@@ -12,11 +13,11 @@
   // speeds, so it twists where they cross. len is in CSS pixels: resizing reveals more wave
   // instead of stretching it.
   const RIBBONS = [
-    { y: 0.58, a: 0.30, b: 0.20, len: 900, top: 0.035, bottom: -0.022, alpha: 0.055, phase: 0 },
-    { y: 0.46, a: 0.24, b: 0.30, len: 640, top: -0.028, bottom: 0.041, alpha: 0.045, phase: 2.1 },
-    { y: 0.70, a: 0.18, b: 0.26, len: 1180, top: 0.019, bottom: 0.031, alpha: 0.07, phase: 4.4 }
+    { y: 0.58, a: 0.30, b: 0.20, len: 900, top: 0.035, bottom: -0.022, alpha: 0.22, phase: 0 },
+    { y: 0.46, a: 0.24, b: 0.30, len: 640, top: -0.028, bottom: 0.041, alpha: 0.18, phase: 2.1 },
+    { y: 0.70, a: 0.18, b: 0.26, len: 1180, top: 0.019, bottom: 0.031, alpha: 0.28, phase: 4.4 }
   ];
-  const TONES: Record<LinkTone, string> = { good: 'var(--speaking)', slow: 'var(--warn)', stalled: 'var(--danger)' };
+  const TONES: Record<LinkTone, string> = { good: 'var(--wave, var(--speaking))', slow: 'var(--warn)', stalled: 'var(--danger)' };
   const TAU = Math.PI * 2;
   const STEP_PX = 6;
   // The motion is far below a pixel per frame, so 30 fps looks the same as 60 at half the work
@@ -58,12 +59,15 @@
       c.setTransform(dpr, 0, 0, dpr, 0, 0);
       c.clearRect(0, 0, w, h);
       // Read every frame: the color eases through a CSS transition and follows the theme
-      c.fillStyle = c.strokeStyle = getComputedStyle(canvas).color;
+      const css = getComputedStyle(canvas);
+      c.fillStyle = c.strokeStyle = css.color;
+      // A theme's wave brightness, the normal one when it has none
+      const strength = parseFloat(css.getPropertyValue('--wave-strength')) || WAVE_STRENGTH.normal / 100;
       c.lineWidth = 1;
       const count = Math.ceil(w / STEP_PX) + 1;
       if (upper.length !== count) { upper = new Float32Array(count); lower = new Float32Array(count); }
       const height = 0.12 + 0.88 * level;
-      const bright = 0.35 + 0.65 * level;
+      const bright = (0.35 + 0.65 * level) * strength;
 
       for (const r of RIBBONS) {
         const k = TAU / r.len;
@@ -77,9 +81,9 @@
         for (let i = 0; i < count; i++) c.lineTo(i * STEP_PX, upper[i]);
         for (let i = count - 1; i >= 0; i--) c.lineTo(i * STEP_PX, lower[i]);
         c.closePath();
-        c.globalAlpha = r.alpha * bright;
+        c.globalAlpha = Math.min(1, r.alpha * bright);
         c.fill();
-        c.globalAlpha = r.alpha * 2.6 * bright;
+        c.globalAlpha = Math.min(1, r.alpha * 3 * bright);
         c.beginPath();
         for (let i = 0; i < count; i++) c.lineTo(i * STEP_PX, upper[i]);
         c.stroke();
@@ -138,7 +142,7 @@
 <style>
   .conn-wave {
     position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; display: block; pointer-events: none;
-    color: var(--speaking);
+    color: var(--wave, var(--speaking));
     transition: color 1800ms var(--ease);
     /* Quieter under the server name and the power button */
     mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.45), #000 45%, #000 85%, rgb(0 0 0 / 0.5));

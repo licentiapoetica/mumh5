@@ -1,5 +1,6 @@
 // Runtime Docker settings against the built browser client; no Mumble server needed.
 // npm run build:web && node test/e2e/sound-pack-limits.e2e.ts
+import './english.ts';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -35,6 +36,8 @@ try {
     const context = await browser.newContext();
     try {
       await context.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
+      // Settings in the page, where the steps look for it, not in a window of its own
+      await context.addInitScript(() => localStorage.setItem('mumh5.settingsInline', '1'));
       const page = await context.newPage();
       const errors: string[] = [];
       const uploads: string[] = [];

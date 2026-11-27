@@ -1,4 +1,5 @@
 import { isRoleImage } from '../core/roles.ts';
+import { canEncodeWebp, decodeFrames, fitGif, fitWebp } from './animated.ts';
 
 const readDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
   const r = new FileReader();
@@ -123,6 +124,20 @@ export async function makeServerIcon(file: File, size = 128): Promise<string> {
 // A profile picture: square, cut from the middle, small enough for the server's image limit.
 // PNG keeps transparency when it fits; otherwise JPEG on a dark background. Both formats are
 // ones the desktop Mumble client can show.
+// An animated picture stays animated (WebP, or GIF without a WebP encoder), center-cut the same way; one that does not get small
+// enough becomes a still picture, and still says so.
+export async function makeAnimatedAvatar(file: Blob, maxBytes: number): Promise<{ bytes: Uint8Array; still: boolean } | null> {
+  const square = (w: number, h: number) => { const side = Math.min(w, h); return { sx: (w - side) / 2, sy: (h - side) / 2, sw: side, sh: side }; };
+  const frames = await decodeFrames(file, square, 128, 128).catch(() => null);
+  if (frames) {
+    const sizes: [number, number][] = [[128, 128], [96, 96], [64, 64]];
+    const anim = await canEncodeWebp() ? await fitWebp(frames, sizes, maxBytes) : fitGif(frames, sizes, maxBytes);
+    if (anim) return { bytes: anim, still: false };
+  }
+  const bytes = await makeAvatar(file, maxBytes);
+  return bytes ? { bytes, still: !!frames } : null;
+}
+
 export async function makeAvatar(file: Blob, maxBytes: number): Promise<Uint8Array | null> {
   const bmp = await createImageBitmap(file);
   const side = Math.min(bmp.width, bmp.height);
@@ -144,6 +159,64 @@ export async function makeAvatar(file: Blob, maxBytes: number): Promise<Uint8Arr
       for (const quality of [0.88, 0.75, 0.6]) {
         const jpeg = await encode(canvas, 'image/jpeg', quality);
         if (jpeg && jpeg.size <= maxBytes) return new Uint8Array(await jpeg.arrayBuffer());
+      }
+    }
+    return null;
+  } finally {
+    bmp.close();
+  }
+}
+
+// Where a banner picture sits in its 5:1 frame: zoom 1 covers the frame, x and y place what is left
+// over (0 left or top, 1 right or bottom), like object-position
+export interface BannerCrop { x: number; y: number; zoom: number }
+export const BANNER_RATIO = 5;
+export const MAX_BANNER_ZOOM = 4;
+
+// The part of a picture of w by h the frame shows
+export function bannerSourceRect(w: number, h: number, crop: BannerCrop): { sx: number; sy: number; sw: number; sh: number } {
+  const zoom = Math.min(MAX_BANNER_ZOOM, Math.max(1, crop.zoom));
+  const sw = Math.min(w, h * BANNER_RATIO) / zoom, sh = sw / BANNER_RATIO;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  return { sx: (w - sw) * clamp(crop.x), sy: (h - sh) * clamp(crop.y), sw, sh };
+}
+
+// A profile banner: 5:1 like the card's banner, the part chosen with crop. WebP where the browser
+// encodes it, JPEG otherwise; whichever first fits maxBytes.
+// An animated one stays animated (WebP, or GIF without a WebP encoder), up to animatedBytes; one that does not get small enough
+// becomes a still picture, and still says so.
+export async function makeAnimatedBanner(file: Blob, stillBytes: number, animatedBytes: number, crop: BannerCrop): Promise<{ bytes: Uint8Array; still: boolean } | null> {
+  const frames = await decodeFrames(file, (w, h) => bannerSourceRect(w, h, crop), 400, 80, '#1a1b1f').catch(() => null);
+  if (frames) {
+    const sizes: [number, number][] = [[400, 80], [320, 64], [240, 48], [200, 40]];
+    const anim = await canEncodeWebp() ? await fitWebp(frames, sizes, animatedBytes) : fitGif(frames, sizes, animatedBytes, false);
+    if (anim) return { bytes: anim, still: false };
+  }
+  const bytes = await makeBanner(file, stillBytes, crop);
+  return bytes ? { bytes, still: !!frames } : null;
+}
+
+export async function makeBanner(file: Blob, maxBytes: number, crop: BannerCrop = { x: 0.5, y: 0.5, zoom: 1 }): Promise<Uint8Array | null> {
+  const bmp = await createImageBitmap(file);
+  const encode = (canvas: HTMLCanvasElement, type: string, quality: number) =>
+    new Promise<Blob | null>(res => canvas.toBlob(res, type, quality));
+  try {
+    const { sx, sy, sw, sh } = bannerSourceRect(bmp.width, bmp.height, crop);
+    for (const width of [640, 480, 320]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.min(width, Math.round(sw)));
+      canvas.height = Math.max(1, Math.round(canvas.width / BANNER_RATIO));
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#1a1b1f';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.85, 0.7, 0.55]) {
+        for (const type of ['image/webp', 'image/jpeg']) {
+          const blob = await encode(canvas, type, quality);
+          // A browser that cannot encode WebP hands back PNG
+          if (blob && blob.type === type && blob.size <= maxBytes) return new Uint8Array(await blob.arrayBuffer());
+        }
       }
     }
     return null;

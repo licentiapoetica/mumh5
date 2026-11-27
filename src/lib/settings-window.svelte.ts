@@ -1,6 +1,8 @@
 import { mount, unmount } from 'svelte';
 import SettingsWindow from '../ui/SettingsWindow.svelte';
 import { startHints } from './hints.ts';
+import { followLook } from './popup-look.ts';
+import { desktop } from './native.ts';
 import { ui } from './ui.svelte.ts';
 
 type Tab = typeof ui.settingsTab;
@@ -15,9 +17,26 @@ class SettingsWindowStore {
 
   private win: Window | null = null;
   private view: ReturnType<typeof mount> | null = null;
-  private look: MutationObserver | null = null;
+  private unfollow: (() => void) | null = null;
   private listeners: AbortController | null = null;
   private props: { jump: { tab: Tab } | null } | null = null;
+
+  /**
+   * Where every Settings button goes: the window, opened or brought forward. False leaves it to
+   * the dialog: a phone has no windows, a pop-up blocker said no, or the E2E keeps it inline
+   * (localStorage mumh5.settingsInline). Voice is the tab every plain Settings button asks for,
+   * so it does not move an open window off the section in use.
+   */
+  present(tab: Tab): boolean {
+    if (this.win && !this.win.closed) {
+      this.show(tab === 'voice' ? undefined : tab);
+      return true;
+    }
+    let inline = false;
+    try { inline = localStorage.getItem('mumh5.settingsInline') === '1'; } catch { /* storage blocked */ }
+    if (inline || (!desktop && window.innerWidth < 760)) return false;
+    return this.open(tab);
+  }
 
   /** False when the window could not be opened (a pop-up blocker). */
   open(tab: Tab): boolean {
@@ -30,20 +49,7 @@ class SettingsWindowStore {
     const doc = w.document;
     doc.head.replaceChildren();
     doc.title = 'Settings';
-    for (const el of document.querySelectorAll<HTMLLinkElement | HTMLStyleElement>('link[rel="stylesheet"], style')) {
-      const copy = el.cloneNode(true) as HTMLElement;
-      // The empty page has no address of its own to resolve a relative one against
-      if (el instanceof HTMLLinkElement) copy.setAttribute('href', el.href);
-      doc.head.append(copy);
-    }
-    // The color scheme and rounded corners are attributes of the root element
-    const follow = () => {
-      for (const a of [...doc.documentElement.attributes]) doc.documentElement.removeAttribute(a.name);
-      for (const a of document.documentElement.attributes) doc.documentElement.setAttribute(a.name, a.value);
-    };
-    follow();
-    this.look = new MutationObserver(follow);
-    this.look.observe(document.documentElement, { attributes: true });
+    this.unfollow = followLook(doc);
 
     const box = doc.createElement('div');
     box.style.height = '100%';
@@ -84,8 +90,8 @@ class SettingsWindowStore {
     this.props = null;
     this.listeners?.abort();
     this.listeners = null;
-    this.look?.disconnect();
-    this.look = null;
+    this.unfollow?.();
+    this.unfollow = null;
     if (this.view) unmount(this.view);
     this.view = null;
     this.isOpen = false;

@@ -135,7 +135,8 @@
 <style>
   .sidebar { position: relative; width: 260px; flex: none; display: flex; flex-direction: column; background: var(--bg-1); min-height: 0; }
   .sidebar.fill { width: 100%; height: 100%; }
-  header { position: relative; isolation: isolate; height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); }
+  /* Like the toolbar above it, unless a theme gives it a color of its own */
+  header { position: relative; isolation: isolate; height: var(--header-h); flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 0; border-bottom: 1px solid var(--line); background: var(--server-header, var(--bg-0)); }
   header.with-server { padding-left: 8px; }
   /* Reaches the server button, so no dead gap between the two */
   header.with-server .title { margin-left: -8px; padding-left: 10px; }

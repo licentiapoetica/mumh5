@@ -3,6 +3,10 @@
   import CornerSettings from './CornerSettings.svelte';
   import SectionHead from './SectionHead.svelte';
   import ThemeLibrary from './ThemeLibrary.svelte';
+  import { studio } from '../lib/theme-studio.svelte.ts';
+  import { themeWindow } from '../lib/theme-window.svelte.ts';
+  import { ui } from '../lib/ui.svelte.ts';
+  import { themeVars } from '../lib/custom-themes.ts';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
   const TAB_BARS = [
@@ -34,6 +38,14 @@
   function pick(id: ThemeId) {
     store.settings.theme = id;
     store.saveSettings();
+  }
+
+  function askReset(id: string, name: string) {
+    ui.prompt = {
+      title: `Reset ${name}?`, label: '', confirm: 'Reset', danger: true, input: 'none',
+      text: 'Your changes to this color scheme are removed.',
+      onsubmit: () => studio.resetScheme(id)
+    };
   }
 </script>
 
@@ -123,21 +135,32 @@
 </div>
 <div class="themes" role="radiogroup" aria-label="Color scheme">
   {#each shown as t (t.id)}
-    <button role="radio" aria-checked={store.settings.theme === t.id} class:active={store.settings.theme === t.id}
-      onclick={() => pick(t.id)} aria-label={t.name}>
-      <!-- A miniature of the app in that theme -->
-      <span class="mini" data-theme-preview={t.id} aria-hidden="true">
-        <span class="m-rail"><span></span><span></span></span>
-        <span class="m-side"><i></i><i class="sel"></i><i></i></span>
-        <span class="m-chat">
-          <span class="m-head"></span>
-          <i class="a"></i><i></i><i class="short"></i>
-          <span class="m-box"></span>
+    {@const edit = studio.edits[t.id]}
+    {@const on = store.settings.theme === t.id}
+    <div class="scheme" class:active={on}>
+      <button class="pick" role="radio" aria-checked={on} onclick={() => pick(t.id)} aria-label={t.name}>
+        <!-- A miniature of the app in that theme -->
+        <span class="mini" data-theme-preview={t.id} style={edit ? themeVars(edit.colors) : undefined} aria-hidden="true">
+          <span class="m-rail"><span></span><span></span></span>
+          <span class="m-side"><i></i><i class="sel"></i><i></i></span>
+          <span class="m-chat">
+            <span class="m-head"></span>
+            <i class="a"></i><i></i><i class="short"></i>
+            <span class="m-box"></span>
+          </span>
         </span>
-      </span>
-      <span class="name">{t.name}</span>
-      <span class="note">{t.note}</span>
-    </button>
+        <span class="name">{t.name}</span>
+        <span class="note">{t.note}{#if edit}, edited{/if}</span>
+      </button>
+      <div class="tools">
+        <button class="tool" disabled={!!studio.draft} aria-label="Edit {t.name}" title="Change the colors of this scheme"
+          onclick={e => themeWindow.openFrom(e.currentTarget, () => studio.editScheme(t.id))}>Edit</button>
+        {#if edit}
+          <button class="tool" disabled={!!studio.draft} aria-label="Reset {t.name}" title="Back to the colors it came with"
+            onclick={() => askReset(t.id, t.name)}>Reset</button>
+        {/if}
+      </div>
+    </div>
   {/each}
 </div>
 {#if !shown.length}<p class="nothing">No color scheme matches.</p>{/if}
@@ -164,7 +187,12 @@
   .shades.pick button { min-width: 72px; min-height: var(--control-h); }
   .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
   .themes > button { display: flex; flex-direction: column; gap: 2px; padding: 8px; text-align: left; border: 1px solid var(--line); background: var(--bg-0); }
-  .themes > button.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .themes > button.active, .scheme.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .scheme { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); background: var(--bg-0); }
+  .scheme .pick { display: flex; flex-direction: column; gap: 2px; padding: 8px 8px 2px; text-align: left; min-width: 0; }
+  .tools { display: flex; align-items: center; gap: 12px; padding: 2px 8px 6px; }
+  .tool { font-size: 13px; color: var(--link); }
+  .tool:disabled { color: var(--text-faint); }
   .name { font-weight: 600; margin-top: 6px; }
   .note { font-size: 12px; color: var(--text-dim); }
   .mini { display: flex; height: 84px; overflow: hidden; border: 1px solid var(--line); font-family: var(--font); }

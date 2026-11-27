@@ -1,4 +1,5 @@
 // Private chats as tabs above the chat (stacked, narrow windows) or as a list beside it; no server required.
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';

@@ -327,6 +327,8 @@
 :root[data-theme="win95"] .chat > header .icon-btn,
 :root[data-theme="win95"] .panel > header .icon-btn,
 :root[data-theme="win95"] .sidebar header .icon-btn { width: 22px; height: 20px; }
+/* Disconnect is a toolbar-sized button, not a title bar control */
+:root[data-theme="win95"] .sidebar header > .icon-btn { width: 30px; height: 32px; }
 :root[data-theme="win95"] .sidebar header .icon-btn:hover,
 :root[data-theme="win95"] .sidebar header .icon-btn:active { color: #c00000; }
 

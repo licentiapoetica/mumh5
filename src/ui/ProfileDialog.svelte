@@ -9,7 +9,11 @@
   import { ownAvatar } from '../lib/avatar.svelte.ts';
   import { changeNamePrompt, setPictureFromFile } from '../lib/actions.ts';
   import { store } from '../lib/settings.svelte.ts';
-  import { stripDisplayName } from '../core/display-name.ts';
+  import PickColor from './PickColor.svelte';
+  import { MAX_BANNER_BYTES, STILL_BANNER_BYTES, stripProfileMarks } from '../core/banner.ts';
+  import { ownBanner } from '../lib/banner.svelte.ts';
+  import { makeAnimatedBanner, type BannerCrop as Crop } from '../lib/images.ts';
+  import BannerCrop from './BannerCrop.svelte';
 
   const self = $derived(session.self);
 
@@ -52,6 +56,58 @@
     busy = false;
   }
 
+  // The banner applies at once, like the picture
+  let bannerPicker = $state<HTMLInputElement>();
+  let bannerBusy = $state(false);
+  let bannerError = $state('');
+  // Follows the color picker while it is dragged; saved when it is let go
+  let liveColor = $state<string | null>(null);
+  const bannerColor = $derived(liveColor ?? ownBanner.color);
+  const hue = $derived([...(self?.name ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 360);
+
+  async function setBanner(color: string, image: Uint8Array | null) {
+    liveColor = null;
+    bannerError = '';
+    await sessions.setBanner({ color, image });
+  }
+
+  // A picture being placed in the frame: a new one, or the kept original moved again
+  let placing = $state<{ blob: Blob; crop: Crop } | null>(null);
+
+  function pickBanner() {
+    const file = bannerPicker?.files?.[0];
+    if (bannerPicker) bannerPicker.value = '';
+    if (!file) return;
+    bannerError = '';
+    placing = { blob: file, crop: { x: 0.5, y: 0.5, zoom: 1 } };
+  }
+
+  async function placeBanner(crop: Crop) {
+    const blob = placing?.blob;
+    if (!blob) return;
+    bannerBusy = true;
+    bannerError = '';
+    try {
+      // An animation may use what the description leaves of the server's limit (base64 adds a third)
+      const room = session.htmlLimit > 0 ? Math.floor((session.htmlLimit - stripProfileMarks(self?.comment ?? '').length - 400) * 3 / 4) : MAX_BANNER_BYTES;
+      const made = await makeAnimatedBanner(blob, STILL_BANNER_BYTES, Math.max(STILL_BANNER_BYTES, Math.min(MAX_BANNER_BYTES, room)), crop);
+      if (made) {
+        liveColor = null;
+        await sessions.setBanner({ color: ownBanner.color, image: made.bytes }, { blob, crop });
+        placing = null;
+        if (made.still) bannerError = 'This animation does not get small enough for a banner, so it is still.';
+      } else bannerError = 'This picture does not get small enough for a banner.';
+    } catch {
+      bannerError = 'This file could not be read as a picture.';
+    }
+    bannerBusy = false;
+  }
+
+  function unreadable() {
+    placing = null;
+    bannerError = 'This file could not be read as a picture.';
+  }
+
   function changeName() {
     const u = self;
     if (!u) return;
@@ -77,9 +133,36 @@
     </div>
     {#if error}<p class="error">{error}</p>{/if}
 
+    <h3>Banner</h3>
+    {#if placing}
+      {#key placing}
+        <BannerCrop blob={placing.blob} crop={placing.crop} busy={bannerBusy} onsave={placeBanner} oncancel={() => (placing = null)} onerror={unreadable} />
+      {/key}
+    {:else}
+    <div class="banner" style:background={bannerColor || `hsl(${hue} 38% 30%)`}>
+      {#if ownBanner.imageUrl}<img src={ownBanner.imageUrl} alt="" />{/if}
+    </div>
+    <div class="actions" title={session.canChooseName ? undefined : 'This server does not allow the formatting the banner travels in.'}>
+      <label class="color">
+        <input type="color" aria-label="Banner color" disabled={!session.canChooseName} value={bannerColor || '#3b4252'}
+          oninput={e => (liveColor = e.currentTarget.value)} onchange={e => setBanner(e.currentTarget.value, ownBanner.image)} />
+        <span>Color</span>
+      </label>
+      <PickColor label="Pick the banner color from the screen" size={16} disabled={!session.canChooseName} onpick={c => setBanner(c, ownBanner.image)} />
+      <button class="btn" disabled={bannerBusy || !session.canChooseName} onclick={() => bannerPicker?.click()}
+        title="Shown 5:1; you choose the part after picking it">{bannerBusy ? 'Preparing...' : ownBanner.image ? 'Change banner picture' : 'Add banner picture'}</button>
+      {#if ownBanner.source}<button class="btn" disabled={bannerBusy} onclick={() => (placing = { ...ownBanner.source! })}>Move banner picture</button>{/if}
+      {#if ownBanner.image}<button class="btn" disabled={bannerBusy} onclick={() => setBanner(ownBanner.color, null)}>Remove banner picture</button>{/if}
+      {#if ownBanner.color || ownBanner.image}<button class="btn" disabled={bannerBusy} onclick={() => setBanner('', null)}>Reset banner</button>{/if}
+    </div>
+    {/if}
+    <input bind:this={bannerPicker} type="file" accept="image/*" hidden aria-label="Banner picture file" onchange={pickBanner} />
+    {#if bannerError}<p class="error">{bannerError}</p>{/if}
+    <p class="hint">Other mumh5 users see your banner on your profile. Other Mumble clients do not show it.</p>
+
     <h3>Description</h3>
     {#if ready}
-      <RichEditor value={stripDisplayName(self.comment ?? '')} limit={session.htmlLimit} placeholder="Tell people about yourself"
+      <RichEditor value={stripProfileMarks(self.comment ?? '')} limit={session.htmlLimit > 0 ? Math.max(1, session.htmlLimit - ownBanner.mark.length) : 0} placeholder="Tell people about yourself"
         onchange={h => { original ??= h; draft = h; discard = false; }} />
     {:else}
       <p class="dim">Loading description...</p>
@@ -106,6 +189,12 @@
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
   h3 { margin: 22px 0 8px; font-size: 15px; font-weight: 650; }
   .dim { margin: 0; color: var(--text-dim); }
+  .banner { height: 64px; margin-top: 4px; border: 1px solid var(--line); }
+  .banner img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .color { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+  .color input { width: 34px; height: var(--control-h); padding: 2px; }
+  .actions { align-items: center; }
+  .hint { margin: 8px 0 0; font-size: 12px; color: var(--text-faint); }
   .error { margin: 10px 0 0; font-size: 13px; color: var(--danger); }
   .ask { flex: 1; align-self: center; min-width: 0; font-size: 14px; color: var(--text-dim); }
 </style>

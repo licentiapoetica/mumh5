@@ -1,6 +1,6 @@
 <script lang="ts">
   import { stripMark } from '../core/text-signal.ts';
-  import { stripDisplayName } from '../core/display-name.ts';
+  import { stripProfileMarks } from '../core/banner.ts';
   import Icon from './Icon.svelte';
   import Avatar from './Avatar.svelte';
   import Members from './Members.svelte';
@@ -30,7 +30,7 @@
   $effect(() => { if (user?.commentHash && !user.comment) session.loadComment(user.session); });
 
   const description = $derived(channel?.description ? renderIncoming(stripMark(channel.description), store.trustedHosts).html : '');
-  const comment = $derived(user?.comment ? renderIncoming(stripDisplayName(user.comment), store.trustedHosts).html : '');
+  const comment = $derived(user?.comment ? renderIncoming(stripProfileMarks(user.comment), store.trustedHosts).html : '');
   const pendingDescription = $derived(!!channel?.descriptionHash && !channel.description);
   const pendingComment = $derived(!!user?.commentHash && !user.comment);
 

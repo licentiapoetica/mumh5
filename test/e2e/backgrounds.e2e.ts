@@ -1,5 +1,6 @@
 // Standalone Appearance checks; no Mumble server required.
 // CHROMIUM_PATH=/path/to/chromium npm run test:e2e:backgrounds
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
@@ -11,6 +12,8 @@ await server.listen();
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/usr/bin/chromium', headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  // Settings in the page, where the steps look for it, not in a window of its own
+  await page.addInitScript(() => localStorage.setItem('mumh5.settingsInline', '1'));
   const failures: string[] = [];
   const remoteImages: string[] = [];
   page.on('pageerror', e => failures.push(e.message));

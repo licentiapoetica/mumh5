@@ -1,5 +1,6 @@
 // The theme creator, from source in a browser; no Mumble server required.
 // CHROMIUM_PATH=/path/to/chromium npm run test:e2e:themes
+import './english.ts';
 import { chromium, type Locator, type Page } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
@@ -15,6 +16,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 try {
   const context = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
   const page = await context.newPage();
+  // Settings in the page, where the steps look for it, not in a window of its own
+  await page.addInitScript(() => localStorage.setItem('mumh5.settingsInline', '1'));
   const failures: string[] = [];
   page.on('pageerror', e => failures.push(e.message));
   await page.goto(server.resolvedUrls!.local[0]);
@@ -105,6 +108,25 @@ try {
   await hex.fill('not a color');
   await hex.press('Tab');
   assert.equal(await hex.inputValue(), '#aabbcc');
+  // The connection wave follows the status color until it gets a color of its own
+  const typeCode = async (name: string, value: string) => {
+    const field = panel(win).getByLabel(`${name} code`, { exact: true });
+    await field.fill(value);
+    await field.press('Tab');
+  };
+  await typeCode('Connected and active', '#44dd88');
+  await waitVar('--wave', '#44dd88');
+  await typeCode('Connection wave', '#ff8800');
+  await waitVar('--wave', '#ff8800');
+  await typeCode('Connected and active', '#66ee99');
+  await waitVar('--speaking', '#66ee99');
+  assert.equal(await rootVar('--wave'), '#ff8800', 'a wave color of its own stays');
+  await typeCode('Wave background', '#2a1040');
+  await waitVar('--server-header', '#2a1040');
+  assert.equal(await rootVar('--bg-0') === '#2a1040', false, 'the fields keep their color');
+  await panel(win).getByLabel(/Wave brightness/).fill('200');
+  await waitVar('--wave-strength', '2');
+  console.log('ok: the connection wave and the server header have their own colors');
 
   await panel(win).getByLabel('Font', { exact: true }).selectOption('serif');
   await panel(win).getByLabel(/Chat text size/).fill('18');
@@ -253,6 +275,54 @@ try {
   await waitVar('--accent', originalAccent);
   assert.equal((await themes()).length, 2);
   console.log('ok: delete and reset');
+
+  // A built-in scheme changed in place: it keeps its name, its data-theme and its place
+  const edits = () => page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.schemeEdits') ?? '[]'));
+  await page.getByRole('radio', { name: 'Light', exact: true }).click();
+  await waitVar('--accent', '#5b4bdb');
+  win = await opening(button(page, 'Edit Light'));
+  assert.equal(await panel(win).getByLabel('Name', { exact: true }).count(), 0, 'a scheme keeps its name');
+  await setColor(win, 'Accent', '#00c2a8');
+  await waitVar('--accent', '#00c2a8');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  await closing(win, button(panel(win), 'Save'));
+  assert.equal((await saved()).theme, 'light');
+  assert.deepEqual((await edits()).map((e: { scheme: string; colors: { accent: string } }) => [e.scheme, e.colors.accent]), [['light', '#00c2a8']]);
+  assert.equal((await themes()).length, 2, 'no theme of its own is made');
+  await page.getByRole('radio', { name: 'Light', exact: true }).getByText('edited').waitFor();
+  await button(page, 'Edit Light').scrollIntoViewIfNeeded();
+  await shot(page, 'theme-scheme-edited');
+  await page.reload();
+  await waitVar('--accent', '#00c2a8');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  await appearance();
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await waitVar('--accent', originalAccent);
+  assert.equal(await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent')), '');
+  await page.getByRole('radio', { name: 'Light', exact: true }).click();
+  await waitVar('--accent', '#00c2a8');
+  // Opening it again starts from the saved changes
+  win = await opening(button(page, 'Edit Light'));
+  assert.equal(await panel(win).getByLabel('Accent code', { exact: true }).inputValue(), '#00c2a8');
+  await button(panel(win), 'Original').click();
+  await waitVar('--accent', '#5b4bdb');
+  await button(panel(win), 'Undo').click();
+  await waitVar('--accent', '#00c2a8');
+  await closing(win, button(panel(win), 'Cancel'));
+  await button(page, 'Reset Light').click();
+  await button(page.getByRole('dialog', { name: 'Reset Light?' }), 'Reset').click();
+  await waitVar('--accent', '#5b4bdb');
+  assert.deepEqual(await edits(), []);
+  await button(page, 'Reset Light').waitFor({ state: 'detached' });
+  // Saving a scheme as it came keeps nothing
+  win = await opening(button(page, 'Edit Light'));
+  await setColor(win, 'Accent', '#00c2a8');
+  await button(panel(win), 'Original').click();
+  await closing(win, button(panel(win), 'Save'));
+  assert.deepEqual(await edits(), []);
+  await page.getByRole('radio', { name: 'Dark', exact: true }).click();
+  await waitVar('--accent', originalAccent);
+  console.log('ok: built-in schemes can be edited and reset');
 
   // A theme saved before hover labels existed: black accent, white hover, light label
   const amoled = path.join(temp, 'amoled.json');

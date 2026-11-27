@@ -1,5 +1,6 @@
 // Screen sharing between two instances of the built app on a real Mumble server.
 //   npm run build && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:share
+import './english.ts';
 import { _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
@@ -28,6 +29,8 @@ async function launch() {
   const page = await app.firstWindow();
   page.on('console', m => { if (m.type() === 'error') console.log('[renderer]', m.text()); });
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Settings in the main window, where the steps look for it
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   return { app, page };
 }
 

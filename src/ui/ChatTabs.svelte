@@ -151,8 +151,10 @@ const openText = $state<Record<string, number[]>>({});
 {/if}
 
 <style>
-  /* Only when the bar sits right under the list, with no stream between */
-  :global(.stack.tabs-under-list:has(> .chat > .tabs-wrap.seam) > .tree) { border-bottom-width: 0; --tree-line: 0px; }
+  /* Right under the list, with no stream between, the list has no lower line: each tab draws its
+     own top line instead (the active one its accent), and the bar beside them stays open */
+  :global(.stack.tabs-under-list > .tree) { border-bottom-width: 0; --tree-line: 0px; }
+  :global(.stack.tabs-under-list) .chat-tab { background-image: linear-gradient(var(--line), var(--line)); background-size: 100% 1px; background-repeat: no-repeat; background-origin: border-box; }
   /* The handle's line replaces the bar's lower border; its grab area lies below, clear of the tabs and their scrollbar */
   :global(.stack.tabs-under-list > .tree > .resize.bottom) { bottom: calc(-7px - var(--tree-line, 1px) - var(--tab-bar, 0px)); --line-at: 0px; }
   :global(.stack:has(.tabs-wrap.seam) .tree-bg) { overflow: hidden; }
@@ -163,8 +165,9 @@ const openText = $state<Record<string, number[]>>({});
   .tabs-wrap.clear { background: none; }
   .tabs-wrap.clear .chat-tabs, .tabs-wrap.own .chat-tabs { background: none; }
   .chat-tabs { position: relative; flex: none; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; background: var(--bg-1); border-bottom: 1px solid var(--line); }
-  .chat-tab { flex: none; display: flex; max-width: 200px; border-right: 1px solid var(--line); border-top: 2px solid transparent; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
-  .chat-tab:hover { background: var(--bg-hover); color: var(--text); }
+  .chat-tab { flex: none; display: flex; max-width: 200px; border-right: 1px solid var(--line); border-top: 2px solid transparent; color: var(--text-dim); transition: background 260ms var(--ease), color 260ms var(--ease); }
+  /* The same see-through accent tint and timing as a hovered channel row: quick in, slow out */
+  .chat-tab:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text); transition-duration: 70ms; }
   .chat-tab.active { background: var(--bg-2); color: var(--text); border-top-color: var(--accent); }
   [role='tab'] { min-width: 0; height: var(--control-h); display: flex; align-items: center; gap: 6px; padding: 0 10px; color: inherit; font-size: 13px; }
   [role='tab'] :global(svg) { flex: none; }

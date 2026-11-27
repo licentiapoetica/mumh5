@@ -43,8 +43,9 @@
 
 <style>
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
-  .tool { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 14px; cursor: pointer; }
-  .tool:hover:not(:disabled), .tool.on { background: var(--bg-hover); color: var(--text); }
+  /* Global, so the pipette (PickColor's own button) looks like the other tools */
+  .toolbar :global(.tool) { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 14px; cursor: pointer; }
+  .toolbar :global(.tool:hover:not(:disabled)), .tool.on { background: var(--bg-hover); color: var(--text); }
   .b { font-weight: 800; }
   .i { font-style: italic; font-family: Georgia, serif; }
   .u { text-decoration: underline; }

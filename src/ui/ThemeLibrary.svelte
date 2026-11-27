@@ -8,12 +8,7 @@
 
   let picker = $state<HTMLInputElement>();
 
-  // Read before starting: starting closes a Settings dialog, and with it this button
-  function openCreator(e: MouseEvent, start: () => void) {
-    const from = (e.currentTarget as HTMLElement).ownerDocument.defaultView ?? window;
-    start();
-    themeWindow.show(from);
-  }
+  const openCreator = (e: MouseEvent, start: () => void) => themeWindow.openFrom(e.currentTarget as HTMLElement, start);
 
   function use(t: CustomTheme) {
     store.settings.theme = t.id;

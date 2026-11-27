@@ -7,7 +7,7 @@
   import { ui } from '../lib/ui.svelte.ts';
   import { menu } from '../lib/menu.svelte.ts';
   import { store } from '../lib/settings.svelte.ts';
-  import { stripDisplayName } from '../core/display-name.ts';
+  import { bannerImageUrl, parseBanner, stripProfileMarks } from '../core/banner.ts';
   import { userMenu } from '../lib/actions.ts';
   import { voice } from '../lib/audio/voice.svelte.ts';
   import { share } from '../lib/share.svelte.ts';
@@ -23,10 +23,13 @@
   const channelName = $derived(user ? session.channel(user.channelId)?.name || 'Root' : '');
   const sharing = $derived(user ? session.sharing[user.session] : undefined);
   const hue = $derived([...(user?.name ?? '')].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 360);
+  // Chosen by its owner (see banner.ts); without one, a color made from the account name
+  const banner = $derived(user?.comment ? parseBanner(user.comment) : null);
+  const bannerImage = $derived(banner?.image ? bannerImageUrl(banner.image) : null);
 
   // The description comes later when the server only announced its hash
   $effect(() => { if (user?.commentHash && !user.comment) session.loadComment(user.session); });
-  const comment = $derived(user?.comment ? renderIncoming(stripDisplayName(user.comment), store.trustedHosts).html : '');
+  const comment = $derived(user?.comment ? renderIncoming(stripProfileMarks(user.comment), store.trustedHosts).html : '');
   const pending = $derived(!!user?.commentHash && !user.comment);
 
   // Its own attribute: a context menu opening or closing must not clear this one
@@ -126,7 +129,7 @@
   <div class="card {side}" class:sheet role="dialog" tabindex="-1" aria-label="Profile of {name}" bind:this={el}
     style:left={sheet ? undefined : `${pos.x}px`} style:top={sheet ? undefined : `${pos.y}px`}
     oncontextmenu={e => menu.show(e, userMenu(user))}>
-    <div class="banner" style:background="hsl({hue} 38% 30%)"></div>
+    <div class="banner" style:background={banner?.color || `hsl(${hue} 38% 30%)`}>{#if bannerImage}<img src={bannerImage} alt="" />{/if}</div>
     <div class="top">
       <span class="pic"><Avatar name={store.displayName(user)} size={80} speaking={talking} src={session.avatar(user.session)} keep /></span>
     </div>
@@ -190,13 +193,17 @@
     position: fixed; z-index: 91; width: 320px; max-height: calc(100vh - 16px); overflow-y: auto;
     background: var(--bg-1); border: 1px solid var(--line-strong);
     animation: pop 130ms var(--ease);
+    /* Still scrolls in a short window, without a scrollbar cutting into the banner */
+    scrollbar-width: none;
   }
+  .card::-webkit-scrollbar { display: none; }
   /* Slides in from the side of what was clicked */
   .card.right { --from: translateX(-6px); }
   .card.left { --from: translateX(6px); }
   .card.above { --from: translateY(6px); }
   .card.sheet { left: 0; right: 0; bottom: 0; width: auto; max-height: 85vh; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom); animation: up 160ms var(--ease); }
   .banner { height: 64px; }
+  .banner img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .top { position: relative; height: 48px; padding: 0 16px; }
   /* The picture sits over the edge of the banner, framed in the card's color */
   .pic { position: absolute; left: 14px; top: -44px; display: flex; border: 4px solid var(--bg-1); background: var(--bg-1); }

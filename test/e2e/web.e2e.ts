@@ -1,6 +1,7 @@
 // Drives the browser build through the web proxy against a real Mumble server.
 //   npm run build:web && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:web
 // The page runs in a plain Chromium window (Electron without the preload), served by the Rust gateway (test/e2e/gateway.ts).
+import './english.ts';
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
@@ -66,6 +67,8 @@ try {
   const page = await app.firstWindow();
   page.on('console', m => { if (m.type() === 'error') console.log('[page]', m.text()); });
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Settings in the page, where the steps look for it, not in a window of its own
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   assert.equal(await page.evaluate(() => 'mumh5Native' in window), false, 'no desktop API in the page');
 
   // Identity: created through the proxy, kept in the browser
@@ -272,6 +275,7 @@ try {
   const page2 = await second.firstWindow();
   page2.on('console', m => { if (m.type() === 'error') console.log('[page2]', m.text()); });
   await page2.setViewportSize({ width: 1280, height: 800 });
+  await page2.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   await page2.getByRole('button', { name: /Create a new identity/ }).click();
   const carol = `webcarol${Date.now() % 100000}`;
   // This browser is made to use the built-in Opus codec, as one without WebCodecs audio would
