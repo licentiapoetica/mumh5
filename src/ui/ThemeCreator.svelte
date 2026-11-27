@@ -93,14 +93,21 @@
   {@const d = studio.draft}
   <section class="creator" class:docked aria-label="Theme creator">
     <header>
-      <h2>Theme creator</h2>
+      <h2>{studio.editing ? d.name : 'Theme creator'}</h2>
+      {#if studio.editing}
+        <button class="btn" title="Back to the colors this scheme came with" onclick={() => studio.restore()}>Original</button>
+      {/if}
       <button class="btn" disabled={!studio.canUndo} onclick={() => studio.undo()}>Undo</button>
       <button class="icon-btn" aria-label="Close theme creator" onclick={() => studio.discard()}><Icon name="x" /></button>
     </header>
 
     <div class="body">
-      <label for="tc-name">Name</label>
-      <input id="tc-name" maxlength={THEME_NAME_MAX} bind:value={d.name} />
+      {#if studio.editing}
+        <p class="help">Changes to this color scheme. Reset in Appearance brings the original back.</p>
+      {:else}
+        <label for="tc-name">Name</label>
+        <input id="tc-name" maxlength={THEME_NAME_MAX} bind:value={d.name} />
+      {/if}
 
       <div class="sample" aria-hidden="true">
         <div class="people">
