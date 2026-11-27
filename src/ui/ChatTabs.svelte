@@ -165,9 +165,9 @@ const openText = $state<Record<string, number[]>>({});
   .tabs-wrap.clear { background: none; }
   .tabs-wrap.clear .chat-tabs, .tabs-wrap.own .chat-tabs { background: none; }
   .chat-tabs { position: relative; flex: none; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; background: var(--bg-1); border-bottom: 1px solid var(--line); }
-  .chat-tab { flex: none; display: flex; max-width: 200px; border-right: 1px solid var(--line); border-top: 2px solid transparent; color: var(--text-dim); transition: background 100ms var(--ease), color 100ms var(--ease); }
-  /* The same see-through accent tint as a hovered channel row */
-  .chat-tab:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text); }
+  .chat-tab { flex: none; display: flex; max-width: 200px; border-right: 1px solid var(--line); border-top: 2px solid transparent; color: var(--text-dim); transition: background 260ms var(--ease), color 260ms var(--ease); }
+  /* The same see-through accent tint and timing as a hovered channel row: quick in, slow out */
+  .chat-tab:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text); transition-duration: 70ms; }
   .chat-tab.active { background: var(--bg-2); color: var(--text); border-top-color: var(--accent); }
   [role='tab'] { min-width: 0; height: var(--control-h); display: flex; align-items: center; gap: 6px; padding: 0 10px; color: inherit; font-size: 13px; }
   [role='tab'] :global(svg) { flex: none; }
