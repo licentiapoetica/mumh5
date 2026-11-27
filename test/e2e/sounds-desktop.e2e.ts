@@ -20,6 +20,8 @@ const app = await electron.launch({
 });
 try {
   const page = await app.firstWindow();
+  // Settings in the main window, where the steps look for it
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   const failures: string[] = [];
   page.on('pageerror', e => failures.push(e.message));
   const open = async () => {

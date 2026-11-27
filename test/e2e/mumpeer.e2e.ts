@@ -78,6 +78,8 @@ async function launch(name: string, admin: MumbleClient, address = host): Promis
   await page.route('https://api.github.com/**', route => route.abort());
   page.on('pageerror', error => console.error('Renderer:', error.message));
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Settings in the main window, where the steps look for it
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   await page.evaluate(() => {
     // Synthetic video exercises the normal capture dialog without sharing the test machine's display.
     navigator.mediaDevices.getDisplayMedia = async () => {

@@ -94,6 +94,8 @@ try {
   const page = await app.firstWindow();
   page.on('console', m => { if (m.type() === 'error') console.log('[renderer]', m.text()); });
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Settings in the main window, where the steps look for it; one step covers its own window
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
 
   // First start: identity setup wizard
   await page.getByRole('dialog', { name: 'Set up your identity' }).waitFor();
@@ -183,11 +185,14 @@ try {
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('tab', { name: 'Appearance' }).click();
   console.log('ok: save applies changes and keeps settings open');
-  // Settings in a window of its own changes the app beside it
-  const [settingsPopup] = await Promise.all([app.waitForEvent('window'), page.getByRole('button', { name: 'Open in a new window' }).click()]);
+  // Settings opens in a window of its own, which changes the app beside it. The other steps keep
+  // it in the main window (mumh5.settingsInline), this one shows the default.
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.evaluate(() => localStorage.removeItem('mumh5.settingsInline'));
+  const [settingsPopup] = await Promise.all([app.waitForEvent('window'), page.getByTitle('Settings').click()]);
   await settingsPopup.getByRole('dialog', { name: 'Settings' }).waitFor();
-  await settingsPopup.getByRole('tab', { name: 'Appearance', selected: true }).waitFor();
-  assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'moved out of the main window');
+  await settingsPopup.getByRole('tab', { name: 'Appearance' }).click();
+  assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'not in the main window');
   assert.ok(await settingsPopup.evaluate(() => {
     const r = document.querySelector('.modal')!.getBoundingClientRect();
     return r.x === 0 && r.y === 0 && r.width === innerWidth && r.height === innerHeight;
@@ -205,6 +210,7 @@ try {
   await page.waitForTimeout(100);
   assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'no second settings');
   await Promise.all([settingsPopup.waitForEvent('close'), settingsPopup.getByRole('button', { name: 'Done', exact: true }).click()]);
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   await page.getByTitle('Settings').click();
   await page.getByRole('dialog', { name: 'Settings' }).waitFor();
   await page.getByRole('tab', { name: 'Appearance' }).click();

@@ -151,8 +151,10 @@ const openText = $state<Record<string, number[]>>({});
 {/if}
 
 <style>
-  /* Only when the bar sits right under the list, with no stream between */
-  :global(.stack.tabs-under-list:has(> .chat > .tabs-wrap.seam) > .tree) { border-bottom-width: 0; --tree-line: 0px; }
+  /* Right under the list, with no stream between, the list has no lower line: each tab draws its
+     own top line instead (the active one its accent), and the bar beside them stays open */
+  :global(.stack.tabs-under-list > .tree) { border-bottom-width: 0; --tree-line: 0px; }
+  :global(.stack.tabs-under-list) .chat-tab { background-image: linear-gradient(var(--line), var(--line)); background-size: 100% 1px; background-repeat: no-repeat; background-origin: border-box; }
   /* The handle's line replaces the bar's lower border; its grab area lies below, clear of the tabs and their scrollbar */
   :global(.stack.tabs-under-list > .tree > .resize.bottom) { bottom: calc(-7px - var(--tree-line, 1px) - var(--tab-bar, 0px)); --line-at: 0px; }
   :global(.stack:has(.tabs-wrap.seam) .tree-bg) { overflow: hidden; }

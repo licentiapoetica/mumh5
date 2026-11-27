@@ -12,6 +12,8 @@ try {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
+  // Settings in the page, where the steps look for it, not in a window of its own
+  await page.addInitScript(() => localStorage.setItem('mumh5.settingsInline', '1'));
   await page.goto(server.resolvedUrls!.local[0]);
   const connect = (bob = 2, owner = 'alice-identity', host = 'localhost') => page.evaluate(async ({ bob, owner, host }) => {
     const sessionPath = '/src/lib/session.svelte.ts', clientPath = '/src/core/client.ts', codecPath = '/src/core/proto.ts', historyPath = '/src/lib/chat-history.ts';

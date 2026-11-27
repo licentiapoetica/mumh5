@@ -25,7 +25,9 @@ export const COLOR_GROUPS = [
     { key: 'accent-hover-text', name: 'Text on accent hover', note: 'Labels on main buttons under the pointer' }
   ] },
   { name: 'Status', colors: [
-    { key: 'speaking', name: 'Connected and active', note: 'Connection wave and status, live marks' },
+    { key: 'speaking', name: 'Connected and active', note: 'Connection status, live marks' },
+    { key: 'wave', name: 'Connection wave', note: 'The moving wave behind the server name' },
+    { key: 'server-header', name: 'Wave background', note: 'The box with the server name and the connection wave' },
     { key: 'danger', name: 'Danger', note: 'Errors and destructive actions' },
     { key: 'warn', name: 'Warning', note: 'Warnings' }
   ] }
@@ -139,8 +141,9 @@ export function deriveColors(background: string, text: string, accent: string): 
   const bg1 = light ? toText(0.05) : mix(background, '#000000', 0.2);
   const surfaces = [bg0, bg1, background];
   const accentHover = mix(accent, light ? '#000000' : '#ffffff', 0.14);
+  const speaking = readableOn(light ? '#1f9d4c' : '#3bd16f', [background], 3);
   return {
-    'bg-0': bg0, 'bg-1': bg1, 'bg-2': background, rail: bg0,
+    'bg-0': bg0, 'bg-1': bg1, 'bg-2': background, rail: bg0, 'server-header': bg0,
     'bg-3': toText(light ? 0.08 : 0.07),
     'bg-hover': toText(light ? 0.12 : 0.11),
     'bg-active': toText(light ? 0.18 : 0.16),
@@ -153,7 +156,8 @@ export function deriveColors(background: string, text: string, accent: string): 
     'accent-hover': accentHover,
     'accent-text': labelOn(accent),
     'accent-hover-text': hoverLabel(labelOn(accent), accentHover),
-    speaking: readableOn(light ? '#1f9d4c' : '#3bd16f', [background], 3),
+    speaking,
+    wave: speaking,
     danger: readableOn(light ? '#d33a34' : '#f0504a', [background], 3),
     warn: readableOn(light ? '#b7791f' : '#e8b23c', [background], 3)
   };
@@ -222,6 +226,9 @@ export function sanitizeTheme(raw: unknown, id: CustomThemeId): CustomTheme | nu
   const colors = Object.fromEntries(COLOR_KEYS.map(k => [k, normalizeHex(given[k]) ?? derived[k]])) as ThemeColors;
   // Themes saved before this color existed: from their own hover, not a derived one
   colors['accent-hover-text'] = normalizeHex(given['accent-hover-text']) ?? hoverLabel(colors['accent-text'], colors['accent-hover']);
+  // Before the wave had a color of its own it was the status color
+  colors.wave = normalizeHex(given.wave) ?? colors.speaking;
+  colors['server-header'] = normalizeHex(given['server-header']) ?? colors['bg-0'];
   const size = Number(r.chatSize);
   // Themes saved before the indicator had settings keep the look they had
   const orbs = (r.indicator && typeof r.indicator === 'object' ? r.indicator : {}) as Record<string, unknown>;

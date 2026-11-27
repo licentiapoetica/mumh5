@@ -359,8 +359,10 @@
   /* Stops at the voice icon in the indent */
   .branch.person.marked { width: 9px; }
   .row { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; padding-right: 8px; color: var(--text-dim); transition: background 260ms var(--ease), color 260ms var(--ease); }
-  .channel:hover, .user:hover { background: var(--bg-hover); color: var(--text); transition-duration: 70ms; }
-  .channel.selected { background: var(--bg-active); color: var(--text); }
+  /* A see-through tint of the accent, so the list's background shows through */
+  .channel:hover, .user:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text); transition-duration: 70ms; }
+  .channel.selected { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+  .channel.selected:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
   /* Drop targets: the whole row for "into", a line with a square end for "in front of" and "behind" */
   .channel { position: relative; }
   .channel.dragging { opacity: 0.4; }

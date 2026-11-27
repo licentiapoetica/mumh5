@@ -136,11 +136,12 @@
 
   $effect(() => applyCorners(document.documentElement.style, store.settings.corners));
 
-  // Settings already has its own window: bring that forward. Voice is the tab every plain
-  // Settings button asks for, so it does not move the window off the section in use.
-  $effect(() => {
-    if (!ui.settingsOpen || !settingsWindow.isOpen) return;
-    settingsWindow.show(ui.settingsTab === 'voice' ? undefined : ui.settingsTab);
+  // Settings opens in a window of its own; the dialog is only for phones and blocked pop-ups.
+  // Before the page updates, so the dialog never shows for a moment first.
+  $effect.pre(() => {
+    if (!ui.settingsOpen) return;
+    const tab = ui.settingsTab;
+    if (!untrack(() => settingsWindow.present(tab))) return;
     ui.settingsOpen = false;
     ui.settingsTab = 'voice';
   });

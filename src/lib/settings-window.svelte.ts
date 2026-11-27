@@ -1,6 +1,7 @@
 import { mount, unmount } from 'svelte';
 import SettingsWindow from '../ui/SettingsWindow.svelte';
 import { startHints } from './hints.ts';
+import { desktop } from './native.ts';
 import { ui } from './ui.svelte.ts';
 
 type Tab = typeof ui.settingsTab;
@@ -18,6 +19,23 @@ class SettingsWindowStore {
   private look: MutationObserver | null = null;
   private listeners: AbortController | null = null;
   private props: { jump: { tab: Tab } | null } | null = null;
+
+  /**
+   * Where every Settings button goes: the window, opened or brought forward. False leaves it to
+   * the dialog: a phone has no windows, a pop-up blocker said no, or the E2E keeps it inline
+   * (localStorage mumh5.settingsInline). Voice is the tab every plain Settings button asks for,
+   * so it does not move an open window off the section in use.
+   */
+  present(tab: Tab): boolean {
+    if (this.win && !this.win.closed) {
+      this.show(tab === 'voice' ? undefined : tab);
+      return true;
+    }
+    let inline = false;
+    try { inline = localStorage.getItem('mumh5.settingsInline') === '1'; } catch { /* storage blocked */ }
+    if (inline || (!desktop && window.innerWidth < 760)) return false;
+    return this.open(tab);
+  }
 
   /** False when the window could not be opened (a pop-up blocker). */
   open(tab: Tab): boolean {
