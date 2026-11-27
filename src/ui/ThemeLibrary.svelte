@@ -1,12 +1,14 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { store } from '../lib/settings.svelte.ts';
+  import { store, THEMES } from '../lib/settings.svelte.ts';
   import { studio } from '../lib/theme-studio.svelte.ts';
   import { themeWindow } from '../lib/theme-window.svelte.ts';
   import { themeVars, type CustomTheme } from '../lib/custom-themes.ts';
   import { ui } from '../lib/ui.svelte.ts';
 
   let picker = $state<HTMLInputElement>();
+  // The built-in scheme in use, which can be changed in place
+  const scheme = $derived(THEMES.find(t => t.id === store.settings.theme) ?? null);
 
   // Read before starting: starting closes a Settings dialog, and with it this button
   function openCreator(e: MouseEvent, start: () => void) {
@@ -25,6 +27,14 @@
       title: `Delete ${t.name}?`, label: '', confirm: 'Delete', danger: true, input: 'none',
       text: 'This removes the theme from this device.',
       onsubmit: () => studio.remove(t.id)
+    };
+  }
+
+  function askReset(id: string, name: string) {
+    ui.prompt = {
+      title: `Reset ${name}?`, label: '', confirm: 'Reset', danger: true, input: 'none',
+      text: 'Your changes to this color scheme are removed.',
+      onsubmit: () => studio.resetScheme(id)
     };
   }
 
@@ -50,6 +60,13 @@
     <button class="btn primary" onclick={e => openCreator(e, () => studio.stepAside())}>Back to the creator</button>
   {:else}
     <button class="btn primary" onclick={e => openCreator(e, () => studio.create())}>Create theme</button>
+    {#if scheme}
+      {@const s = scheme}
+      <button class="btn" title="Change the colors of this scheme" onclick={e => openCreator(e, () => studio.editScheme(s.id))}>Edit {s.name}</button>
+      {#if studio.edits[s.id]}
+        <button class="btn" title="Back to the colors it came with" onclick={() => askReset(s.id, s.name)}>Reset {s.name}</button>
+      {/if}
+    {/if}
     <button class="btn" title="Add a theme from a .json file" onclick={() => picker?.click()}>Import</button>
   {/if}
   <input bind:this={picker} type="file" accept=".json,application/json" aria-label="Import theme file" hidden onchange={imported} />

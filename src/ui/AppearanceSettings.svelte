@@ -3,6 +3,8 @@
   import CornerSettings from './CornerSettings.svelte';
   import SectionHead from './SectionHead.svelte';
   import ThemeLibrary from './ThemeLibrary.svelte';
+  import { studio } from '../lib/theme-studio.svelte.ts';
+  import { themeVars } from '../lib/custom-themes.ts';
   import { store, THEMES, type ThemeId, type Arrangement } from '../lib/settings.svelte.ts';
 
   const TAB_BARS = [
@@ -123,10 +125,11 @@
 </div>
 <div class="themes" role="radiogroup" aria-label="Color scheme">
   {#each shown as t (t.id)}
+    {@const edit = studio.edits[t.id]}
     <button role="radio" aria-checked={store.settings.theme === t.id} class:active={store.settings.theme === t.id}
       onclick={() => pick(t.id)} aria-label={t.name}>
       <!-- A miniature of the app in that theme -->
-      <span class="mini" data-theme-preview={t.id} aria-hidden="true">
+      <span class="mini" data-theme-preview={t.id} style={edit ? themeVars(edit.colors) : undefined} aria-hidden="true">
         <span class="m-rail"><span></span><span></span></span>
         <span class="m-side"><i></i><i class="sel"></i><i></i></span>
         <span class="m-chat">
@@ -136,7 +139,7 @@
         </span>
       </span>
       <span class="name">{t.name}</span>
-      <span class="note">{t.note}</span>
+      <span class="note">{t.note}{#if edit}, edited{/if}</span>
     </button>
   {/each}
 </div>

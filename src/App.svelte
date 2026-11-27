@@ -34,7 +34,7 @@
   import { ui } from './lib/ui.svelte.ts';
   import { desktop } from './lib/native.ts';
   import { store, type SavedServer } from './lib/settings.svelte.ts';
-  import { applyThemeStyle, isCustomTheme } from './lib/custom-themes.ts';
+  import { applyThemeStyle } from './lib/custom-themes.ts';
   import { studio } from './lib/theme-studio.svelte.ts';
   import ThemeCreator from './ui/ThemeCreator.svelte';
   import { applyCorners } from './lib/corners.ts';
@@ -124,9 +124,9 @@
   // Color scheme on the root element; dark is the stylesheet default
   $effect(() => {
     const own = studio.shown;
-    // A theme that no longer exists falls back to dark
-    const t = own ? 'custom' : isCustomTheme(store.settings.theme) ? 'dark' : store.settings.theme;
-    if (t && t !== 'dark') document.documentElement.dataset.theme = t;
+    // A theme that no longer exists falls back to dark; an edited scheme keeps its own
+    const t = studio.scheme;
+    if (t !== 'dark') document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
     applyThemeStyle(document.documentElement.style, own);
     // Title bar of the installed web app and phone status bars
