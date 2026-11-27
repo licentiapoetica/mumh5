@@ -47,8 +47,8 @@ export const THEME_FONTS = [
 export type ThemeFont = typeof THEME_FONTS[number]['id'];
 
 export const CHAT_SIZE = { min: 12, max: 20, normal: 15 } as const;
-// The connection wave's strength in percent of its normal look
-export const WAVE_STRENGTH = { min: 25, max: 300, normal: 100 } as const;
+// The connection wave's strength in percent; normal is what every theme without its own value gets
+export const WAVE_STRENGTH = { min: 10, max: 300, normal: 35 } as const;
 export const THEME_NAME_MAX = 40;
 export const THEME_FILE_MAX = 64 * 1024;
 

@@ -133,7 +133,7 @@ test('a theme file cannot carry anything but colors, a known font and a size', (
   const t = parseThemeFile(JSON.stringify({ mumh5Theme: 1, name: 'a\n\u0007b', font: 'url(x)', chatSize: 900, waveStrength: 'x', colors, css: 'body{}' }), id)!;
   assert.match(t.colors.link, /^#[0-9a-f]{6}$/);
   assert.deepEqual(Object.keys(t.colors).sort(), [...COLOR_KEYS].sort());
-  assert.deepEqual([t.name, t.font, t.chatSize, t.waveStrength], ['a b', 'inter', 20, 100]);
+  assert.deepEqual([t.name, t.font, t.chatSize, t.waveStrength], ['a b', 'inter', 20, 35]);
   assert.equal(sanitizeTheme({ colors, waveStrength: 5000 }, id)!.waveStrength, 300);
   assert.equal('css' in t, false);
 });

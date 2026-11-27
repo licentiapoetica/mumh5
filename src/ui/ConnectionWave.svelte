@@ -2,6 +2,7 @@
   import { desktop } from '../lib/native.ts';
   import { session } from '../lib/session.svelte.ts';
   import type { LinkTone } from '../core/link-quality.ts';
+  import { WAVE_STRENGTH } from '../lib/custom-themes.ts';
 
   // Slow translucent ribbons that draw the live connection (src/core/link-quality.ts). It only
   // changes the wave's own motion: latency sets the speed, jitter makes the shape choppier, and
@@ -60,8 +61,8 @@
       // Read every frame: the color eases through a CSS transition and follows the theme
       const css = getComputedStyle(canvas);
       c.fillStyle = c.strokeStyle = css.color;
-      // A theme's wave brightness (custom-themes.ts), 1 when it has none
-      const strength = parseFloat(css.getPropertyValue('--wave-strength')) || 1;
+      // A theme's wave brightness, the normal one when it has none
+      const strength = parseFloat(css.getPropertyValue('--wave-strength')) || WAVE_STRENGTH.normal / 100;
       c.lineWidth = 1;
       const count = Math.ceil(w / STEP_PX) + 1;
       if (upper.length !== count) { upper = new Float32Array(count); lower = new Float32Array(count); }
