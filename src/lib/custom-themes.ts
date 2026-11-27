@@ -47,6 +47,8 @@ export const THEME_FONTS = [
 export type ThemeFont = typeof THEME_FONTS[number]['id'];
 
 export const CHAT_SIZE = { min: 12, max: 20, normal: 15 } as const;
+// The connection wave's strength in percent of its normal look
+export const WAVE_STRENGTH = { min: 25, max: 300, normal: 100 } as const;
 export const THEME_NAME_MAX = 40;
 export const THEME_FILE_MAX = 64 * 1024;
 
@@ -82,6 +84,7 @@ export interface CustomTheme {
   colors: ThemeColors;
   font: ThemeFont;
   chatSize: number;
+  waveStrength: number;
   indicator: ThemeIndicator;
 }
 
@@ -239,6 +242,7 @@ export function sanitizeTheme(raw: unknown, id: CustomThemeId): CustomTheme | nu
     colors,
     font: THEME_FONTS.find(f => f.id === r.font)?.id ?? 'inter',
     chatSize: Number.isFinite(size) ? Math.min(CHAT_SIZE.max, Math.max(CHAT_SIZE.min, Math.round(size))) : CHAT_SIZE.normal,
+    waveStrength: within(r.waveStrength, WAVE_STRENGTH.min, WAVE_STRENGTH.max, WAVE_STRENGTH.normal),
     indicator: {
       idle: sanitizeOrb(orbs.idle, plain.idle, true),
       talking: sanitizeOrb(orbs.talking, plain.talking, false),
@@ -248,7 +252,7 @@ export function sanitizeTheme(raw: unknown, id: CustomThemeId): CustomTheme | nu
 }
 
 export function themeFile(t: CustomTheme): string {
-  return JSON.stringify({ mumh5Theme: 1, name: t.name, font: t.font, chatSize: t.chatSize, colors: t.colors, indicator: t.indicator }, null, 2) + '\n';
+  return JSON.stringify({ mumh5Theme: 1, name: t.name, font: t.font, chatSize: t.chatSize, waveStrength: t.waveStrength, colors: t.colors, indicator: t.indicator }, null, 2) + '\n';
 }
 
 export function parseThemeFile(text: string, id: CustomThemeId): CustomTheme | null {
@@ -289,10 +293,12 @@ export function applyThemeStyle(style: Pick<CSSStyleDeclaration, 'setProperty' |
   else style.removeProperty('--name-talking');
   if (theme) {
     style.setProperty('--fs-chat', `${theme.chatSize}px`);
+    style.setProperty('--wave-strength', String(theme.waveStrength / 100));
     style.setProperty('--orb-talking', theme.indicator.talking.color);
     style.setProperty('color-scheme', luminance(theme.colors['bg-2']) > 0.35 ? 'light' : 'dark');
   } else {
     style.removeProperty('--fs-chat');
+    style.removeProperty('--wave-strength');
     style.removeProperty('--orb-talking');
     style.removeProperty('color-scheme');
   }

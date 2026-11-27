@@ -2,7 +2,7 @@ import { loadList, save } from './storage.ts';
 import { store, THEMES } from './settings.svelte.ts';
 import { ui, type PromptRequest } from './ui.svelte.ts';
 import {
-  CHAT_SIZE, COLOR_KEYS, THEME_FILE_MAX, defaultIndicator, deriveColors, fixColors, hoverLabel, isCustomTheme, normalizeHex, parseThemeFile,
+  CHAT_SIZE, COLOR_KEYS, WAVE_STRENGTH, THEME_FILE_MAX, defaultIndicator, deriveColors, fixColors, hoverLabel, isCustomTheme, normalizeHex, parseThemeFile,
   sanitizeTheme, themeFile, themeFileName, uniqueThemeName, type ColorKey, type CustomTheme, type CustomThemeId, type OrbLook,
   type OrbState, type ThemeColors, type ThemeIndicator
 } from './custom-themes.ts';
@@ -62,7 +62,7 @@ function builtInColors(id: string): ThemeColors {
 function original(id: string): CustomTheme {
   const colors = builtInColors(id);
   return {
-    id: editId(id), name: scheme(id)?.name ?? id, colors, font: 'inter', chatSize: CHAT_SIZE.normal,
+    id: editId(id), name: scheme(id)?.name ?? id, colors, font: 'inter', chatSize: CHAT_SIZE.normal, waveStrength: WAVE_STRENGTH.normal,
     indicator: { ...defaultIndicator(colors.accent), name: colors.speaking }
   };
 }
@@ -165,6 +165,7 @@ class ThemeStudio {
       colors,
       font: active?.font ?? 'inter',
       chatSize: active?.chatSize ?? CHAT_SIZE.normal,
+      waveStrength: active?.waveStrength ?? WAVE_STRENGTH.normal,
       indicator: active?.indicator ?? defaultIndicator(colors.accent)
     });
   }
@@ -191,6 +192,7 @@ class ThemeStudio {
     this.draft.indicator = o.indicator;
     this.draft.font = o.font;
     this.draft.chatSize = o.chatSize;
+    this.draft.waveStrength = o.waveStrength;
   }
 
   /** Drops the saved changes to a built-in scheme. */
