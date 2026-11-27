@@ -50,6 +50,8 @@ jobs:
           trap 'docker rm -f mumh5-smoke; kill $gateway 2>/dev/null || true' EXIT
           timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/64750) 2>/dev/null; do sleep 0.2; done'
           cargo build --locked -p mumh5-web
+          # The web build as deployed (Dockerfile), so the smokes cover precompressed responses
+          (cd frontend && bun run build:web)
           MUMH5_PORT=18080 MUMH5_STUN_PORT=0 MUMH5_SERVERS=127.0.0.1:64750 target/debug/mumh5-web & gateway=$!
           timeout 30 bash -c 'until (echo > /dev/tcp/127.0.0.1/18080) 2>/dev/null; do sleep 0.2; done'
           cd frontend

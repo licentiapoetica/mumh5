@@ -9,7 +9,7 @@ COPY frontend/package.json frontend/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY frontend/ ./
 COPY build/web/ /build/build/web/
-RUN bun run build
+RUN bun run build:web
 
 FROM rust:1.100-bookworm AS rust
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config protobuf-compiler libssl-dev libopus-dev && rm -rf /var/lib/apt/lists/*

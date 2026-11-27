@@ -29,6 +29,8 @@ cargo run --locked -p mumh5-web -- --server localhost:64738
 # Open http://127.0.0.1:8080
 ```
 
+`bun run build:web` (used by the Dockerfile) also writes `.br` and `.gz` copies beside the files, which the gateway sends to browsers that accept them. Plain `bun run build` leaves them out, since the desktop app embeds everything in `frontend/dist`.
+
 The gateway also supports the existing `MUMH5_SERVERS`, `MUMH5_DEFAULT_SERVER`, bind/port, origin, trusted-proxy, PROXY protocol, connection quota, audio-pack limit, and STUN/TURN settings in [docker-compose.yml](docker-compose.yml). Explicitly listed Mumble targets may be on private networks; arbitrary private targets require `--allow-private` / `MUMH5_ALLOW_PRIVATE=1`. Use HTTPS for remote microphone/camera access. Browser identities remain client-side and are supplied to the gateway when establishing Mumble TLS. With its TURN relay on, the gateway also keeps [mumpeer](docs/mumpeer-relay.md) links for browsers; `MUMH5_MUMPEER_PORTS` (default `443`, comma-separated) lists the relay TLS ports it may dial; set it to `0` to turn this off.
 
 ```sh
