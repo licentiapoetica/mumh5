@@ -1,6 +1,7 @@
 // Drives the browser build through the web proxy against a real Mumble server.
 //   npm run build:web && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:web
 // The page runs in a plain Chromium window (Electron without the preload), served by the bundled proxy.
+import './english.ts';
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';

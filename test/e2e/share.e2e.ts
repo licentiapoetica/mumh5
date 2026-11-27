@@ -1,5 +1,6 @@
 // Screen sharing between two instances of the built app on a real Mumble server.
 //   npm run build && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:share
+import './english.ts';
 import { _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';

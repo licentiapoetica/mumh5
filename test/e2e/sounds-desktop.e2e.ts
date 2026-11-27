@@ -1,5 +1,6 @@
 // Built desktop app: native IPC, user config files, file:// assets and playback.
 // npm run build && npm run test:e2e:sounds:desktop (requires DISPLAY on Linux)
+import './english.ts';
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';

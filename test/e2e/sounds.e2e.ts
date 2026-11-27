@@ -1,5 +1,6 @@
 // Standalone sound settings and real media playback; no Mumble server required.
 // CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e:sounds
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';

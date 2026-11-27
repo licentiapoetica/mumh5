@@ -1,5 +1,6 @@
 // The theme creator, from source in a browser; no Mumble server required.
 // CHROMIUM_PATH=/path/to/chromium npm run test:e2e:themes
+import './english.ts';
 import { chromium, type Locator, type Page } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';

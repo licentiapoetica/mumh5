@@ -1,6 +1,7 @@
 // Drives the built Electron app against a real Mumble server, with a headless second client.
 //   npm run build && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e
 // Optional: E2E_INTERNET=1 to also test link previews (fetches github.com), SHOTS_DIR to save screenshots.
+import './english.ts';
 import { _electron as electron, type Locator } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';

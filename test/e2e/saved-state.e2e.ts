@@ -1,5 +1,6 @@
 // Saved servers survive what used to lose them. Needs no Mumble server.
 //   npm run build && npm run test:e2e:saved
+import './english.ts';
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';

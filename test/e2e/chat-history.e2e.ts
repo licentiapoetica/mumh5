@@ -1,4 +1,5 @@
 // Durable history and safe conversation routing across reloads and reconnects.
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';

@@ -1,5 +1,6 @@
 // Runtime Docker settings against the built browser client; no Mumble server needed.
 // npm run build:web && node test/e2e/sound-pack-limits.e2e.ts
+import './english.ts';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import path from 'node:path';

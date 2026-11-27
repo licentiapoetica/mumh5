@@ -1,4 +1,5 @@
 // Unified uploaded/linked media, PDF rendering and privacy; no Mumble server needed.
+import './english.ts';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
