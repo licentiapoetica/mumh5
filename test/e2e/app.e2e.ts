@@ -1817,6 +1817,25 @@ try {
       await d.getByLabel('New role name').waitFor();
       return d;
     };
+    // Like Settings, Roles and members opens in a window of its own; the other steps keep it inline
+    await page.evaluate(() => localStorage.removeItem('mumh5.settingsInline'));
+    await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
+    const [rolesPopup] = await Promise.all([app.waitForEvent('window'), page.getByRole('menuitem', { name: 'Roles and members...' }).click()]);
+    await rolesPopup.getByRole('dialog', { name: 'Roles and members' }).getByLabel('New role name').waitFor();
+    assert.equal(await page.getByRole('dialog', { name: 'Roles and members' }).count(), 0, 'not in the main window');
+    assert.ok(await rolesPopup.evaluate(() => {
+      const r = document.querySelector('.modal')!.getBoundingClientRect();
+      return r.x === 0 && r.y === 0 && r.width === innerWidth && r.height === innerHeight;
+    }), 'roles fill their window');
+    // Opening it again brings the same window forward, on the tab asked for
+    await page.locator('.channel .name', { hasText: 'Team Room' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Roles and members...' }).click();
+    await page.waitForTimeout(100);
+    const titles = await Promise.all(app.windows().map(w => w.title()));
+    assert.equal(titles.filter(t => t === 'Roles and members').length, 1, 'one roles window');
+    await Promise.all([rolesPopup.waitForEvent('close'), rolesPopup.getByRole('button', { name: 'Cancel', exact: true }).click()]);
+    await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
+    console.log('ok: roles and members in a window of its own');
     const rolesDlg = await openRoles();
     await rolesDlg.getByLabel('New role name').fill('Moderator');
     await rolesDlg.getByRole('button', { name: 'Add', exact: true }).click();

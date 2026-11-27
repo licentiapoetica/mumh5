@@ -358,12 +358,16 @@ function createWindow() {
     if (frameName === 'mumh5-themes' && (url === 'about:blank' || url === '')) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 460, height: 820, minWidth: 360, minHeight: 420, backgroundColor: '#141518', autoHideMenuBar: true, title: 'Theme creator' } };
     }
+    // Roles and members, filled the same way
+    if (frameName === 'mumh5-roles' && (url === 'about:blank' || url === '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 980, height: 760, minWidth: 360, minHeight: 420, backgroundColor: '#141518', autoHideMenuBar: true, title: 'Roles and members' } };
+    }
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   // Links in those windows (the update download) go to the browser, like those in the app
   win.webContents.on('did-create-window', (child, { frameName }) => {
-    if (frameName !== 'mumh5-settings' && frameName !== 'mumh5-themes') return;
+    if (frameName !== 'mumh5-settings' && frameName !== 'mumh5-themes' && frameName !== 'mumh5-roles') return;
     child.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
       return { action: 'deny' };

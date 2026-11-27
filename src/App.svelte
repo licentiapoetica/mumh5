@@ -39,6 +39,7 @@
   import ThemeCreator from './ui/ThemeCreator.svelte';
   import { applyCorners } from './lib/corners.ts';
   import { settingsWindow } from './lib/settings-window.svelte.ts';
+  import { rolesWindow } from './lib/roles-window.svelte.ts';
   import { chatHistory } from './lib/chat-history.ts';
 
   $effect(() => {
@@ -144,6 +145,13 @@
     if (!untrack(() => settingsWindow.present(tab))) return;
     ui.settingsOpen = false;
     ui.settingsTab = 'voice';
+  });
+
+  // Roles and members too, the same way
+  $effect.pre(() => {
+    const request = ui.rolesDialog;
+    if (!request || !untrack(() => rolesWindow.present(request))) return;
+    ui.rolesDialog = null;
   });
 
   // The panel starts open only where it sits inline
