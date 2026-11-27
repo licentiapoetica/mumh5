@@ -9,7 +9,9 @@
   import { MAX_ROLES, MAX_ROLE_NAME, ROLE_COLORS, ROLE_ICONS, accessKeys, addKey, canHaveKeys, createRole, deleteRole, docFromRoles, isBuiltinRole, isFixedRole, newKeyCode, prepareRoles, removeKey, roleMembers, rolesFromAcl, roleTarget, roleTint, setMember, type RoleInfo } from '../core/roles.ts';
 
   type Tab = 'roles' | 'members' | 'keys';
-  let { tab: firstTab = 'roles', userId = null, onclose }: { tab?: Tab; userId?: number | null; onclose: () => void } = $props();
+  // windowed: in a window of its own (roles-window.svelte.ts). jump: a tab or person asked for while open
+  let { tab: firstTab = 'roles', userId = null, onclose, windowed = false, jump = null }:
+    { tab?: Tab; userId?: number | null; onclose: () => void; windowed?: boolean; jump?: { tab?: Tab; userId?: number | null } | null } = $props();
 
   const client = session.client;
   // svelte-ignore state_referenced_locally
@@ -31,6 +33,13 @@
   let keyRole = $state('');
   let copied = $state('');
   let picker = $state<HTMLInputElement>();
+  let body = $state<HTMLDivElement>();
+
+  $effect(() => {
+    if (!jump) return;
+    tab = jump.tab ?? 'roles';
+    if (jump.userId != null) person = jump.userId;
+  });
 
   const offs: (() => void)[] = [];
   if (client) {
@@ -151,7 +160,9 @@
   const roleName = (g: string) => roles.find(r => r.g === g)?.n ?? g;
 
   async function copyKey(token: string) {
-    await navigator.clipboard.writeText(token).catch(() => {});
+    // The clipboard of the window this is in, which has the focus
+    const view = body?.ownerDocument.defaultView ?? window;
+    await view.navigator.clipboard.writeText(token).catch(() => {});
     copied = token;
   }
 
@@ -176,7 +187,7 @@
   }
 </script>
 
-<Modal title="Roles and members" {onclose} width={940} height={700}>
+<Modal title="Roles and members" {onclose} width={940} height={700} {windowed} bind:body>
   <div class="top" role="tablist">
     <button role="tab" aria-selected={tab === 'roles'} class:on={tab === 'roles'} onclick={() => (tab = 'roles')}>Roles</button>
     <button role="tab" aria-selected={tab === 'members'} class:on={tab === 'members'} onclick={() => (tab = 'members')}>Members</button>
