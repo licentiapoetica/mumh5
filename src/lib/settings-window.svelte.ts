@@ -1,6 +1,7 @@
 import { mount, unmount } from 'svelte';
 import SettingsWindow from '../ui/SettingsWindow.svelte';
 import { startHints } from './hints.ts';
+import { followLook } from './popup-look.ts';
 import { desktop } from './native.ts';
 import { ui } from './ui.svelte.ts';
 
@@ -16,7 +17,7 @@ class SettingsWindowStore {
 
   private win: Window | null = null;
   private view: ReturnType<typeof mount> | null = null;
-  private look: MutationObserver | null = null;
+  private unfollow: (() => void) | null = null;
   private listeners: AbortController | null = null;
   private props: { jump: { tab: Tab } | null } | null = null;
 
@@ -48,20 +49,7 @@ class SettingsWindowStore {
     const doc = w.document;
     doc.head.replaceChildren();
     doc.title = 'Settings';
-    for (const el of document.querySelectorAll<HTMLLinkElement | HTMLStyleElement>('link[rel="stylesheet"], style')) {
-      const copy = el.cloneNode(true) as HTMLElement;
-      // The empty page has no address of its own to resolve a relative one against
-      if (el instanceof HTMLLinkElement) copy.setAttribute('href', el.href);
-      doc.head.append(copy);
-    }
-    // The color scheme and rounded corners are attributes of the root element
-    const follow = () => {
-      for (const a of [...doc.documentElement.attributes]) doc.documentElement.removeAttribute(a.name);
-      for (const a of document.documentElement.attributes) doc.documentElement.setAttribute(a.name, a.value);
-    };
-    follow();
-    this.look = new MutationObserver(follow);
-    this.look.observe(document.documentElement, { attributes: true });
+    this.unfollow = followLook(doc);
 
     const box = doc.createElement('div');
     box.style.height = '100%';
@@ -102,8 +90,8 @@ class SettingsWindowStore {
     this.props = null;
     this.listeners?.abort();
     this.listeners = null;
-    this.look?.disconnect();
-    this.look = null;
+    this.unfollow?.();
+    this.unfollow = null;
     if (this.view) unmount(this.view);
     this.view = null;
     this.isOpen = false;
