@@ -184,3 +184,43 @@ its checks with `MUMH5_SMOKE_STAY=1`.
 Never let a measured app play to a real output: load a null sink
 (`pactl load-module module-null-sink sink_name=mumh5_perf_silent`), start the apps with
 `PULSE_SINK=mumh5_perf_silent`, and keep their streams there and muted while bots talk.
+
+### Gateway comparison in CI
+
+`frontend/tools/perf/compare.ts` runs two gateway binaries against one Murmur in alternating
+order (base, new, new, base, ...), starting each one fresh, and compares the medians:
+
+- gateway CPU time per forwarded voice packet (`load.ts`, 20 clients, 5 talking; only the
+  talking phase is counted) and peak PSS meanwhile;
+- the p50 of sequential requests on one keep-alive connection, which must also stay under
+  10 ms whatever the base shows (Nagle and delayed ACKs once added about 40 ms here);
+- gateway CPU time per static visit, static p50 latency and visits per second (`http.ts`).
+
+Absolute numbers from shared runners do not compare between runs, so only the ratio of the two
+binaries measured side by side is checked. It fails when a median is worse by more than
+25 % (CPU), 20 % (memory), 25 % and 2 ms (latency) or 50 % (throughput); `--max-cpu`,
+`--max-pss`, `--max-latency`, `--max-throughput` and `--keepalive-ceiling` change them. Two
+runs of one binary against itself (5 rounds, on a busy machine) kept the medians within 2 %
+for voice CPU and memory, 13 % for CPU per static visit, 16 % for static latency and 26 %
+for throughput (single runs of voice CPU ranged from 24 to 33 us per packet); the thresholds
+sit above that, though the margin for static latency is thin. A base without `crates/web`
+(`main` before the Rust branch) is skipped with a note in the summary. A run where the
+clients received less than 90 % of the expected voice packets is not valid and fails too.
+
+The `Gateway performance` workflow (`.github/workflows/perf.yml`) builds the pull request's
+gateway and its base's in one job and runs this with 5 rounds (about 4 minutes of
+measuring). It runs on pull requests that touch `crates/web`, `crates/core`,
+`crates/platform`, the Cargo files, `frontend/tools/build.ts` or the perf tools, and by hand
+(Actions, Run workflow, with any base). The table goes to the job summary, the raw runs to
+the `gateway-perf-*` artifact. Each side serves its own web build, so a build change shows
+in the static numbers; the keep-alive probe fetches the page only.
+
+Locally, with a Murmur on 64750 and two release builds of `mumh5-web`:
+
+```bash
+cd frontend && bun run build
+bun tools/perf/compare.ts --base /path/to/old/mumh5-web --new ../target/release/mumh5-web \
+  --server 127.0.0.1:64750 --rounds 5
+```
+
+Gateways listen on `--port` and the port after it (default 18210 and 18211).
