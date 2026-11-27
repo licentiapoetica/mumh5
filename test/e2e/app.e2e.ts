@@ -1386,7 +1386,22 @@ try {
   await within(colorSent, 'own banner color published');
   const pictureSent = aliceBanner(b => b?.color === '#3366cc' && !!b.image);
   await ownCard.getByLabel('Banner picture file').setInputFiles(pic);
+  // The picture is placed in the frame first; dragging moves it, the slider zooms
+  const frame = ownCard.getByRole('slider', { name: /^Banner picture position/ });
+  await ownCard.getByLabel('Zoom').fill('2');
+  const frameBox = (await frame.boundingBox())!;
+  await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frameBox.x + frameBox.width / 2 + 60, frameBox.y + frameBox.height / 2 + 10, { steps: 5 });
+  await page.mouse.up();
+  assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'dragged right shows more of the left');
+  await ownCard.getByRole('button', { name: 'Use this part' }).click();
   await within(pictureSent, 'own banner picture published');
+  await ownCard.locator('.banner img').waitFor();
+  // The original stays here, so the picture can be moved again
+  await ownCard.getByRole('button', { name: 'Move banner picture' }).click();
+  assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'opens where it was left');
+  await ownCard.getByRole('button', { name: 'Cancel', exact: true }).first().click();
   await ownCard.locator('.banner img').waitFor();
   const reset = aliceBanner(b => b === null);
   await ownCard.getByRole('button', { name: 'Reset banner' }).click();

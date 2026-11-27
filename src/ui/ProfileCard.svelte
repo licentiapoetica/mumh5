@@ -193,7 +193,10 @@
     position: fixed; z-index: 91; width: 320px; max-height: calc(100vh - 16px); overflow-y: auto;
     background: var(--bg-1); border: 1px solid var(--line-strong);
     animation: pop 130ms var(--ease);
+    /* Still scrolls in a short window, without a scrollbar cutting into the banner */
+    scrollbar-width: none;
   }
+  .card::-webkit-scrollbar { display: none; }
   /* Slides in from the side of what was clicked */
   .card.right { --from: translateX(-6px); }
   .card.left { --from: translateX(6px); }

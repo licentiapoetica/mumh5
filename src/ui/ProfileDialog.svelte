@@ -12,7 +12,8 @@
   import PickColor from './PickColor.svelte';
   import { MAX_BANNER_BYTES, stripProfileMarks } from '../core/banner.ts';
   import { ownBanner } from '../lib/banner.svelte.ts';
-  import { makeBanner } from '../lib/images.ts';
+  import { makeBanner, type BannerCrop as Crop } from '../lib/images.ts';
+  import BannerCrop from './BannerCrop.svelte';
 
   const self = $derived(session.self);
 
@@ -70,20 +71,38 @@
     await sessions.setBanner({ color, image });
   }
 
-  async function pickBanner() {
+  // A picture being placed in the frame: a new one, or the kept original moved again
+  let placing = $state<{ blob: Blob; crop: Crop } | null>(null);
+
+  function pickBanner() {
     const file = bannerPicker?.files?.[0];
     if (bannerPicker) bannerPicker.value = '';
     if (!file) return;
+    bannerError = '';
+    placing = { blob: file, crop: { x: 0.5, y: 0.5, zoom: 1 } };
+  }
+
+  async function placeBanner(crop: Crop) {
+    const blob = placing?.blob;
+    if (!blob) return;
     bannerBusy = true;
     bannerError = '';
     try {
-      const bytes = await makeBanner(file, MAX_BANNER_BYTES);
-      if (bytes) await setBanner(ownBanner.color, bytes);
-      else bannerError = 'This picture does not get small enough for a banner.';
+      const bytes = await makeBanner(blob, MAX_BANNER_BYTES, crop);
+      if (bytes) {
+        liveColor = null;
+        await sessions.setBanner({ color: ownBanner.color, image: bytes }, { blob, crop });
+        placing = null;
+      } else bannerError = 'This picture does not get small enough for a banner.';
     } catch {
       bannerError = 'This file could not be read as a picture.';
     }
     bannerBusy = false;
+  }
+
+  function unreadable() {
+    placing = null;
+    bannerError = 'This file could not be read as a picture.';
   }
 
   function changeName() {
@@ -112,6 +131,11 @@
     {#if error}<p class="error">{error}</p>{/if}
 
     <h3>Banner</h3>
+    {#if placing}
+      {#key placing}
+        <BannerCrop blob={placing.blob} crop={placing.crop} busy={bannerBusy} onsave={placeBanner} oncancel={() => (placing = null)} onerror={unreadable} />
+      {/key}
+    {:else}
     <div class="banner" style:background={bannerColor || `hsl(${hue} 38% 30%)`}>
       {#if ownBanner.imageUrl}<img src={ownBanner.imageUrl} alt="" />{/if}
     </div>
@@ -123,11 +147,13 @@
       </label>
       <PickColor label="Pick the banner color from the screen" size={16} disabled={!session.canChooseName} onpick={c => setBanner(c, ownBanner.image)} />
       <button class="btn" disabled={bannerBusy || !session.canChooseName} onclick={() => bannerPicker?.click()}
-        title="Shown 5:1, cut from the middle">{bannerBusy ? 'Preparing...' : ownBanner.image ? 'Change banner picture' : 'Add banner picture'}</button>
+        title="Shown 5:1; you choose the part after picking it">{bannerBusy ? 'Preparing...' : ownBanner.image ? 'Change banner picture' : 'Add banner picture'}</button>
+      {#if ownBanner.source}<button class="btn" disabled={bannerBusy} onclick={() => (placing = { ...ownBanner.source! })}>Move banner picture</button>{/if}
       {#if ownBanner.image}<button class="btn" disabled={bannerBusy} onclick={() => setBanner(ownBanner.color, null)}>Remove banner picture</button>{/if}
       {#if ownBanner.color || ownBanner.image}<button class="btn" disabled={bannerBusy} onclick={() => setBanner('', null)}>Reset banner</button>{/if}
-      <input bind:this={bannerPicker} type="file" accept="image/*" hidden aria-label="Banner picture file" onchange={pickBanner} />
     </div>
+    {/if}
+    <input bind:this={bannerPicker} type="file" accept="image/*" hidden aria-label="Banner picture file" onchange={pickBanner} />
     {#if bannerError}<p class="error">{bannerError}</p>{/if}
     <p class="hint">Other mumh5 users see your banner on your profile. Other Mumble clients do not show it.</p>
 

@@ -20,7 +20,7 @@ import { renderIncoming, textToHtml, formatBytes, type Embed } from './html.ts';
 import { escapeHtml } from '../core/html.ts';
 import { makeInlineImage, originalImage, videoPoster } from './images.ts';
 import { ownAvatar } from './avatar.svelte.ts';
-import { ownBanner } from './banner.svelte.ts';
+import { ownBanner, type BannerSource } from './banner.svelte.ts';
 import { files, fileKind } from './files.svelte.ts';
 import { announce, isPiece } from '../core/file-transfer.ts';
 import { encodePoke, decodePoke } from '../core/poke.ts';
@@ -1778,8 +1778,8 @@ class Sessions {
   }
 
   // Your banner for every server, published in your comment on the ones you are on
-  async setBanner(banner: Banner): Promise<void> {
-    await ownBanner.save(banner);
+  async setBanner(banner: Banner, source?: BannerSource | null): Promise<void> {
+    await ownBanner.save(banner, source);
     for (const s of this.list) s.publishBanner();
   }
 

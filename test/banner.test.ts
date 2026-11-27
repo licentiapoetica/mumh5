@@ -47,3 +47,15 @@ test('the picture becomes a data URL of its own type', () => {
   assert.match(url, /^data:image\/webp;base64,[A-Za-z0-9+/]+=*$/);
   assert.deepEqual(new Uint8Array(Buffer.from(url.split(',')[1], 'base64')), webp);
 });
+
+test('the crop picks the part of the picture the frame shows', async () => {
+  const { bannerSourceRect } = await import('../src/lib/images.ts');
+  // Wide picture: the frame is as tall as the picture, x slides it
+  assert.deepEqual(bannerSourceRect(2000, 200, { x: 0, y: 0.5, zoom: 1 }), { sx: 0, sy: 0, sw: 1000, sh: 200 });
+  assert.deepEqual(bannerSourceRect(2000, 200, { x: 1, y: 0.5, zoom: 1 }), { sx: 1000, sy: 0, sw: 1000, sh: 200 });
+  // Tall picture: as wide as the picture, y slides it
+  assert.deepEqual(bannerSourceRect(500, 1000, { x: 0.5, y: 0.25, zoom: 1 }), { sx: 0, sy: 225, sw: 500, sh: 100 });
+  // Zoom shows less, and values out of range are held in it
+  assert.deepEqual(bannerSourceRect(500, 1000, { x: 2, y: -1, zoom: 2 }), { sx: 250, sy: 0, sw: 250, sh: 50 });
+  assert.equal(bannerSourceRect(500, 1000, { x: 0.5, y: 0.5, zoom: 99 }).sw, 125);
+});
