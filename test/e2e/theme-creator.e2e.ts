@@ -123,6 +123,8 @@ try {
   await typeCode('Wave background', '#2a1040');
   await waitVar('--server-header', '#2a1040');
   assert.equal(await rootVar('--bg-0') === '#2a1040', false, 'the fields keep their color');
+  await panel(win).getByLabel(/Wave brightness/).fill('200');
+  await waitVar('--wave-strength', '2');
   console.log('ok: the connection wave and the server header have their own colors');
 
   await panel(win).getByLabel('Font', { exact: true }).selectOption('serif');

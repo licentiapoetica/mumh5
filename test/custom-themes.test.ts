@@ -9,7 +9,7 @@ import {
 
 const id = 'custom:test' as const;
 const theme = (colors: ThemeColors): CustomTheme => ({
-  id, name: 'Test', colors, font: 'serif', chatSize: 17,
+  id, name: 'Test', colors, font: 'serif', chatSize: 17, waveStrength: 180,
   indicator: {
     idle: { color: '#333333', shape: 'ring', size: 60, glow: 0, border: false },
     talking: { color: '#ff00aa', shape: 'sphere', size: 100, glow: 6, border: true },
@@ -130,10 +130,11 @@ test('a theme file cannot carry anything but colors, a known font and a size', (
   const colors: Record<string, string> = { ...deriveColors('#16181d', '#eceef2', '#7c6cff') };
   colors.link = 'red;background:url(https://example.com/x)';
   colors['--evil'] = '#000000';
-  const t = parseThemeFile(JSON.stringify({ mumh5Theme: 1, name: 'a\n\u0007b', font: 'url(x)', chatSize: 900, colors, css: 'body{}' }), id)!;
+  const t = parseThemeFile(JSON.stringify({ mumh5Theme: 1, name: 'a\n\u0007b', font: 'url(x)', chatSize: 900, waveStrength: 'x', colors, css: 'body{}' }), id)!;
   assert.match(t.colors.link, /^#[0-9a-f]{6}$/);
   assert.deepEqual(Object.keys(t.colors).sort(), [...COLOR_KEYS].sort());
-  assert.deepEqual([t.name, t.font, t.chatSize], ['a b', 'inter', 20]);
+  assert.deepEqual([t.name, t.font, t.chatSize, t.waveStrength], ['a b', 'inter', 20, 35]);
+  assert.equal(sanitizeTheme({ colors, waveStrength: 5000 }, id)!.waveStrength, 300);
   assert.equal('css' in t, false);
 });
 

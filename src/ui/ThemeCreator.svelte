@@ -6,7 +6,7 @@
   import { THEMES } from '../lib/settings.svelte.ts';
   import { studio, type MainColor } from '../lib/theme-studio.svelte.ts';
   import {
-    CHAT_SIZE, COLOR_GROUPS, ORB_GLOW_MAX, ORB_SHAPES, ORB_SIZE, THEME_FONTS, THEME_NAME_MAX, colorProblems, normalizeHex,
+    CHAT_SIZE, COLOR_GROUPS, WAVE_STRENGTH, ORB_GLOW_MAX, ORB_SHAPES, ORB_SIZE, THEME_FONTS, THEME_NAME_MAX, colorProblems, normalizeHex,
     type ColorKey, type OrbShape, type OrbState, type ThemeFont
   } from '../lib/custom-themes.ts';
 
@@ -43,6 +43,12 @@
       onchange={e => typed(e.currentTarget, value, set)} />
     <PickColor label="Pick {name} from the screen" size={16} onpick={set} />
   </div>
+{/snippet}
+
+{#snippet waveStrength()}
+  {@const d = studio.draft!}
+  <label for="tc-wave-strength" title="How strongly the connection wave shows">Wave brightness <span class="value">{d.waveStrength}%</span></label>
+  <input id="tc-wave-strength" type="range" min={WAVE_STRENGTH.min} max={WAVE_STRENGTH.max} step="5" bind:value={d.waveStrength} />
 {/snippet}
 
 {#snippet orbState(state: OrbState, title: string)}
@@ -166,11 +172,15 @@
           {#each MAIN as c (c.key)}
             {@render colorRow(`tc-main-${c.key}`, c.key, c.name, c.note, hex => studio.setMain(c.key, hex))}
           {/each}
+          <h3>Connection wave</h3>
+          {@render colorRow('tc-quick-wave', 'wave', 'Wave color', 'The moving wave behind the server name', hex => studio.setColor('wave', hex))}
+          {@render waveStrength()}
         {:else}
           {#each COLOR_GROUPS as group (group.name)}
             <h3>{group.name}</h3>
             {#each group.colors as c (c.key)}
               {@render colorRow(`tc-${c.key}`, c.key, c.name, c.note, hex => studio.setColor(c.key, hex))}
+              {#if c.key === 'wave'}{@render waveStrength()}{/if}
             {/each}
           {/each}
         {/if}
