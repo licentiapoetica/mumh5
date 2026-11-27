@@ -129,6 +129,8 @@ End commit messages with `Co-Authored-By: Claude <noreply@anthropic.com>` style 
 
 ## Agent skills
 
+These sections configure the skills from mattpocock/skills (`/triage`, `/wayfinder`, `/domain-modeling` and the others the docs name). They are installed per user and are not part of this repository; without them, skip the steps that need them.
+
 ### Issue tracker
 
 GitHub Issues on `licentiapoetica/mumh5`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
@@ -139,4 +141,4 @@ Default five-label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, 
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created when first needed (neither exists yet). See `docs/agents/domain.md`.

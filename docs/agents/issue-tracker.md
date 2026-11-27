@@ -38,9 +38,14 @@ Read it as in **Read an issue** above.
 
 Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
 
+- **Labels, once**: the `wayfinder:*` labels do not exist until created. Before the first map: `for t in map research prototype grilling task; do gh label create "wayfinder:$t" --force; done` (`--force` leaves existing ones in place, only updating color and description).
+
 - **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --label wayfinder:map`.
 - **Child ticket**: an issue linked to the map as a GitHub sub-issue (see **Make an issue a sub-issue of a parent**). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
 - **Blocking**: GitHub's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only, the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
+- **Frontier query**: `gh issue list` cannot scope to a map or read dependencies, so use the REST API (`gh api` fills in `{owner}/{repo}`).
+  1. The map's open, unassigned children, in map order: `gh api --paginate 'repos/{owner}/{repo}/issues/<map>/sub_issues' --jq '.[] | select(.state == "open" and (.assignees | length) == 0) | .number'`. Without sub-issues, take the open, unassigned issues from the map's task list, in its order.
+  2. For each, in that order, its open blockers: `gh api 'repos/{owner}/{repo}/issues/<n>' --jq .issue_dependencies_summary.blocked_by` (open blockers only). Without dependencies, check whether any issue in its `Blocked by` line is still open.
+  3. The first child with no open blocker is the frontier.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
