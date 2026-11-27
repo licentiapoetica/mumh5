@@ -10,9 +10,9 @@
   import { changeNamePrompt, setPictureFromFile } from '../lib/actions.ts';
   import { store } from '../lib/settings.svelte.ts';
   import PickColor from './PickColor.svelte';
-  import { MAX_BANNER_BYTES, stripProfileMarks } from '../core/banner.ts';
+  import { MAX_BANNER_BYTES, STILL_BANNER_BYTES, stripProfileMarks } from '../core/banner.ts';
   import { ownBanner } from '../lib/banner.svelte.ts';
-  import { makeBanner, type BannerCrop as Crop } from '../lib/images.ts';
+  import { makeAnimatedBanner, type BannerCrop as Crop } from '../lib/images.ts';
   import BannerCrop from './BannerCrop.svelte';
 
   const self = $derived(session.self);
@@ -88,11 +88,14 @@
     bannerBusy = true;
     bannerError = '';
     try {
-      const bytes = await makeBanner(blob, MAX_BANNER_BYTES, crop);
-      if (bytes) {
+      // An animation may use what the description leaves of the server's limit (base64 adds a third)
+      const room = session.htmlLimit > 0 ? Math.floor((session.htmlLimit - stripProfileMarks(self?.comment ?? '').length - 400) * 3 / 4) : MAX_BANNER_BYTES;
+      const made = await makeAnimatedBanner(blob, STILL_BANNER_BYTES, Math.max(STILL_BANNER_BYTES, Math.min(MAX_BANNER_BYTES, room)), crop);
+      if (made) {
         liveColor = null;
-        await sessions.setBanner({ color: ownBanner.color, image: bytes }, { blob, crop });
+        await sessions.setBanner({ color: ownBanner.color, image: made.bytes }, { blob, crop });
         placing = null;
+        if (made.still) bannerError = 'This animation does not get small enough for a banner, so it is still.';
       } else bannerError = 'This picture does not get small enough for a banner.';
     } catch {
       bannerError = 'This file could not be read as a picture.';

@@ -14,6 +14,7 @@ import { createCodec } from '../../src/core/proto.ts';
 import { encodeVoice, decodeVoice, type VoicePacket } from '../../src/core/voice-packet.ts';
 import { MumbleClient, PERM, type ChannelAcl } from '../../src/core/client.ts';
 import { bannerMark, parseBanner } from '../../src/core/banner.ts';
+import { encodeGif } from '../../src/lib/animated.ts';
 import { channelPassword, withPassword } from '../../src/core/channel-password.ts';
 import type { Transport } from '../../src/core/transport.ts';
 import { openTls } from '../../electron/tls-transport.ts';
@@ -1355,6 +1356,19 @@ try {
   await ownCard.getByRole('button', { name: 'Remove picture' }).click();
   assert.equal(await within(pictureGone, 'picture removed'), 0);
   await ownCard.locator('.avatar img').waitFor({ state: 'detached' });
+  // An animated picture stays animated, as GIF
+  const anim = path.join(userData, 'anim.gif');
+  const solid = (r: number, b: number) => ({ rgba: new Uint8ClampedArray(Array.from({ length: 64 * 64 }, () => [r, 0, b, 255]).flat()), delay: 80 });
+  writeFileSync(anim, encodeGif({ width: 64, height: 64, frames: [solid(255, 0), solid(0, 255), solid(255, 255)] }, 32, 1, false));
+  const animSet = new Promise<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
+  await ownCard.getByLabel('Picture file').setInputFiles(anim);
+  await within(animSet, 'animated picture announced');
+  const animBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
+  bob.requestBlob({ textures: [aliceId] });
+  assert.equal(new TextDecoder().decode((await within(animBytes, 'animated picture fetched')).subarray(0, 4)), 'GIF8', 'sent as GIF');
+  const animGone = new Promise<number>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture')) res(u.texture!.length); }));
+  await ownCard.getByRole('button', { name: 'Remove picture' }).click();
+  assert.equal(await within(animGone, 'animated picture removed'), 0);
   await page.keyboard.press('Escape');
   bob.setTexture(new Uint8Array(0));
   await bobInTree.locator('.avatar img').waitFor({ state: 'detached' });

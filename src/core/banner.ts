@@ -7,8 +7,10 @@ import { stripDisplayName } from './display-name.ts';
 
 export interface Banner { color: string; image: Uint8Array | null }
 
-// Every client downloads the comments of everyone on the server, so the picture stays small
-export const MAX_BANNER_BYTES = 24 * 1024;
+// Every client downloads the comments of everyone on the server, so the picture stays small.
+// Animations get more room; a still picture needs far less.
+export const MAX_BANNER_BYTES = 64 * 1024;
+export const STILL_BANNER_BYTES = 24 * 1024;
 
 const ONE = /<img\b[^>]*\bsrc="data:,mumh5banner:([0-9a-fA-F]{6})?:([A-Za-z0-9_-]*)"[^>]*>/;
 const ALL = new RegExp(ONE.source, 'g');
@@ -33,6 +35,7 @@ function fromB64Url(text: string): Uint8Array {
 export function imageType(b: Uint8Array): string | null {
   if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46
     && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  if (b.length > 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
   if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
   if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
   return null;

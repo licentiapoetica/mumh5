@@ -1,4 +1,5 @@
 import { isRoleImage } from '../core/roles.ts';
+import { decodeFrames, fitGif } from './animated.ts';
 
 const readDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
   const r = new FileReader();
@@ -123,6 +124,19 @@ export async function makeServerIcon(file: File, size = 128): Promise<string> {
 // A profile picture: square, cut from the middle, small enough for the server's image limit.
 // PNG keeps transparency when it fits; otherwise JPEG on a dark background. Both formats are
 // ones the desktop Mumble client can show.
+// An animated picture stays animated as GIF, center-cut the same way; one that does not get small
+// enough becomes a still picture, and still says so.
+export async function makeAnimatedAvatar(file: Blob, maxBytes: number): Promise<{ bytes: Uint8Array; still: boolean } | null> {
+  const square = (w: number, h: number) => { const side = Math.min(w, h); return { sx: (w - side) / 2, sy: (h - side) / 2, sw: side, sh: side }; };
+  const frames = await decodeFrames(file, square, 128, 128).catch(() => null);
+  if (frames) {
+    const gif = fitGif(frames, [[128, 128], [96, 96], [64, 64]], maxBytes);
+    if (gif) return { bytes: gif, still: false };
+  }
+  const bytes = await makeAvatar(file, maxBytes);
+  return bytes ? { bytes, still: !!frames } : null;
+}
+
 export async function makeAvatar(file: Blob, maxBytes: number): Promise<Uint8Array | null> {
   const bmp = await createImageBitmap(file);
   const side = Math.min(bmp.width, bmp.height);
@@ -168,6 +182,18 @@ export function bannerSourceRect(w: number, h: number, crop: BannerCrop): { sx: 
 
 // A profile banner: 5:1 like the card's banner, the part chosen with crop. WebP where the browser
 // encodes it, JPEG otherwise; whichever first fits maxBytes.
+// An animated one stays animated as GIF, up to animatedBytes; one that does not get small enough
+// becomes a still picture, and still says so.
+export async function makeAnimatedBanner(file: Blob, stillBytes: number, animatedBytes: number, crop: BannerCrop): Promise<{ bytes: Uint8Array; still: boolean } | null> {
+  const frames = await decodeFrames(file, (w, h) => bannerSourceRect(w, h, crop), 400, 80, '#1a1b1f').catch(() => null);
+  if (frames) {
+    const gif = fitGif(frames, [[400, 80], [320, 64], [240, 48], [200, 40]], animatedBytes, false);
+    if (gif) return { bytes: gif, still: false };
+  }
+  const bytes = await makeBanner(file, stillBytes, crop);
+  return bytes ? { bytes, still: !!frames } : null;
+}
+
 export async function makeBanner(file: Blob, maxBytes: number, crop: BannerCrop = { x: 0.5, y: 0.5, zoom: 1 }): Promise<Uint8Array | null> {
   const bmp = await createImageBitmap(file);
   const encode = (canvas: HTMLCanvasElement, type: string, quality: number) =>
