@@ -27,7 +27,7 @@ npm run dist:mac     # .dmg
 
 Installers are written to `release/`. The Windows installer also builds on Linux with Wine installed; the macOS one needs a Mac. Pushing a version tag (`git tag v0.2.0 && git push origin v0.2.0`) makes the Gitea workflow in `.gitea/workflows/release.yml` build the Linux and Windows files and attach them to a release.
 
-The GitHub [build workflow](../.github/workflows/build.yml) runs type checks and unit tests on pushes to `main`, pull requests targeting `main`, and manual runs. Desktop packaging and Docker builds run only for pushes and manual runs; pull requests do not build installers or images.
+The GitHub [build workflow](../.github/workflows/build.yml) runs type checks, unit tests and the gateway's Rust checks and tests on pushes to `main`, pull requests targeting `main`, and manual runs. Desktop packaging and Docker builds run only for pushes and manual runs; pull requests do not build installers or images.
 
 Successful builds from `main` update the [latest snapshot prerelease](https://github.com/licentiapoetica/mumh5/releases/tag/snapshot), with stable installer filenames and SHA256 checksums. The `snapshot` tag points to the built commit. Desktop installers are also kept as workflow artifacts for 14 days, including manual builds from other branches.
 
@@ -50,14 +50,23 @@ MUMBLE_TEST_HOST=localhost:64739 npm test
 npm run build
 MUMBLE_TEST_HOST=localhost:64739 MUMBLE_SUPERUSER_PASSWORD=testsuper npm run test:e2e
 npm run build:web
-MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:web   # browser build through the proxy
+MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:web   # browser build through the gateway (built with cargo)
+```
+
+The web gateway is Rust (version in `rust-toolchain.toml`; it needs `protoc` and the OpenSSL and Opus development files, and the workspace tests also libvpx):
+
+```bash
+cargo fmt --all --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+MUMH5_TEST_HOST=127.0.0.1 MUMH5_TEST_PORT=64739 cargo test --locked -p mumh5-web --test mumpeer_gateway
 ```
 
 On Linux the end-to-end test forces X11, so it can run on a virtual display: `Xvfb :99 & DISPLAY=:99 npm run test:e2e`. See [CLAUDE.md](../CLAUDE.md) for the architecture and project conventions.
 
 ```
 electron/   main process: window, TLS sockets, identities, tray
-server/     browser proxy: static files, WebSocket-to-TLS bridge, STUN and TURN
+crates/     web gateway (Rust): web/ serves dist-web and bridges WebSocket to TLS, platform/ STUN and TURN, core/ Mumble
 src/core/   Mumble protocol: framing, codec, client state, voice packets
 src/lib/    shared app state, actions and menus, voice engine, sanitizing, file transfers
 src/ui/     interface components and dialogs

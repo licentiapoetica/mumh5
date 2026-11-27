@@ -15,6 +15,7 @@ All notable changes to mumh5. Versions follow the `version` in `package.json`.
 
 ### Changed
 
+- Browser version: the Node proxy is replaced by the Rust gateway from the Rust branch (`crates/web`), with the same settings, port and Docker setup. Like the proxy it sends the DeepFilterNet engine brotli-compressed (it takes any `.br` or `.gz` copy beside a file, but the build writes only that one), and `MUMH5_THREADS` sets how many threads serve connections (default 1). Building the browser version from source now needs Rust; `npm run proxy` and `dist-proxy/` are gone.
 - New look throughout, still with square corners: one type scale, fields and buttons of one height with a visible focus ring, calmer spacing in the chat, the message box set in from the edges, softer shadows on menus and dialogs, sentence-case labels.
 - New app icon: a lowercase m that is also a speech bubble, white on near black; the tray icon uses the same black while idle.
 - Stacked is the default layout for new installations; saved settings keep their layout.

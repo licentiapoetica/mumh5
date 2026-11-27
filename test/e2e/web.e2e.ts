@@ -1,11 +1,11 @@
 // Drives the browser build through the web proxy against a real Mumble server.
 //   npm run build:web && MUMBLE_TEST_HOST=localhost:64739 npm run test:e2e:web
-// The page runs in a plain Chromium window (Electron without the preload), served by the bundled proxy.
+// The page runs in a plain Chromium window (Electron without the preload), served by the Rust gateway (test/e2e/gateway.ts).
 import './english.ts';
 import { _electron as electron } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { startGateway } from './gateway.ts';
 import { mkdtempSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -42,18 +42,15 @@ function within<T>(p: Promise<T>, label: string, ms = 10000): Promise<T> {
   return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`Timed out waiting for: ${label}`)), ms))]);
 }
 
-// The bundled proxy, as it would be deployed: one allowed server, serving dist-web
+// The gateway, as it would be deployed: one allowed server, serving dist-web
 const proxyPort = 18000 + Math.floor(Math.random() * 1000);
 const { ELECTRON_RUN_AS_NODE, ...env } = process.env;
-const proxy = spawn(process.execPath, [path.join(root, 'dist-proxy/proxy.mjs')], {
-  env: { ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_DEFAULT_SERVER: target, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1',
-    // Everything is on this machine, so the relay has to be allowed to reach loopback
-    MUMH5_ALLOW_PRIVATE: '1', MUMH5_TURN_IP: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit']
-});
-await within(new Promise<void>((res, rej) => {
-  proxy.stdout.on('data', d => { if (String(d).includes('listening')) res(); });
-  proxy.on('exit', code => rej(new Error(`proxy exited with ${code}`)));
-}), 'proxy start');
+const { process: proxy } = await within(startGateway({
+  ...env, MUMH5_PORT: String(proxyPort), MUMH5_SERVERS: `${target}=Test Server`, MUMH5_DEFAULT_SERVER: target, MUMH5_STUN_PORT: String(proxyPort + 1000), MUMH5_STUN_BIND: '127.0.0.1',
+  // Everything is on this machine. The relay announces loopback and may always reach its own
+  // address; MUMH5_ALLOW_PRIVATE does not open it to other private peers (it did in the Node proxy)
+  MUMH5_ALLOW_PRIVATE: '1', MUMH5_TURN_IP: '127.0.0.1'
+}), 'gateway start', 600000);
 
 const downloads = mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-dl-'));
 const browser = () => electron.launch({

@@ -1,11 +1,7 @@
 // The DeepFilterNet worklet, run outside a browser with the globals a worklet really has
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { brotliCompressSync } from 'node:zlib';
-import { startProxy, defaults, parseServers } from '../server/proxy.ts';
+import { readFileSync } from 'node:fs';
 
 interface Port { onmessage: ((e: { data: unknown }) => void) | null; posted: Record<string, unknown>[]; postMessage(m: Record<string, unknown>): void }
 interface Processor { port: Port; process(i: Float32Array[][], o: Float32Array[][]): boolean }
@@ -74,25 +70,4 @@ test('a module it cannot start reports the failure and passes audio through', ()
   const i = new Float32Array(128).fill(0.25), o = new Float32Array(128);
   p.process([[i]], [[o]]);
   assert.deepEqual(o, i);
-});
-
-test('the proxy sends a precompressed wasm file to clients that accept it', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'mumh5-denoise-'));
-  try {
-    mkdirSync(path.join(dir, 'assets'));
-    const body = Buffer.alloc(4096, 'model');
-    writeFileSync(path.join(dir, 'assets/m.wasm'), body);
-    writeFileSync(path.join(dir, 'assets/m.wasm.br'), brotliCompressSync(body));
-    const proxy = await startProxy({ ...defaults, port: 0, origins: ['*'], staticDir: dir, servers: parseServers('voice.example.org') });
-    try {
-      const url = `http://127.0.0.1:${proxy.port}/assets/m.wasm`;
-      const br = await fetch(url, { headers: { 'Accept-Encoding': 'br' } });
-      assert.equal(br.headers.get('content-encoding'), 'br');
-      assert.equal(br.headers.get('content-type'), 'application/wasm');
-      assert.deepEqual(Buffer.from(await br.arrayBuffer()), body);
-      const plain = await fetch(url, { headers: { 'Accept-Encoding': 'identity' } });
-      assert.equal(plain.headers.get('content-encoding'), null);
-      assert.deepEqual(Buffer.from(await plain.arrayBuffer()), body);
-    } finally { await proxy.close(); }
-  } finally { rmSync(dir, { recursive: true }); }
 });

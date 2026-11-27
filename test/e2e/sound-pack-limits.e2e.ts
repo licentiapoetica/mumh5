@@ -5,7 +5,7 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { zipSync } from 'fflate';
-import { startProxy, configFromEnv } from '../../server/proxy.ts';
+import { startGateway } from './gateway.ts';
 import { MIB } from '../../src/core/audio-pack-limits.ts';
 
 function wav(size: number): Uint8Array {
@@ -30,9 +30,9 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
   headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
 try {
   for (const configured of [false, true]) {
-    const proxy = await startProxy({ ...configFromEnv({ MUMH5_SERVERS: 'voice.example.org', MUMH5_STUN_PORT: '0',
-      ...(configured ? { MUMH5_MAX_AUDIO_PACK_MB: '128', MUMH5_MAX_AUDIO_FILE_MB: '16', MUMH5_MAX_AUDIO_UNPACKED_MB: '256' } : {}) }),
-      port: 0, staticDir: path.resolve('dist-web') });
+    const proxy = await startGateway({ MUMH5_PORT: '0', MUMH5_SERVERS: 'voice.example.org', MUMH5_STUN_PORT: '0',
+      MUMH5_STATIC: path.resolve('dist-web'),
+      ...(configured ? { MUMH5_MAX_AUDIO_PACK_MB: '128', MUMH5_MAX_AUDIO_FILE_MB: '16', MUMH5_MAX_AUDIO_UNPACKED_MB: '256' } : {}) });
     const context = await browser.newContext();
     try {
       await context.addInitScript(() => localStorage.setItem('mumh5.identities', JSON.stringify({ identities: [], defaultId: null, setupDone: true })));
@@ -85,7 +85,7 @@ try {
       console.log(`ok: ${configured ? 'configured' : 'default'} sound-pack limits in the browser`);
     } finally {
       await context.close();
-      await proxy.close();
+      proxy.process.kill();
     }
   }
 } finally {
