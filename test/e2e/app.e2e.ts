@@ -207,7 +207,9 @@ try {
   await settingsPopup.getByRole('button', { name: 'Reset rounded corners', exact: true }).click();
   await settingsPopup.getByRole('button', { name: 'Reset', exact: true }).click();
   await rootCorner('0px');
-  // The Settings button does not open a second copy
+  // The Settings button does not open a second copy. The pointer is still on it from opening the
+  // window, and with hints off its title is set aside until the pointer moves away.
+  await page.mouse.move(1, 1);
   await page.getByTitle('Settings').click();
   await page.waitForTimeout(100);
   assert.equal(await page.getByRole('dialog', { name: 'Settings' }).count(), 0, 'no second settings');
@@ -1344,7 +1346,7 @@ try {
   await shownCard.waitFor({ state: 'detached' });
   await page.locator('.me').getByRole('button', { name: 'Edit your profile' }).click();
   const ownCard = page.getByRole('dialog', { name: 'Edit profile' });
-  await ownCard.getByLabel('Picture file').setInputFiles(pic);
+  await ownCard.getByLabel('Picture file', { exact: true }).setInputFiles(pic);
   await within(pictureSet, 'own picture announced');
   const pictureBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
   bob.requestBlob({ textures: [aliceId] });
@@ -1361,7 +1363,7 @@ try {
   const solid = (r: number, b: number) => ({ rgba: new Uint8ClampedArray(Array.from({ length: 64 * 64 }, () => [r, 0, b, 255]).flat()), delay: 80 });
   writeFileSync(anim, encodeGif({ width: 64, height: 64, frames: [solid(255, 0), solid(0, 255), solid(255, 255)] }, 32, 1, false));
   const animSet = new Promise<void>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('textureHash')) res(); }));
-  await ownCard.getByLabel('Picture file').setInputFiles(anim);
+  await ownCard.getByLabel('Picture file', { exact: true }).setInputFiles(anim);
   await within(animSet, 'animated picture announced');
   const animBytes = new Promise<Uint8Array>(res => bob.on('user', (u, changed) => { if (u.session === aliceId && changed.includes('texture') && u.texture?.length) res(u.texture); }));
   bob.requestBlob({ textures: [aliceId] });
@@ -1404,23 +1406,23 @@ try {
   await ownCard.getByLabel('Banner picture file').setInputFiles(pic);
   // The picture is placed in the frame first; dragging moves it, the slider zooms
   const frame = ownCard.getByRole('slider', { name: /^Banner picture position/ });
-  await ownCard.getByLabel('Zoom').fill('2');
+  await ownCard.getByLabel('Zoom', { exact: true }).fill('2');
   const frameBox = (await frame.boundingBox())!;
   await page.mouse.move(frameBox.x + frameBox.width / 2, frameBox.y + frameBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(frameBox.x + frameBox.width / 2 + 60, frameBox.y + frameBox.height / 2 + 10, { steps: 5 });
   await page.mouse.up();
   assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'dragged right shows more of the left');
-  await ownCard.getByRole('button', { name: 'Use this part' }).click();
+  await ownCard.getByRole('button', { name: 'Use this part', exact: true }).click();
   await within(pictureSent, 'own banner picture published');
   await ownCard.locator('.banner img').waitFor();
   // The original stays here, so the picture can be moved again
-  await ownCard.getByRole('button', { name: 'Move banner picture' }).click();
+  await ownCard.getByRole('button', { name: 'Move banner picture', exact: true }).click();
   assert.ok(Number(await frame.getAttribute('aria-valuenow')) < 50, 'opens where it was left');
   await ownCard.getByRole('button', { name: 'Cancel', exact: true }).first().click();
   await ownCard.locator('.banner img').waitFor();
   const reset = aliceBanner(b => b === null);
-  await ownCard.getByRole('button', { name: 'Reset banner' }).click();
+  await ownCard.getByRole('button', { name: 'Reset banner', exact: true }).click();
   await within(reset, 'own banner removed');
   await page.keyboard.press('Escape');
   await ownCard.waitFor({ state: 'detached' });
