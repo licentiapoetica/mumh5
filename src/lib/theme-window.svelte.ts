@@ -63,6 +63,14 @@ class ThemeWindow {
     w.focus();
   }
 
+  /** Starts something in the creator from a button; reads the button's window first, since
+   *  starting closes a Settings dialog and with it the button. */
+  openFrom(button: HTMLElement, start: () => void) {
+    const from = button.ownerDocument.defaultView ?? window;
+    start();
+    this.show(from);
+  }
+
   close() {
     const w = this.win;
     if (!w) return;
