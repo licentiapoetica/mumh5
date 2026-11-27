@@ -28,6 +28,8 @@ async function launch() {
   const page = await app.firstWindow();
   page.on('console', m => { if (m.type() === 'error') console.log('[renderer]', m.text()); });
   await page.setViewportSize({ width: 1280, height: 800 });
+  // Settings in the main window, where the steps look for it
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
   return { app, page };
 }
 

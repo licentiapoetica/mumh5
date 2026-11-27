@@ -16,7 +16,7 @@
     { y: 0.46, a: 0.24, b: 0.30, len: 640, top: -0.028, bottom: 0.041, alpha: 0.045, phase: 2.1 },
     { y: 0.70, a: 0.18, b: 0.26, len: 1180, top: 0.019, bottom: 0.031, alpha: 0.07, phase: 4.4 }
   ];
-  const TONES: Record<LinkTone, string> = { good: 'var(--speaking)', slow: 'var(--warn)', stalled: 'var(--danger)' };
+  const TONES: Record<LinkTone, string> = { good: 'var(--wave, var(--speaking))', slow: 'var(--warn)', stalled: 'var(--danger)' };
   const TAU = Math.PI * 2;
   const STEP_PX = 6;
   // The motion is far below a pixel per frame, so 30 fps looks the same as 60 at half the work
@@ -138,7 +138,7 @@
 <style>
   .conn-wave {
     position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; display: block; pointer-events: none;
-    color: var(--speaking);
+    color: var(--wave, var(--speaking));
     transition: color 1800ms var(--ease);
     /* Quieter under the server name and the power button */
     mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.45), #000 45%, #000 85%, rgb(0 0 0 / 0.5));

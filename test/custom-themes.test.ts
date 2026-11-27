@@ -17,6 +17,19 @@ const theme = (colors: ThemeColors): CustomTheme => ({
   }
 });
 
+test('the connection wave and the server header have their own colors, the old ones for older themes', () => {
+  const base = deriveColors('#16181d', '#eceef2', '#7c6cff');
+  assert.equal(base.wave, base.speaking);
+  const older: Partial<ThemeColors> = { ...base, speaking: '#22aa55' };
+  delete older.wave;
+  assert.equal(sanitizeTheme({ colors: older }, id)!.colors.wave, '#22aa55');
+  assert.equal(sanitizeTheme({ colors: { ...base, wave: '#ff8800' } }, id)!.colors.wave, '#ff8800');
+  assert.equal(base['server-header'], base['bg-0']);
+  const beforeHeader: Partial<ThemeColors> = { ...base, 'bg-0': '#202020' };
+  delete beforeHeader['server-header'];
+  assert.equal(sanitizeTheme({ colors: beforeHeader }, id)!.colors['server-header'], '#202020', 'the header takes the toolbar color');
+});
+
 test('a main button stays readable under the pointer', () => {
   const base = deriveColors('#000000', '#ffffff', '#000000');
   const older: Partial<ThemeColors> = { ...base, 'accent-hover': '#ffffff', 'accent-text': '#d4d4d4' };

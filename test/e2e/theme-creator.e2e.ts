@@ -15,6 +15,8 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 try {
   const context = await browser.newContext({ viewport: { width: 1400, height: 860 }, acceptDownloads: true });
   const page = await context.newPage();
+  // Settings in the page, where the steps look for it, not in a window of its own
+  await page.addInitScript(() => localStorage.setItem('mumh5.settingsInline', '1'));
   const failures: string[] = [];
   page.on('pageerror', e => failures.push(e.message));
   await page.goto(server.resolvedUrls!.local[0]);
@@ -105,6 +107,23 @@ try {
   await hex.fill('not a color');
   await hex.press('Tab');
   assert.equal(await hex.inputValue(), '#aabbcc');
+  // The connection wave follows the status color until it gets a color of its own
+  const typeCode = async (name: string, value: string) => {
+    const field = panel(win).getByLabel(`${name} code`, { exact: true });
+    await field.fill(value);
+    await field.press('Tab');
+  };
+  await typeCode('Connected and active', '#44dd88');
+  await waitVar('--wave', '#44dd88');
+  await typeCode('Connection wave', '#ff8800');
+  await waitVar('--wave', '#ff8800');
+  await typeCode('Connected and active', '#66ee99');
+  await waitVar('--speaking', '#66ee99');
+  assert.equal(await rootVar('--wave'), '#ff8800', 'a wave color of its own stays');
+  await typeCode('Wave background', '#2a1040');
+  await waitVar('--server-header', '#2a1040');
+  assert.equal(await rootVar('--bg-0') === '#2a1040', false, 'the fields keep their color');
+  console.log('ok: the connection wave and the server header have their own colors');
 
   await panel(win).getByLabel('Font', { exact: true }).selectOption('serif');
   await panel(win).getByLabel(/Chat text size/).fill('18');

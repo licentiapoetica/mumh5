@@ -34,6 +34,9 @@ function builtInColors(id: string): ThemeColors {
   const filled = deriveColors(read('bg-2') ?? '#1a1b1f', read('text') ?? '#e6e7ea', read('accent') ?? '#7c6cff');
   const colors = Object.fromEntries(COLOR_KEYS.map(k => [k, read(k) ?? filled[k]])) as ThemeColors;
   colors['accent-hover-text'] = hoverLabel(colors['accent-text'], colors['accent-hover']);
+  // The built-in schemes draw the wave in their status color
+  colors.wave = read('wave') ?? colors.speaking;
+  colors['server-header'] = read('server-header') ?? colors['bg-0'];
   probe.remove();
   return colors;
 }
@@ -156,10 +159,14 @@ class ThemeStudio {
 
   setColor(key: ColorKey, value: string) {
     if (!this.draft || this.draft.colors[key] === value) return;
+    const previous = this.draft.colors[key];
     this.remember(key);
     this.draft.colors[key] = value;
     // The label on a hovered button follows when the new color would hide it
     if (key === 'accent-hover') this.draft.colors['accent-hover-text'] = hoverLabel(this.draft.colors['accent-hover-text'], value);
+    // The wave and the server header keep following the color they started from until given their own
+    if (key === 'speaking' && this.draft.colors.wave === previous) this.draft.colors.wave = value;
+    if (key === 'bg-0' && this.draft.colors['server-header'] === previous) this.draft.colors['server-header'] = value;
   }
 
   /** One of the three main colors; the shades follow it. */

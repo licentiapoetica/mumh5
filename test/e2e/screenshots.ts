@@ -180,6 +180,8 @@ try {
   apps.push(app);
   const page = await app.firstWindow();
   await page.setViewportSize({ width: 1440, height: 900 });
+  // Settings in the main window, where the shots are taken
+  await page.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
 
   await page.getByRole('button', { name: /Create a new identity/ }).click();
   await page.getByLabel('Name', { exact: true }).fill('n3on');
@@ -304,6 +306,7 @@ try {
     apps.push(instance);
     const p = await instance.firstWindow();
     await p.setViewportSize({ width: 1440, height: 900 });
+    await p.evaluate(() => localStorage.setItem('mumh5.settingsInline', '1'));
     await p.getByRole('button', { name: /Create a new identity/ }).click();
     await p.getByLabel('Name', { exact: true }).fill(name);
     await p.getByRole('button', { name: 'Create', exact: true }).click();
