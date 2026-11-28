@@ -1,5 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { t } from '../lib/i18n.svelte.ts';
+  import { menu } from '../lib/menu.svelte.ts';
+  import { store } from '../lib/settings.svelte.ts';
 
   let { kind, url, name, autoplay = false, onerror }: {
     kind: 'audio' | 'video'; url: string; name: string; autoplay?: boolean; onerror?: () => void;
@@ -7,7 +10,10 @@
   let media = $state<HTMLMediaElement>();
   let player = $state<HTMLDivElement>();
   let paused = $state(true), currentTime = $state(0), duration = $state(0);
-  let muted = $state(false), volume = $state(1), error = $state('');
+  let muted = $state(false), loop = $state(false), error = $state('');
+  // One volume for every player, kept for the next one; muting and looping are per player
+  const volume = $derived(store.settings.mediaVolume);
+  $effect(() => { if (media) media.volume = volume; });
   const length = $derived(Number.isFinite(duration) ? duration : 0);
 
   function time(seconds: number): string {
@@ -19,6 +25,10 @@
     if (!media.paused) { media.pause(); return; }
     try { await media.play(); error = ''; } catch { error = 'Could not play this file.'; }
   }
+  function setVolume(v: number) { store.settings.mediaVolume = v; muted = false; }
+  function contextMenu(e: MouseEvent) {
+    menu.show(e, [{ label: t('player.loop'), checked: loop, action: () => (loop = !loop) }]);
+  }
   function failed() { error = 'Could not play this file.'; onerror?.(); }
   async function fullscreen() {
     try {
@@ -28,13 +38,19 @@
   }
 </script>
 
-<div class="media-player" class:video={kind === 'video'} bind:this={player}>
+<div class="media-player" class:video={kind === 'video'} role="group" aria-label={name} bind:this={player} oncontextmenu={contextMenu}>
   {#if kind === 'video'}
-    <video src={url} aria-label={name} bind:this={media} bind:paused bind:currentTime bind:duration bind:muted bind:volume
-      {autoplay} preload="metadata" playsinline onerror={failed}><track kind="captions" /></video>
+    <div class="stage">
+      <video src={url} aria-label={name} bind:this={media} bind:paused bind:currentTime bind:duration bind:muted
+        {autoplay} {loop} preload="metadata" playsinline onerror={failed}><track kind="captions" /></video>
+      <!-- For the pointer only: keyboards and screen readers have the button below -->
+      <button class="surface" tabindex="-1" aria-hidden="true" onmousedown={e => e.preventDefault()} onclick={toggle}>
+        {#if paused}<span><Icon name="play" size={22} /></span>{/if}
+      </button>
+    </div>
   {:else}
-    <audio src={url} aria-label={name} bind:this={media} bind:paused bind:currentTime bind:duration bind:muted bind:volume
-      {autoplay} preload="metadata" onerror={failed}></audio>
+    <audio src={url} aria-label={name} bind:this={media} bind:paused bind:currentTime bind:duration bind:muted
+      {autoplay} {loop} preload="metadata" onerror={failed}></audio>
   {/if}
   <div class="player-controls" role="group" aria-label="Player for {name}">
     <input class="seek" type="range" min="0" max={length || 1} step="0.01" value={Math.min(currentTime, length)} disabled={!length}
@@ -48,7 +64,8 @@
       <button class="control" onclick={() => (muted = !muted)} aria-label="{muted ? 'Unmute' : 'Mute'} {name}" title={muted ? 'Unmute' : 'Mute'}>
         <Icon name={muted || !volume ? 'volume-off' : 'volume'} size={16} />
       </button>
-      <input class="volume" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume for {name}" />
+      <input class="volume" type="range" min="0" max="1" step="0.01" value={volume} aria-label="Volume for {name}"
+        oninput={e => setVolume(Number(e.currentTarget.value))} onchange={() => store.saveSettings()} />
       {#if kind === 'video'}<button class="control" onclick={fullscreen} aria-label="Fullscreen {name}" title="Fullscreen"><Icon name="expand" size={16} /></button>{/if}
     </div>
     {#if error}<p role="status">{error}</p>{/if}
@@ -59,6 +76,9 @@
   .media-player { min-width: 0; background: var(--bg-1); }
   audio { display: none; }
   video { display: block; width: 100%; max-height: 360px; object-fit: contain; background: var(--bg-0); }
+  .stage { position: relative; }
+  .surface { position: absolute; inset: 0; display: grid; place-items: center; cursor: pointer; }
+  .surface span { display: grid; place-items: center; width: 52px; height: 52px; color: var(--text); background: var(--bg-1); border: 1px solid var(--line-strong); }
   .player-controls { padding: 4px 10px 8px; border-top: 1px solid var(--line); }
   input[type='range'] { display: block; height: 16px; padding: 0; appearance: none; background: transparent; border: 0; box-shadow: none; cursor: pointer; }
   input[type='range']::-webkit-slider-runnable-track { height: 3px; background: var(--line-strong); }
@@ -75,7 +95,8 @@
   .volume { flex: none; width: 60px; margin: 0 4px; }
   p { margin: 4px 0 0; font-size: 12px; color: var(--danger); }
   .media-player:fullscreen { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; }
-  .media-player:fullscreen video { flex: 1; min-height: 0; max-height: none; }
+  .media-player:fullscreen .stage { flex: 1; min-height: 0; }
+  .media-player:fullscreen video { height: 100%; max-height: none; }
   .media-player:fullscreen .player-controls { flex: none; }
   @media (max-width: 480px) { .player-controls { padding-inline: 6px; } .volume { width: 42px; margin-inline: 0; } }
 </style>
