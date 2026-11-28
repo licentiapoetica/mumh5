@@ -17,6 +17,7 @@ import { DownLink, UpLink, linksSupported, okSdp, type LinkRoute } from './file-
 import { linkRoute, okMode, type LinkMode } from '../core/file-direct.ts';
 import { isRequestId, requestId } from '../core/mumpeer-signal.ts';
 import type { RelayLease } from './mumpeer.svelte.ts';
+import { Meters, type LinkState, type PeerStat } from './file-meters.ts';
 
 export interface Transfer {
   state: 'idle' | 'finding' | 'loading' | 'ready' | 'failed';
@@ -27,9 +28,16 @@ export interface Transfer {
   url: string;     // once ready
   sending: number; // people we are sending it to
   link: '' | LinkRoute; // coming over a direct link (file-links.ts) instead of the server
+  peers: PeerStat[];   // who it comes from and goes to, for the details (file-meters.ts)
+  pieces: number;      // pieces here so far, of `count`
+  count: number;
+  started: number;     // when the download started, ms
+  ended: number;       // when it finished or failed
+  // Someone who could send it directly; that shows both IP addresses, so it waits for a click
+  directAsk: number | null;
 }
 
-const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '', url: '', sending: 0, link: '' };
+const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '', url: '', sending: 0, link: '', peers: [], pieces: 0, count: 0, started: 0, ended: 0, directAsk: null };
 
 // What this computer keeps of files it sent and received; the oldest go first
 const KEEP_BYTES = 2 * 1024 ** 3;
@@ -67,6 +75,12 @@ interface Download {
   // Sources that take links, with how (see linkRoute), and those tried already
   linkPeers: Map<number, { mode: LinkMode; relay: string }>;
   directTried: Set<number>;
+  // How the current link attempt ended, when the other side said (a declined offer)
+  linkEnd: { state: LinkState; reason: string } | null;
+  // The receiver allowed a direct route for this download (allowDirect), or declined it
+  // (declineDirect): then only mumpeer, which keeps the addresses apart, or the server
+  directOk: boolean;
+  directNo: boolean;
 }
 
 interface Runtime {
@@ -109,6 +123,23 @@ class Files {
   private local = new Map<string, { meta: FileMeta; blob: Blob }>();
   private index: Kept[] | null = null;
   private checked = new Set<string>();
+  // Links we serve on any server, for the details
+  private uplinks = new Set<UpLink>();
+  private meters = new Meters((id, peers) => this.set(id, { peers }), (id, p) => this.linkPath(id, p));
+
+  /** The details of a file are on screen (or not): its links' paths are read while they are. */
+  details(id: string, on: boolean): void {
+    this.meters.watch(id, on);
+  }
+
+  private linkPath(id: string, p: PeerStat): Promise<string> | null {
+    if (p.dir === 'from') {
+      const link = this.downloads.get(id)?.direct;
+      return link?.peer === p.session ? link.path() : null;
+    }
+    for (const link of this.uplinks) if (link.file === id && link.peer === p.session) return link.path();
+    return null;
+  }
 
   // Plugin data needs a 1.4 server; older ones would not pass the requests on
   supported(s: Session): boolean {
@@ -268,12 +299,14 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set()
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null, directOk: false, directNo: false
     };
     this.downloads.set(meta.i, d);
-    this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '', link: '' });
+    this.meters.clear(meta.i, 'from');
+    this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '', link: '', pieces: 0, count: d.count, started: now, ended: 0 });
     if (author != null && author !== client.session && client.users.has(author)) {
       d.sources.set(author, new SourceWindow([], 0));
+      this.meters.update(s, meta.i, author, 'from', { state: 'waiting' });
       this.assign(d);
     }
     // The author is asked too when direct links are on: the answer says whether it takes one
@@ -288,7 +321,26 @@ class Files {
     this.set(id, { state: 'idle', got: 0, rate: 0, sources: 0, link: '' });
   }
 
+  /** The receiver allowed a direct route for this download: tried now, the server route goes on meanwhile. */
+  allowDirect(id: string): void {
+    const d = this.downloads.get(id);
+    if (!d || d.directOk) return;
+    d.directOk = true;
+    this.set(id, { directAsk: null });
+    void this.tryDirect(d);
+  }
+
+  /** The receiver declined a direct route for this download: mumpeer when both can use it, else the server. */
+  declineDirect(id: string): void {
+    const d = this.downloads.get(id);
+    if (!d || d.directOk || d.directNo) return;
+    d.directNo = true;
+    this.set(id, { directAsk: null });
+    void this.tryDirect(d);
+  }
+
   private stop(d: Download): void {
+    this.set(d.meta.i, { directAsk: null });
     clearInterval(d.timer);
     clearTimeout(d.rebalance);
     if (this.downloads.get(d.meta.i) === d) this.downloads.delete(d.meta.i);
@@ -301,7 +353,8 @@ class Files {
 
   private fail(d: Download, error: string): void {
     this.stop(d);
-    this.set(d.meta.i, { state: 'failed', error, rate: 0, sources: 0, link: '' });
+    this.meters.finish(d.meta.i, 'from', 'gone');
+    this.set(d.meta.i, { state: 'failed', error, rate: 0, sources: 0, link: '', ended: Date.now() });
     sounds.play('uploadFailed');
   }
 
@@ -342,6 +395,7 @@ class Files {
   private dropSource(d: Download, id: number): void {
     if (d.direct?.peer === id) d.direct.close();
     if (!d.sources.delete(id)) return;
+    this.meters.update(d.s, d.meta.i, id, 'from', { state: 'gone' });
     if (d.sources.size) this.assign(d);
     else if (Date.now() > d.findUntil) this.fail(d, 'Nobody online has this file right now');
   }
@@ -374,14 +428,15 @@ class Files {
     const bytes = decode15(p.payload, pieceSize(d.meta, p.index));
     if (!bytes) return;
     const src = d.sources.get(from)!;
-    if (this.accept(d, p.index, bytes)) return;
+    if (this.accept(d, p.index, bytes, from, 'server')) return;
     // More before the source runs out, so it keeps sending without getting ahead of us
     if (src.got(p.index) && !d.direct?.open) this.ask(d, from, src, false);
   }
 
   // A piece from either route; true once the file is complete
-  private accept(d: Download, index: number, bytes: Uint8Array): boolean {
+  private accept(d: Download, index: number, bytes: Uint8Array, from: number, route: PeerStat['route']): boolean {
     if (d.parts[index] || bytes.length !== pieceSize(d.meta, index)) return false;
+    this.meters.add(d.s, d.meta.i, from, 'from', bytes.length, route);
     d.parts[index] = new Blob([bytes as Uint8Array<ArrayBuffer>]);
     d.digests[index] = sha256(bytes);
     d.got++;
@@ -389,7 +444,7 @@ class Files {
     d.lastAt = Date.now();
     d.stalls = 0;
     if (this.transfers[d.meta.i]?.state === 'finding' && d.rateFrom.bytes === 0) d.rateFrom = { at: Date.now(), bytes: 0 };
-    this.set(d.meta.i, { state: 'loading', got: d.bytes });
+    this.set(d.meta.i, { state: 'loading', got: d.bytes, pieces: d.got });
     if (d.got < d.count) return false;
     this.finish(d);
     return true;
@@ -400,43 +455,76 @@ class Files {
   // Tries the next source that takes links; the server route goes on meanwhile
   private async tryDirect(d: Download): Promise<void> {
     const client = d.s.client;
-    const mode = this.linkMode();
+    const setting = this.linkMode();
+    // Declined direct: as if this side had chosen mumpeer only
+    const mode = setting && d.directNo ? 2 : setting;
     if (d.direct || !client || !mode || this.downloads.get(d.meta.i) !== d) return;
-    let peer: number | undefined, route: 'direct' | 'mumpeer' | null = null;
+    let peer: number | undefined, route: 'direct' | 'mumpeer' | null = null, ask: number | null = null;
     for (const [p, theirs] of d.linkPeers) {
       if (d.directTried.has(p) || !client.users.has(p)) continue;
+      const mine = d.s.mumpeer.capability(p, 'file');
+      const r = linkRoute(mode, theirs.mode, mine, theirs.relay);
+      if (!r && d.directNo && linkRoute(setting!, theirs.mode, mine, theirs.relay) === 'direct') {
+        d.directTried.add(p);
+        this.meters.link(d.s, d.meta.i, p, 'from', { route: 'direct', state: 'declined', reason: 'Declined by you, so it goes through the Mumble server' });
+        continue;
+      }
+      // A direct route shows each side the other's address: only after the receiver allowed it
+      if (r === 'direct' && !d.directOk) {
+        if (ask == null) ask = p;
+        continue;
+      }
       d.directTried.add(p);
-      route = linkRoute(mode, theirs.mode, d.s.mumpeer.capability(p, 'file'), theirs.relay);
+      route = r;
       if (route) { peer = p; break; }
+      // Mumpeer is wanted (by either side) and cannot be used: say why
+      const reason = !mine ? d.s.mumpeer.fileBlocked(p) : !theirs.relay ? 'No usable mumpeer relay on their side' : 'You trust different mumpeer relays';
+      this.meters.link(d.s, d.meta.i, p, 'from', { route: 'mumpeer', state: 'none', reason });
     }
-    if (peer == null || !route) return;
+    if (peer == null || !route) {
+      this.set(d.meta.i, { directAsk: ask });
+      if (ask != null) this.meters.link(d.s, d.meta.i, ask, 'from', { route: 'direct', state: 'ask', reason: '' });
+      return;
+    }
+    this.set(d.meta.i, { directAsk: null });
+    const via = peer;
+    const kind: LinkRoute = route;
+    d.linkEnd = null;
     // Through mumpeer both sides ask for the relay pair first; the source is the side sending
-    let lease: RelayLease | null = null;
+    let lease: RelayLease | null = null, why = '';
     const relayId = route === 'mumpeer' ? requestId() : '';
     if (relayId) {
       try {
-        lease = d.s.mumpeer.acquire(peer, relayId, peer, () => link.close(), 'file');
-      } catch {
+        lease = d.s.mumpeer.acquire(peer, relayId, peer, reason => { why = reason; link.close(); }, 'file');
+      } catch (e) {
+        this.meters.link(d.s, d.meta.i, via, 'from', { route: kind, state: 'failed', reason: (e as Error).message });
         return this.tryDirect(d);
       }
     }
+    this.meters.link(d.s, d.meta.i, via, 'from', { route: kind, state: 'connecting', reason: '' });
     const link: DownLink = new DownLink(peer, d.count, k => pieceSize(d.meta, k), {
       open: route => {
         if (d.direct !== link) return;
         d.lastAt = Date.now();
         this.set(d.meta.i, { link: route });
+        this.meters.update(d.s, d.meta.i, via, 'from', { route, state: 'active' });
+        this.meters.link(d.s, d.meta.i, via, 'from', { route, state: 'open', reason: '' });
         // The server route stops; what it already sent still counts
         const busy = [...d.sources].filter(([, src]) => src.window.size).map(([id]) => id);
         for (const src of d.sources.values()) src.window.clear();
         this.signal(d.s, busy, FILE.want, { i: d.meta.i, r: [] });
         this.assign(d);
       },
-      piece: (index, bytes) => { if (d.direct === link) this.accept(d, index, bytes); },
+      piece: (index, bytes) => { if (d.direct === link) this.accept(d, index, bytes, via, this.transfers[d.meta.i]?.link || 'direct'); },
       closed: wasOpen => {
         lease?.close();
         if (d.direct !== link) return;
         d.direct = null;
         this.set(d.meta.i, { link: '' });
+        this.meters.update(d.s, d.meta.i, via, 'from', { route: 'server', state: d.sources.has(via) ? 'waiting' : 'gone' });
+        const end = d.linkEnd ?? (wasOpen ? { state: 'closed' as const, reason: why || 'The link closed before the file was complete' }
+          : { state: 'failed' as const, reason: why || 'Did not connect in time' });
+        this.meters.link(d.s, d.meta.i, via, 'from', { route: kind, ...end });
         if (this.downloads.get(d.meta.i) !== d) return;
         // Back to the server route for what is missing, and the next source may take a link
         if (wasOpen) this.assign(d, true);
@@ -457,48 +545,76 @@ class Files {
     const sdp = okSdp(body.sdp) ? body.sdp : null;
     const relayId = isRequestId(body.m) ? body.m : null;
     const key = `${from}:${id}`;
-    const decline = () => this.signal(s, [from], FILE.answer, { i: id });
+    const kind: LinkRoute = relayId ? 'mumpeer' : 'direct';
+    // here: what this side shows; there: what the receiver shows (sent along)
+    const decline = (here: string, there: string) => {
+      if (this.local.has(id)) this.meters.link(s, id, from, 'to', { route: kind, state: 'declined', reason: here });
+      this.signal(s, [from], FILE.answer, { i: id, w: there });
+    };
     const mode = this.linkMode();
     const found = await this.find(id);
-    if (!found || !mode || (!sdp && !relayId) || (rt.links.size >= MAX_UPLINKS && !rt.links.has(key))) return decline();
+    if (!found) return decline('The file is not here', 'The file is not on their side any more');
+    if (!mode) return decline('Links are off here', 'Links are off on their side');
+    if (!sdp && !relayId) return;
+    if (rt.links.size >= MAX_UPLINKS && !rt.links.has(key)) return decline('Too many links at once', 'They serve too many links at once');
     // Someone who wants the relay never gets a direct route from us
-    if (!relayId && mode !== 1) return decline();
+    if (!relayId && mode !== 1) return decline('Only mumpeer is allowed here', 'They only take links through mumpeer');
     if (relayId && !sdp) {
       this.dropLease(rt, key);
       let lease: RelayLease;
       try {
-        lease = s.mumpeer.acquire(from, relayId, s.client!.session!, () => this.dropLease(rt, key), 'file');
-      } catch {
-        return decline();
+        lease = s.mumpeer.acquire(from, relayId, s.client!.session!, reason => {
+          this.meters.link(s, id, from, 'to', { route: 'mumpeer', state: 'failed', reason });
+          this.dropLease(rt, key);
+        }, 'file');
+      } catch (e) {
+        return decline(`Mumpeer: ${(e as Error).message}`, `Mumpeer on their side: ${(e as Error).message}`);
       }
+      this.meters.link(s, id, from, 'to', { route: 'mumpeer', state: 'connecting', reason: '' });
       rt.leases.set(key, { id: relayId, lease, timer: setTimeout(() => this.dropLease(rt, key), LEASE_MS) });
       return;
     }
     const pending = relayId ? rt.leases.get(key) : null;
-    if (relayId && pending?.id !== relayId) return decline();
+    if (relayId && pending?.id !== relayId) return decline('The relay pair was not set up', 'The relay pair was not set up on their side');
     if (pending) {
       clearTimeout(pending.timer);
       rt.leases.delete(key);
     }
     rt.links.get(key)?.close();
     const { meta, blob } = found;
+    let route: LinkRoute = kind, opened = false;
+    this.meters.link(s, id, from, 'to', { route: kind, state: 'connecting', reason: '' });
     const link: UpLink = new UpLink(from, id, pieceCount(meta), async k => {
       try {
         return new Uint8Array(await blob.slice(k * meta.c, k * meta.c + pieceSize(meta, k)).arrayBuffer());
       } catch {
         return null;
       }
-    }, () => {
-      pending?.lease.close();
-      if (rt.links.get(key) === link) rt.links.delete(key);
-      this.set(id, { sending: this.sending(rt, id) });
+    }, {
+      open: r => {
+        route = r;
+        opened = true;
+        this.meters.update(s, id, from, 'to', { route: r, state: 'active' });
+        this.meters.link(s, id, from, 'to', { route: r, state: 'open', reason: '' });
+      },
+      sent: (_k, bytes) => this.meters.add(s, id, from, 'to', bytes, route),
+      closed: () => {
+        pending?.lease.close();
+        this.uplinks.delete(link);
+        if (rt.links.get(key) === link) rt.links.delete(key);
+        // The route stays the last one used; a piece through the server changes it
+        this.meters.update(s, id, from, 'to', { state: 'waiting' });
+        this.meters.link(s, id, from, 'to', opened ? { route, state: 'closed', reason: 'The link closed' } : { route, state: 'failed', reason: 'Did not connect in time' });
+        this.set(id, { sending: this.sending(rt, id) });
+      }
     });
+    this.uplinks.add(link);
     rt.links.set(key, link);
     const answer = await link.accept(sdp!, pending?.lease.config);
     if (rt.links.get(key) !== link) return;
     if (!answer) {
       link.close();
-      return decline();
+      return decline('Could not answer the offer', 'Their side could not answer the offer');
     }
     this.set(id, { sending: this.sending(rt, id) });
     this.signal(s, [from], FILE.answer, { i: id, sdp: answer });
@@ -523,6 +639,11 @@ class Files {
     const hash = await rootHash(await Promise.all(d.digests));
     if (hash !== d.meta.h) return this.fail(d, 'The file did not arrive intact');
     const blob = new Blob(d.parts as Blob[], { type: safeType(d.meta.m) });
+    this.meters.finish(d.meta.i, 'from', 'done');
+    this.set(d.meta.i, { ended: Date.now() });
+    // The people who sent it can show that it arrived
+    const senders = (this.transfers[d.meta.i]?.peers ?? []).filter(p => p.dir === 'from' && p.bytes > 0).map(p => p.session);
+    this.signal(d.s, senders, FILE.got, { i: d.meta.i });
     this.ready(d.meta, blob);
     this.keep(d.meta, blob);
     sounds.play('uploadDone');
@@ -554,12 +675,16 @@ class Files {
         if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id, ...this.linkOffer(s, from) });
         break;
       case FILE.have:
+        if (mine && !okMode(body.p) && this.linkMode()) {
+          this.meters.link(s, id, from, 'from', { route: this.linkMode() === 2 ? 'mumpeer' : 'direct', state: 'none', reason: 'Links are off on their side, or they run an older version' });
+        }
         if (mine && okMode(body.p) && !mine.linkPeers.has(from)) {
           mine.linkPeers.set(from, { mode: body.p, relay: typeof body.r === 'string' ? body.r : '' });
           void this.tryDirect(mine);
         }
         if (!mine || mine.sources.has(from) || mine.sources.size >= maxSources(mine.meta.c)) return;
         mine.sources.set(from, new SourceWindow([], 0));
+        this.meters.update(s, id, from, 'from', { state: 'waiting' });
         mine.lastAt = Date.now();
         // Answers come in together; share out once they are in
         clearTimeout(mine.rebalance);
@@ -574,6 +699,7 @@ class Files {
         // At most one window, also when asked for more: the server would hold the rest
         // Older versions number nothing and only ask again for what got lost
         const idle = rt.sender.want(id, from, pieces, { cap: windowSize(found.meta.c), again: body.a === 1 || q === undefined, q });
+        if (pieces.length) this.meters.update(s, id, from, 'to', {});
         this.set(id, { sending: this.sending(rt, id) });
         // Everything asked for is on its way already
         if (idle && pieces.length) this.signal(s, [from], FILE.done, { i: id, q });
@@ -601,10 +727,16 @@ class Files {
       case FILE.offer:
         await this.offerFrom(s, rt, from, id, body);
         break;
+      case FILE.got:
+        if (this.local.has(id)) this.meters.update(s, id, from, 'to', { state: 'done' });
+        break;
       case FILE.answer:
         if (mine?.direct?.peer !== from || mine.direct.open) return;
         if (okSdp(body.sdp)) await mine.direct.answer(body.sdp);
-        else mine.direct.close();
+        else {
+          mine.linkEnd = { state: 'declined', reason: typeof body.w === 'string' && body.w ? body.w.slice(0, 160) : 'Declined' };
+          mine.direct.close();
+        }
         break;
     }
   }
@@ -625,7 +757,11 @@ class Files {
       },
       done: (r, file) => this.signal(s, [r], FILE.done, { i: file, q: rt.sender.serial(file, r) }),
       gone: (rs, file) => { this.signal(s, rs, FILE.gone, { i: file }); this.set(file, { sending: this.sending(rt, file) }); },
-      sent: file => this.set(file, { sending: this.sending(rt, file) })
+      sent: (file, k, to) => {
+        const meta = this.local.get(file)?.meta;
+        if (meta) for (const r of to) this.meters.add(s, file, r, 'to', pieceSize(meta, k), 'server');
+        this.set(file, { sending: this.sending(rt, file) });
+      }
     }).finally(() => {
       rt.pumping = false;
       // Asked again while the last piece went out
@@ -662,6 +798,7 @@ class Files {
   // ─── Called by the session ──────────────────────────────────────────────────
 
   userLeft(s: Session, session: number): void {
+    this.meters.left(s, session);
     const rt = this.runtimes.get(s);
     if (rt) {
       rt.sender.drop(session);
@@ -673,6 +810,7 @@ class Files {
   }
 
   closed(s: Session): void {
+    this.meters.closed(s);
     const rt = this.runtimes.get(s);
     if (rt) clearTimeout(rt.timer);
     this.runtimes.delete(s);

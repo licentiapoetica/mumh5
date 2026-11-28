@@ -87,7 +87,12 @@ export class MumpeerSession {
     return !!bot && !!key && !!store.mumpeerPins[key] && store.mumpeerPins[key] !== pin(bot);
   }
 
-  get status(): string {
+  get status(): string { return this.statusFor('scr'); }
+  /** The same for files sent through the relay. */
+  get fileStatus(): string { return this.statusFor('file'); }
+
+  private statusFor(use: PairUse): string {
+    if (!this.transport) return 'Not available on this connection';
     if (!this.enabled) return 'Discovery is off';
     const eligible = this.eligible;
     if (eligible.filter(bot => !bot.departed).length > 1) return 'Multiple relay bots announced';
@@ -100,7 +105,8 @@ export class MumpeerSession {
     }
     if (!this.hasPin) return 'Relay trust required';
     if (bot.message.state === 'down') return 'Relay unavailable';
-    if (!bot.message.screen) return 'Screen sharing is disabled on the relay';
+    if (use === 'scr' && !bot.message.screen) return 'Screen sharing is disabled on the relay';
+    if (use === 'file' && !bot.message.files) return 'Files are disabled on the relay';
     if (bot.message.registeredOnly && this.session.client?.self?.userId == null) return 'Server registration required';
     return `Available · ${bot.message.host}`;
   }
@@ -110,6 +116,28 @@ export class MumpeerSession {
     const key = this.key;
     if (!this.enabled || !key || !bot || store.mumpeerPins[key] !== pin(bot) || bot.message.state !== 'up') return null;
     return (use === 'scr' ? bot.message.screen : bot.message.files) ? bot : null;
+  }
+
+  /** What the announced relay allows, in words; '' when there is no relay. */
+  get allows(): string {
+    const uses = this.candidate?.message.uses;
+    if (uses === undefined) return '';
+    if (uses === null) return 'everything (the bot sends no list)';
+    const NAMES: Record<string, string> = { img: 'images', file: 'files', scr: 'screen sharing', plg: 'plugin data', cam: 'cameras' };
+    return uses.length ? uses.map(u => NAMES[u] ?? u).join(', ') : 'nothing';
+  }
+
+  /** Why there is no file pair with this user, or '' when there can be one. */
+  fileBlocked(peer: number): string {
+    if (this.capability(peer, 'file')) return '';
+    const status = this.fileStatus;
+    if (!status.startsWith('Available')) return status;
+    const client = this.session.client;
+    const self = client?.self, other = client?.users.get(peer);
+    if (!other) return 'The other user left';
+    if (self && other.hash.toLowerCase() === self.hash.toLowerCase()) return 'The same certificate on both sides';
+    if (other.userId == null) return 'The other user is not registered on this server';
+    return 'Not available for this user';
   }
 
   /** The pinned relay both sides must name for a pair with this user, or '' when there is none. */

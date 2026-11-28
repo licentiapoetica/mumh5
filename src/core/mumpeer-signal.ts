@@ -69,6 +69,8 @@ export interface RelayAnnouncement extends RelayEndpoint {
   screen: boolean;
   // The relay carries files (use "file"); an announcement without a list allows everything
   files: boolean;
+  // The list as announced (img, file, scr, plg, cam), or null when the bot sent none
+  uses: string[] | null;
   registeredOnly: boolean;
 }
 
@@ -96,7 +98,8 @@ export function decodeBot(data: Uint8Array): BotMessage | null {
     if (typeof msg.seq !== 'number' || !Number.isSafeInteger(msg.seq) || msg.seq < 0) return null;
     if (msg.u != null && (!Array.isArray(msg.u) || msg.u.some(use => typeof use !== 'string'))) return null;
     return { ...endpoint, t: 'relay', state: msg.state, seq: msg.seq,
-      screen: msg.u == null || msg.u.includes('scr'), files: msg.u == null || msg.u.includes('file'), registeredOnly: msg.reg === true };
+      screen: msg.u == null || msg.u.includes('scr'), files: msg.u == null || msg.u.includes('file'),
+      uses: msg.u == null ? null : (msg.u as string[]).slice(0, 16).map(u => u.slice(0, 16)), registeredOnly: msg.reg === true };
   }
   if (!isRequestId(msg.rid)) return null;
   if (msg.t === 'token-err') {

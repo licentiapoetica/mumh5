@@ -613,7 +613,14 @@ try {
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(bulkPath);
   const bobFile = bob.page.locator('.chat .msg .file', { hasText: bulkName });
   await bobFile.waitFor({ timeout: 30000 });
+  // A direct route shows both IP addresses: it waits for the receiver, and the server carries the file meanwhile
+  const connect = bobFile.getByRole('button', { name: 'Allow direct connection' });
+  await connect.waitFor({ timeout: 15000 });
+  await bobFile.getByText(`${aliceName} can send this directly`).waitFor();
+  assert.deepEqual(await bob.page.evaluate(() => (window as any).__fileRoutes), [], 'no direct route before the receiver allows it');
+  if (process.env.SHOTS_DIR) await bobFile.screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-direct-ask.png') });
   const started = Date.now();
+  await connect.click();
   // About 40 s through the server at its message limit
   await bobFile.locator(`a[download="${bulkName}"]`).waitFor({ timeout: 20000 });
   const took = Date.now() - started;
@@ -625,6 +632,22 @@ try {
   }, bulkName);
   assert.equal(got, createHash('sha256').update(bulk).digest('hex'), 'the file arrived intact');
   console.log(`ok: a file directly between two people who turned it on (8 MB in ${(took / 1000).toFixed(1)} s)`);
+
+  // Details: pieces and the people it came from or went to, with the route; the sender learns it arrived
+  const details = (p: Page, name: string) => p.locator('.chat .msg .file', { hasText: name }).getByRole('region', { name: 'Transfer details' });
+  await bob.page.getByRole('button', { name: `Transfer details of ${bulkName}` }).click();
+  await details(bob.page, bulkName).getByText(/^\d+ of \d+, /).waitFor();
+  const fromAlice = details(bob.page, bulkName).locator('li', { hasText: aliceName });
+  await fromAlice.getByText('direct, done').waitFor();
+  await fromAlice.getByText(/^8\.0 MB \(100%\)/).waitFor();
+  await alice.page.getByRole('button', { name: `Transfer details of ${bulkName}` }).click();
+  const toBob = details(alice.page, bulkName).locator('li', { hasText: bobName });
+  await toBob.getByText('direct, has it').waitFor();
+  if (process.env.SHOTS_DIR) {
+    await bob.page.locator('.chat .msg .file', { hasText: bulkName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-details-receiver.png') });
+    await alice.page.locator('.chat .msg .file', { hasText: bulkName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-details-sender.png') });
+  }
+  console.log('ok: transfer details on both sides, and the sender sees that it arrived');
 
   // Only when both turned it on: with alice's off, bob does not even try, and the server carries it
   await alice.page.getByTitle('Settings').click();
@@ -640,11 +663,33 @@ try {
   });
   const smallName = `server-${tag}.bin`;
   const smallPath = path.join(path.dirname(bulkPath), smallName);
-  writeFileSync(smallPath, bulk.subarray(0, 300_000));
+  writeFileSync(smallPath, bulk.subarray(0, 1_000_000));
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(smallPath);
+  // Several pieces at the server's pace: the sender sees a progress bar while sending
+  await alice.page.getByRole('progressbar', { name: `Sending ${smallName}` }).waitFor({ timeout: 15000 });
   await bob.page.locator('.chat .msg .file', { hasText: smallName }).locator(`a[download="${smallName}"]`).waitFor({ timeout: 30000 });
   assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no link tried');
+  await bob.page.getByRole('button', { name: `Transfer details of ${smallName}` }).click();
+  await details(bob.page, smallName).locator('li', { hasText: aliceName }).getByText('Mumble server, done').waitFor();
   console.log('ok: with the sender\'s setting off the file goes through the server');
+
+  // Declining the direct connection: no link at all here (no mumpeer in this test), the server carries it
+  await alice.page.getByTitle('Settings').click();
+  await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
+  await alice.page.getByLabel('Files directly between mumh5 users').selectOption('direct');
+  await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  const declinedName = `declined-${tag}.bin`;
+  writeFileSync(path.join(path.dirname(bulkPath), declinedName), bulk.subarray(0, 600_000));
+  await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), declinedName));
+  const declinedFile = bob.page.locator('.chat .msg .file', { hasText: declinedName });
+  await declinedFile.getByRole('button', { name: 'Decline', exact: true }).click({ timeout: 15000 });
+  await declinedFile.getByRole('button', { name: 'Allow direct connection' }).waitFor({ state: 'detached' });
+  await declinedFile.locator(`a[download="${declinedName}"]`).waitFor({ timeout: 30000 });
+  assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'declined: no connection');
+  await bob.page.getByRole('button', { name: `Transfer details of ${declinedName}` }).click();
+  await details(bob.page, declinedName).locator('li', { hasText: aliceName }).getByText('Direct link declined: Declined by you, so it goes through the Mumble server').waitFor();
+  await details(bob.page, declinedName).locator('li', { hasText: aliceName }).getByText('Mumble server, done').waitFor();
+  console.log('ok: a declined direct connection falls back to the server');
 
   // Someone who wants the relay never gets a direct route: without a mumpeer relay on this server
   // (none in this test), the file goes through the Mumble server and no connection is tried
@@ -657,6 +702,9 @@ try {
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), relayName));
   await bob.page.locator('.chat .msg .file', { hasText: relayName }).locator(`a[download="${relayName}"]`).waitFor({ timeout: 30000 });
   assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no direct route to someone who wants the relay');
+  // The details say why there was no link
+  await bob.page.getByRole('button', { name: `Transfer details of ${relayName}` }).click();
+  await details(bob.page, relayName).locator('li', { hasText: aliceName }).getByText('No mumpeer link: No relay announced').waitFor();
   console.log('ok: a sender who wants the relay gets no direct route');
 
   // A sharer who disconnects takes the stream with them

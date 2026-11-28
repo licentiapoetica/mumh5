@@ -3,9 +3,10 @@
   import Icon from './Icon.svelte';
 
   // fit: as wide as the picture inside, so an upright one has no empty space beside it
-  let { name, detail, icon = 'file', href, file = false, failed = false, fit = false, progress, actions, children }: {
+  // extra: shown under the heading (a file's transfer details); progressLabel: what the bar measures
+  let { name, detail, icon = 'file', href, file = false, failed = false, fit = false, progress, progressLabel, actions, extra, children }: {
     name: string; detail: string; icon?: string; href?: string; file?: boolean; failed?: boolean; fit?: boolean;
-    progress?: number; actions?: Snippet; children?: Snippet;
+    progress?: number; progressLabel?: string; actions?: Snippet; extra?: Snippet; children?: Snippet;
   } = $props();
 
   // Remote hosts decide whether a URL downloads; a normal link may just open the media.
@@ -27,9 +28,10 @@
       {@render actions?.()}
     </div>
   </div>
+  {@render extra?.()}
   {#if children}<div class="media-body">{@render children()}</div>{/if}
   {#if progress !== undefined}
-    <div class="progress" role="progressbar" aria-label="Downloading {name}" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+    <div class="progress" role="progressbar" aria-label={progressLabel ?? `Downloading ${name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
       <span style:width="{Math.max(0, Math.min(100, progress))}%"></span>
     </div>
   {/if}

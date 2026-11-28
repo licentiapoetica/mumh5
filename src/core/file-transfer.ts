@@ -28,7 +28,8 @@ export const FILE = {
   done: 4,   // everything you asked for is sent: { i }
   gone: 5,   // I cannot send file i: { i }
   offer: 6,  // a direct link for file i (file-direct.ts): { i, sdp }
-  answer: 7  // to an offer: { i, sdp }, or { i } when declined
+  answer: 7, // to an offer: { i, sdp }, or { i } when declined
+  got: 8     // the whole file arrived and its hash matched, to the sources: { i }
 } as const;
 export type FileType = typeof FILE[keyof typeof FILE];
 

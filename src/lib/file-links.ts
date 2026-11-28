@@ -38,6 +38,27 @@ async function routeOf(pc: RTCPeerConnection): Promise<'direct' | 'relay'> {
   }
 }
 
+const KIND: Record<string, string> = { host: 'direct', srflx: 'through a router', prflx: 'through a router', relay: 'relayed' };
+
+// The path a link took, for the details of a transfer: protocol, how each side was reached, round trip
+async function pathOf(pc: RTCPeerConnection | null, mumpeer: boolean): Promise<string> {
+  if (!pc) return '';
+  try {
+    const stats = await pc.getStats();
+    let pair: any;
+    stats.forEach(r => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId); });
+    stats.forEach(r => { if (!pair && r.type === 'candidate-pair' && r.state === 'succeeded' && r.nominated) pair = r; });
+    if (!pair) return 'not connected yet';
+    const local = stats.get(pair.localCandidateId), remote = stats.get(pair.remoteCandidateId);
+    const rtt = pair.currentRoundTripTime != null ? `, ${Math.round(pair.currentRoundTripTime * 1000)} ms` : '';
+    if (mumpeer) return `mumpeer lane${rtt}`;
+    const proto = String(local?.relayProtocol ?? local?.protocol ?? '').toUpperCase();
+    return `${proto ? proto + ', ' : ''}${KIND[local?.candidateType] ?? local?.candidateType ?? '?'} to ${KIND[remote?.candidateType] ?? remote?.candidateType ?? '?'}${rtt}`;
+  } catch {
+    return '';
+  }
+}
+
 export interface DownHandlers {
   open(route: LinkRoute): void;
   piece(index: number, bytes: Uint8Array): void;
@@ -53,6 +74,7 @@ export class DownLink {
   private dc: RTCDataChannel | null = null;
   private collector: PieceCollector;
   private h: DownHandlers;
+  private viaMumpeer = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
 
@@ -66,6 +88,7 @@ export class DownLink {
    *  lane's configuration (only that relay), else the STUN and relay from Sharing. */
   async offer(mumpeer?: Promise<RTCConfiguration>): Promise<string | null> {
     this.timer = setTimeout(() => this.close(), mumpeer ? MUMPEER_CONNECT_MS : CONNECT_MS);
+    this.viaMumpeer = !!mumpeer;
     try {
       const pc = this.pc = new RTCPeerConnection(mumpeer ? await mumpeer : { iceServers: await iceServers() });
       if (this.done) { pc.close(); return null; }
@@ -101,6 +124,9 @@ export class DownLink {
     }
   }
 
+  /** Protocol, route and round trip of the connection, for the details. */
+  path(): Promise<string> { return pathOf(this.pc, this.viaMumpeer); }
+
   /** Replaces what was asked before; `again` when pieces sent earlier got lost. */
   want(ranges: [number, number][], again = false): void {
     if (this.open && this.dc?.readyState === 'open') this.dc.send(JSON.stringify({ t: 'want', r: ranges, ...again ? { a: 1 } : {} }));
@@ -119,6 +145,13 @@ export class DownLink {
   }
 }
 
+export interface UpHandlers {
+  open(route: LinkRoute): void;
+  // A whole piece went into the channel
+  sent(index: number, bytes: number): void;
+  closed(): void;
+}
+
 /** The sending end: answers an offer, then sends what the receiver asks for. */
 export class UpLink {
   readonly peer: number;
@@ -127,24 +160,26 @@ export class UpLink {
   private dc: RTCDataChannel | null = null;
   private count: number;
   private read: (index: number) => Promise<Uint8Array | null>;
-  private onclosed: () => void;
+  private h: UpHandlers;
+  private viaMumpeer = false;
   private queue: number[] = [];
   private sent = new Set<number>();
   private running = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private done = false;
 
-  constructor(peer: number, file: string, count: number, read: (index: number) => Promise<Uint8Array | null>, onclosed: () => void) {
+  constructor(peer: number, file: string, count: number, read: (index: number) => Promise<Uint8Array | null>, h: UpHandlers) {
     this.peer = peer;
     this.file = file;
     this.count = count;
     this.read = read;
-    this.onclosed = onclosed;
+    this.h = h;
   }
 
   /** The answer to send back, or null when the offer cannot be taken; `mumpeer` as in DownLink.offer. */
   async accept(offer: string, mumpeer?: Promise<RTCConfiguration>): Promise<string | null> {
     this.timer = setTimeout(() => this.close(), mumpeer ? MUMPEER_CONNECT_MS : CONNECT_MS);
+    this.viaMumpeer = !!mumpeer;
     try {
       const pc = this.pc = new RTCPeerConnection(mumpeer ? await mumpeer : { iceServers: await iceServers() });
       if (this.done) { pc.close(); return null; }
@@ -153,7 +188,10 @@ export class UpLink {
         const dc = this.dc = e.channel;
         dc.binaryType = 'arraybuffer';
         dc.bufferedAmountLowThreshold = LOW_WATER;
-        dc.onopen = () => clearTimeout(this.timer);
+        dc.onopen = async () => {
+          clearTimeout(this.timer);
+          if (!this.done) this.h.open(mumpeer ? 'mumpeer' : await routeOf(pc));
+        };
         dc.onmessage = m => { if (typeof m.data === 'string') this.wanted(m.data); };
         dc.onclose = () => this.close();
       };
@@ -166,6 +204,12 @@ export class UpLink {
       this.close();
       return null;
     }
+  }
+
+  /** Protocol, route and round trip, and what waits in the channel's buffer. */
+  async path(): Promise<string> {
+    const queued = this.dc?.bufferedAmount ? `, ${Math.round(this.dc.bufferedAmount / 1024)} KB queued` : '';
+    return (await pathOf(this.pc, this.viaMumpeer)) + queued;
   }
 
   private wanted(text: string): void {
@@ -203,6 +247,7 @@ export class UpLink {
           this.dc.send(chunk);
         }
         this.sent.add(k);
+        this.h.sent(k, bytes.length);
       }
     } catch {
       this.close();
@@ -218,6 +263,6 @@ export class UpLink {
     this.queue = [];
     try { this.dc?.close(); } catch { /* already closed */ }
     try { this.pc?.close(); } catch { /* already closed */ }
-    this.onclosed();
+    this.h.closed();
   }
 }
