@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHUNK_BYTES, PieceCollector, chunks, parseWant } from '../src/core/file-direct.ts';
+import { CHUNK_BYTES, PieceCollector, chunks, linkRoute, parseWant } from '../src/core/file-direct.ts';
 
 const bytes = (n: number, seed: number) => Uint8Array.from({ length: n }, (_, i) => (i * 7 + seed) & 255);
 const buffer = (u: Uint8Array) => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
@@ -44,4 +44,14 @@ test('chunks that do not fit the file are dropped', () => {
 test('requests are parsed strictly', () => {
   assert.deepEqual(parseWant('{"t":"want","r":[[0,3]]}'), { t: 'want', r: [[0, 3]] });
   for (const text of ['', 'x', '{}', '{"t":"want"}', '{"t":"other","r":[]}', '[]']) assert.equal(parseWant(text), null, text);
+});
+
+test('mumpeer when either side wants it, and only on the relay both trust', () => {
+  assert.equal(linkRoute(1, 1, '', ''), 'direct');
+  assert.equal(linkRoute(1, 1, 'a', 'a'), 'direct', 'both allow direct: the faster route');
+  assert.equal(linkRoute(2, 1, 'a', 'a'), 'mumpeer');
+  assert.equal(linkRoute(1, 2, 'a', 'a'), 'mumpeer');
+  assert.equal(linkRoute(2, 2, 'a', 'b'), null, 'different relays');
+  assert.equal(linkRoute(2, 1, '', ''), null, 'no relay: never direct instead');
+  assert.equal(linkRoute(1, 2, 'a', ''), null);
 });

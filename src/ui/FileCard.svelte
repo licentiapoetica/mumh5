@@ -29,7 +29,7 @@
     if (!t || t.state === 'idle') return formatBytes(meta.s);
     if (t.state === 'finding') return 'Looking for someone who has it';
     if (t.state === 'loading') {
-      const route = t.link === 'direct' ? ', direct' : t.link === 'relay' ? ', through the relay' : '';
+      const route = t.link === 'direct' ? ', direct' : t.link === 'relay' ? ', through the relay' : t.link === 'mumpeer' ? ', through mumpeer' : '';
       return `${formatBytes(t.got)} of ${formatBytes(meta.s)}${t.rate ? `, ${formatBytes(Math.round(t.rate))}/s` : ''}${route}`;
     }
     if (t.state === 'failed') return t.error;

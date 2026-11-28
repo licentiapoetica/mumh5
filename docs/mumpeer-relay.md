@@ -54,6 +54,10 @@ QUIC is only needed for the UDP path. Node has no usable QUIC, but TCP alone is 
 4. Electron main connects over TLS 1.3, verifies ALPN and the pinned relay fingerprint, and binds with the exact client identity from the Mumble connection. After both endpoints bind, Electron starts a credentialed TURN listener on loopback for each active share direction. Its relay address and peer address are virtual. Each TURN allocation forwards media and ICE packets to its one permitted peer over the paired TLS link.
 5. The app closes the allocation when the share ends and closes the link when its last allocation is no longer needed. A TCP-only relay path can add latency on lossy links.
 
+## Files through the relay
+
+Files can use the same relay (Settings > Chat and files > Files directly between mumh5 users). When either person chose "Through the server's mumpeer relay only", the downloader and the person sending ask for a pair with `use: "file"`, from any channel, and the data channel's only ICE server is that pair's lane, so neither learns the other's address. The bot announces in `u` whether the relay allows `file`; an announcement without `u` allows everything. Requirements are the same as for screen sharing (trusted relay, both registered by default), and the relay's per-session limit applies. One pair exists per two people and use, so while a screen share pair is open between them a file goes through the Mumble server instead. When no pair comes up, the file goes through the Mumble server; a direct route is never tried for someone who chose the relay.
+
 ## Browser and Android app
 
 A browser cannot open TLS sockets or present a client certificate, so the web proxy keeps the link to the relay for it. It needs the proxy's relay on (`MUMH5_TURN`, on by default, and a STUN port); then `/api/config` says `mumpeer: true` and the app offers the same settings and the Server information section as the desktop app. The Android app is the web build and works the same way.

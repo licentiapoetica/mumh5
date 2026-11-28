@@ -67,8 +67,13 @@ export interface RelayAnnouncement extends RelayEndpoint {
   state: 'up' | 'down';
   seq: number;
   screen: boolean;
+  // The relay carries files (use "file"); an announcement without a list allows everything
+  files: boolean;
   registeredOnly: boolean;
 }
+
+// What a pair is for, in the bot's words: screen sharing or files
+export type PairUse = 'scr' | 'file';
 
 export type BotMessage = RelayAnnouncement
   | { t: 'token'; rid: string; a: number; b: number; tok: string; ttl: number }
@@ -91,7 +96,7 @@ export function decodeBot(data: Uint8Array): BotMessage | null {
     if (typeof msg.seq !== 'number' || !Number.isSafeInteger(msg.seq) || msg.seq < 0) return null;
     if (msg.u != null && (!Array.isArray(msg.u) || msg.u.some(use => typeof use !== 'string'))) return null;
     return { ...endpoint, t: 'relay', state: msg.state, seq: msg.seq,
-      screen: msg.u == null || msg.u.includes('scr'), registeredOnly: msg.reg === true };
+      screen: msg.u == null || msg.u.includes('scr'), files: msg.u == null || msg.u.includes('file'), registeredOnly: msg.reg === true };
   }
   if (!isRequestId(msg.rid)) return null;
   if (msg.t === 'token-err') {
@@ -103,8 +108,8 @@ export function decodeBot(data: Uint8Array): BotMessage | null {
   return { t: 'token', rid: msg.rid, a: msg.a, b: msg.b, tok: msg.tok, ttl: msg.ttl };
 }
 
-export function requestPair(peer: number, rid: string): Uint8Array {
-  return encoder.encode(JSON.stringify({ v: 1, t: 'token-req', rid, peer, use: 'scr' }));
+export function requestPair(peer: number, rid: string, use: PairUse = 'scr'): Uint8Array {
+  return encoder.encode(JSON.stringify({ v: 1, t: 'token-req', rid, peer, use }));
 }
 
 export type PairMessage = { t: 'need'; share: string }

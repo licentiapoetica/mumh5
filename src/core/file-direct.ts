@@ -73,3 +73,17 @@ export class PieceCollector {
     this.open.clear();
   }
 }
+
+// What a side allows, as said in its "have" answer: 1 a direct route (and mumpeer when the other
+// side wants it), 2 only the server's mumpeer relay, which keeps the IP addresses apart
+export type LinkMode = 1 | 2;
+export const okMode = (v: unknown): v is LinkMode => v === 1 || v === 2;
+
+/**
+ * How two sides connect, or null when they cannot: mumpeer as soon as either wants it, and then
+ * only when both name the same pinned relay; otherwise directly.
+ */
+export function linkRoute(mine: LinkMode, theirs: LinkMode, myRelay: string, theirRelay: string): 'direct' | 'mumpeer' | null {
+  if (mine === 2 || theirs === 2) return myRelay && myRelay === theirRelay ? 'mumpeer' : null;
+  return 'direct';
+}

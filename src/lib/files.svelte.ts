@@ -14,6 +14,9 @@ import { getBlob, putBlob, getData, putData, deleteBlob } from './blobstore.ts';
 import { store } from './settings.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
 import { DownLink, UpLink, linksSupported, okSdp, type LinkRoute } from './file-links.ts';
+import { linkRoute, okMode, type LinkMode } from '../core/file-direct.ts';
+import { isRequestId, requestId } from '../core/mumpeer-signal.ts';
+import type { RelayLease } from './mumpeer.svelte.ts';
 
 export interface Transfer {
   state: 'idle' | 'finding' | 'loading' | 'ready' | 'failed';
@@ -61,8 +64,8 @@ interface Download {
   rateFrom: { at: number; bytes: number };
   // The direct link, while one is tried or open; it takes over from the server route once open
   direct: DownLink | null;
-  // Sources that take direct links, and those tried already
-  directPeers: number[];
+  // Sources that take links, with how (see linkRoute), and those tried already
+  linkPeers: Map<number, { mode: LinkMode; relay: string }>;
   directTried: Set<number>;
 }
 
@@ -76,7 +79,12 @@ interface Runtime {
   timer: ReturnType<typeof setTimeout> | undefined;
   // Direct links we serve, by receiver and file
   links: Map<string, UpLink>;
+  // Mumpeer pairs set up for a link whose offer is on its way, by receiver and file
+  leases: Map<string, { id: string; lease: RelayLease; timer: ReturnType<typeof setTimeout> }>;
 }
+
+// A mumpeer pair asked for and never used is given up after this
+const LEASE_MS = 30000;
 
 // Only types the app can show are kept as such; anything else (HTML, SVG) stays inert data
 // even if someone opens it, because object URLs carry the app's own origin
@@ -107,9 +115,19 @@ class Files {
     return !!s.client && s.client.serverVersionNum >= 0x010400;
   }
 
-  // Direct links need the setting on this computer and WebRTC
-  private directOn(): boolean {
-    return store.settings.fileDirect && linksSupported();
+  // What this computer allows (see LinkMode); null: no links (the setting is off, or no WebRTC)
+  private linkMode(): LinkMode | null {
+    if (!linksSupported()) return null;
+    const v = store.settings.fileLink;
+    return v === 'direct' ? 1 : v === 'relay' ? 2 : null;
+  }
+
+  // The "have" answer's link part: how we take links, and the relay we would use with that person
+  private linkOffer(s: Session, to: number): Record<string, unknown> {
+    const mode = this.linkMode();
+    if (!mode) return {};
+    const relay = s.mumpeer.capability(to, 'file');
+    return relay ? { p: mode, r: relay } : { p: mode };
   }
 
   private set(id: string, patch: Partial<Transfer>): void {
@@ -250,7 +268,7 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, directPeers: [], directTried: new Set()
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set()
     };
     this.downloads.set(meta.i, d);
     this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '', link: '' });
@@ -259,7 +277,7 @@ class Files {
       this.assign(d);
     }
     // The author is asked too when direct links are on: the answer says whether it takes one
-    const others = [...client.users.keys()].filter(id => id !== client.session && (id !== author || this.directOn()));
+    const others = [...client.users.keys()].filter(id => id !== client.session && (id !== author || this.linkMode()));
     this.signal(s, others, FILE.who, { i: meta.i });
   }
 
@@ -379,13 +397,29 @@ class Files {
 
   // ─── Direct links (file-links.ts) ───────────────────────────────────────────
 
-  // Tries the next source that takes direct links; the server route goes on meanwhile
+  // Tries the next source that takes links; the server route goes on meanwhile
   private async tryDirect(d: Download): Promise<void> {
     const client = d.s.client;
-    if (d.direct || !client || !this.directOn() || this.downloads.get(d.meta.i) !== d) return;
-    const peer = d.directPeers.find(p => !d.directTried.has(p) && client.users.has(p));
-    if (peer == null) return;
-    d.directTried.add(peer);
+    const mode = this.linkMode();
+    if (d.direct || !client || !mode || this.downloads.get(d.meta.i) !== d) return;
+    let peer: number | undefined, route: 'direct' | 'mumpeer' | null = null;
+    for (const [p, theirs] of d.linkPeers) {
+      if (d.directTried.has(p) || !client.users.has(p)) continue;
+      d.directTried.add(p);
+      route = linkRoute(mode, theirs.mode, d.s.mumpeer.capability(p, 'file'), theirs.relay);
+      if (route) { peer = p; break; }
+    }
+    if (peer == null || !route) return;
+    // Through mumpeer both sides ask for the relay pair first; the source is the side sending
+    let lease: RelayLease | null = null;
+    const relayId = route === 'mumpeer' ? requestId() : '';
+    if (relayId) {
+      try {
+        lease = d.s.mumpeer.acquire(peer, relayId, peer, () => link.close(), 'file');
+      } catch {
+        return this.tryDirect(d);
+      }
+    }
     const link: DownLink = new DownLink(peer, d.count, k => pieceSize(d.meta, k), {
       open: route => {
         if (d.direct !== link) return;
@@ -399,6 +433,7 @@ class Files {
       },
       piece: (index, bytes) => { if (d.direct === link) this.accept(d, index, bytes); },
       closed: wasOpen => {
+        lease?.close();
         if (d.direct !== link) return;
         d.direct = null;
         this.set(d.meta.i, { link: '' });
@@ -409,18 +444,41 @@ class Files {
       }
     });
     d.direct = link;
-    const sdp = await link.offer();
+    if (relayId) this.signal(d.s, [peer], FILE.offer, { i: d.meta.i, m: relayId });
+    const sdp = await link.offer(lease?.config);
     if (d.direct !== link) return;
     if (!sdp) return link.close();
-    this.signal(d.s, [peer], FILE.offer, { i: d.meta.i, sdp });
+    this.signal(d.s, [peer], FILE.offer, { i: d.meta.i, sdp, ...relayId ? { m: relayId } : {} });
   }
 
-  // Someone wants a direct link for a file we have
-  private async offerFrom(s: Session, rt: Runtime, from: number, id: string, sdp: string): Promise<void> {
-    const found = await this.find(id);
+  // Someone wants a link for a file we have: an offer, or through mumpeer first the relay pair
+  // (`m` names it, no offer yet) and then the offer for that pair
+  private async offerFrom(s: Session, rt: Runtime, from: number, id: string, body: Record<string, unknown>): Promise<void> {
+    const sdp = okSdp(body.sdp) ? body.sdp : null;
+    const relayId = isRequestId(body.m) ? body.m : null;
     const key = `${from}:${id}`;
-    if (!found || !this.directOn() || (rt.links.size >= MAX_UPLINKS && !rt.links.has(key))) {
-      return this.signal(s, [from], FILE.answer, { i: id });
+    const decline = () => this.signal(s, [from], FILE.answer, { i: id });
+    const mode = this.linkMode();
+    const found = await this.find(id);
+    if (!found || !mode || (!sdp && !relayId) || (rt.links.size >= MAX_UPLINKS && !rt.links.has(key))) return decline();
+    // Someone who wants the relay never gets a direct route from us
+    if (!relayId && mode !== 1) return decline();
+    if (relayId && !sdp) {
+      this.dropLease(rt, key);
+      let lease: RelayLease;
+      try {
+        lease = s.mumpeer.acquire(from, relayId, s.client!.session!, () => this.dropLease(rt, key), 'file');
+      } catch {
+        return decline();
+      }
+      rt.leases.set(key, { id: relayId, lease, timer: setTimeout(() => this.dropLease(rt, key), LEASE_MS) });
+      return;
+    }
+    const pending = relayId ? rt.leases.get(key) : null;
+    if (relayId && pending?.id !== relayId) return decline();
+    if (pending) {
+      clearTimeout(pending.timer);
+      rt.leases.delete(key);
     }
     rt.links.get(key)?.close();
     const { meta, blob } = found;
@@ -431,18 +489,27 @@ class Files {
         return null;
       }
     }, () => {
+      pending?.lease.close();
       if (rt.links.get(key) === link) rt.links.delete(key);
       this.set(id, { sending: this.sending(rt, id) });
     });
     rt.links.set(key, link);
-    const answer = await link.accept(sdp);
+    const answer = await link.accept(sdp!, pending?.lease.config);
     if (rt.links.get(key) !== link) return;
     if (!answer) {
       link.close();
-      return this.signal(s, [from], FILE.answer, { i: id });
+      return decline();
     }
     this.set(id, { sending: this.sending(rt, id) });
     this.signal(s, [from], FILE.answer, { i: id, sdp: answer });
+  }
+
+  private dropLease(rt: Runtime, key: string): void {
+    const pending = rt.leases.get(key);
+    if (!pending) return;
+    rt.leases.delete(key);
+    clearTimeout(pending.timer);
+    pending.lease.close();
   }
 
   // People we send a file to, over the server and over direct links
@@ -466,7 +533,7 @@ class Files {
   private runtime(s: Session): Runtime {
     let rt = this.runtimes.get(s);
     if (!rt) {
-      rt = { assembler: new FileAssembler(), sender: new Sender(), pumping: false, queue: [], level: 0, levelAt: Date.now(), timer: undefined, links: new Map() };
+      rt = { assembler: new FileAssembler(), sender: new Sender(), pumping: false, queue: [], level: 0, levelAt: Date.now(), timer: undefined, links: new Map(), leases: new Map() };
       this.runtimes.set(s, rt);
     }
     return rt;
@@ -484,11 +551,11 @@ class Files {
     const mine = d && d.s === s ? d : null;
     switch (signal.type) {
       case FILE.who:
-        if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id, ...this.directOn() ? { p: 1 } : {} });
+        if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id, ...this.linkOffer(s, from) });
         break;
       case FILE.have:
-        if (mine && body.p === 1 && !mine.directPeers.includes(from)) {
-          mine.directPeers.push(from);
+        if (mine && okMode(body.p) && !mine.linkPeers.has(from)) {
+          mine.linkPeers.set(from, { mode: body.p, relay: typeof body.r === 'string' ? body.r : '' });
           void this.tryDirect(mine);
         }
         if (!mine || mine.sources.has(from) || mine.sources.size >= maxSources(mine.meta.c)) return;
@@ -532,7 +599,7 @@ class Files {
         if (mine) this.dropSource(mine, from);
         break;
       case FILE.offer:
-        if (okSdp(body.sdp)) await this.offerFrom(s, rt, from, id, body.sdp);
+        await this.offerFrom(s, rt, from, id, body);
         break;
       case FILE.answer:
         if (mine?.direct?.peer !== from || mine.direct.open) return;
@@ -599,6 +666,7 @@ class Files {
     if (rt) {
       rt.sender.drop(session);
       for (const link of [...rt.links.values()]) if (link.peer === session) link.close();
+      for (const key of [...rt.leases.keys()]) if (key.startsWith(`${session}:`)) this.dropLease(rt, key);
       for (const id of Object.keys(this.transfers)) if (this.transfers[id].sending) this.set(id, { sending: this.sending(rt, id) });
     }
     for (const d of [...this.downloads.values()]) if (d.s === s) this.dropSource(d, session);
@@ -609,6 +677,7 @@ class Files {
     if (rt) clearTimeout(rt.timer);
     this.runtimes.delete(s);
     for (const link of [...rt?.links.values() ?? []]) link.close();
+    for (const key of [...rt?.leases.keys() ?? []]) this.dropLease(rt!, key);
     for (const d of [...this.downloads.values()]) if (d.s === s) this.fail(d, 'Disconnected');
     for (const id of Object.keys(this.transfers)) if (this.transfers[id].sending) this.set(id, { sending: 0 });
   }

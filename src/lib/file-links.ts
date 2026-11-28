@@ -7,8 +7,10 @@ import { gathered, iceServers } from './ice.ts';
 
 export const linksSupported = () => typeof RTCPeerConnection !== 'undefined';
 
-// A link that is not open by then is given up; the server route carries on meanwhile
+// A link that is not open by then is given up; the server route carries on meanwhile. Through
+// mumpeer the relay pair comes first (up to 7 s, see mumpeer.svelte.ts).
 const CONNECT_MS = 15000;
+const MUMPEER_CONNECT_MS = 25000;
 // What the source lets wait in the channel's buffer: enough to keep a fast link busy
 const HIGH_WATER = 4 * 1024 * 1024;
 const LOW_WATER = 1024 * 1024;
@@ -16,10 +18,11 @@ const MAX_SDP = 20000;
 
 export const okSdp = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_SDP;
 
-export type LinkRoute = 'direct' | 'relay';
+// relay: a TURN relay from Sharing; mumpeer: the Mumble server's mumpeer relay
+export type LinkRoute = 'direct' | 'relay' | 'mumpeer';
 
 // Whether the connection that came up goes through a relay (TURN) or straight to the other side
-async function routeOf(pc: RTCPeerConnection): Promise<LinkRoute> {
+async function routeOf(pc: RTCPeerConnection): Promise<'direct' | 'relay'> {
   try {
     const stats = await pc.getStats();
     let pairId = '';
@@ -59,10 +62,12 @@ export class DownLink {
     this.h = h;
   }
 
-  /** The offer to send to the source, or null when none could be made. */
-  async offer(): Promise<string | null> {
+  /** The offer to send to the source, or null when none could be made. `mumpeer`: the relay
+   *  lane's configuration (only that relay), else the STUN and relay from Sharing. */
+  async offer(mumpeer?: Promise<RTCConfiguration>): Promise<string | null> {
+    this.timer = setTimeout(() => this.close(), mumpeer ? MUMPEER_CONNECT_MS : CONNECT_MS);
     try {
-      const pc = this.pc = new RTCPeerConnection({ iceServers: await iceServers() });
+      const pc = this.pc = new RTCPeerConnection(mumpeer ? await mumpeer : { iceServers: await iceServers() });
       if (this.done) { pc.close(); return null; }
       const dc = this.dc = pc.createDataChannel('mumh5-file', { ordered: true });
       dc.binaryType = 'arraybuffer';
@@ -70,7 +75,7 @@ export class DownLink {
         if (this.done) return;
         clearTimeout(this.timer);
         this.open = true;
-        this.h.open(await routeOf(pc));
+        this.h.open(mumpeer ? 'mumpeer' : await routeOf(pc));
       };
       dc.onmessage = e => {
         if (!(e.data instanceof ArrayBuffer)) return;
@@ -79,7 +84,6 @@ export class DownLink {
       };
       dc.onclose = () => this.close();
       pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.close(); };
-      this.timer = setTimeout(() => this.close(), CONNECT_MS);
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
       return this.done ? null : pc.localDescription?.sdp ?? null;
@@ -138,10 +142,11 @@ export class UpLink {
     this.onclosed = onclosed;
   }
 
-  /** The answer to send back, or null when the offer cannot be taken. */
-  async accept(offer: string): Promise<string | null> {
+  /** The answer to send back, or null when the offer cannot be taken; `mumpeer` as in DownLink.offer. */
+  async accept(offer: string, mumpeer?: Promise<RTCConfiguration>): Promise<string | null> {
+    this.timer = setTimeout(() => this.close(), mumpeer ? MUMPEER_CONNECT_MS : CONNECT_MS);
     try {
-      const pc = this.pc = new RTCPeerConnection({ iceServers: await iceServers() });
+      const pc = this.pc = new RTCPeerConnection(mumpeer ? await mumpeer : { iceServers: await iceServers() });
       if (this.done) { pc.close(); return null; }
       pc.ondatachannel = e => {
         if (this.dc) return e.channel.close();
@@ -153,7 +158,6 @@ export class UpLink {
         dc.onclose = () => this.close();
       };
       pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.close(); };
-      this.timer = setTimeout(() => this.close(), CONNECT_MS);
       await pc.setRemoteDescription({ type: 'offer', sdp: offer });
       await pc.setLocalDescription(await pc.createAnswer());
       await gathered(pc);

@@ -595,13 +595,13 @@ try {
   for (const p of [alice.page, bob.page]) {
     await p.getByTitle('Settings').click();
     await p.getByRole('tab', { name: 'Chat and files' }).click();
-    await p.getByLabel('Send and receive files directly').check();
+    await p.getByLabel('Files directly between mumh5 users').selectOption('direct');
     await p.getByRole('button', { name: 'Done', exact: true }).click();
   }
   await bob.page.evaluate(() => {
     const seen = (window as any).__fileRoutes = [] as string[];
     new MutationObserver(() => document.querySelectorAll('.media-card .detail').forEach(e => {
-      const m = e.textContent?.match(/, (direct|through the relay)$/);
+      const m = e.textContent?.match(/, (direct|through the relay|through mumpeer)$/);
       if (m && !seen.includes(m[1])) seen.push(m[1]);
     })).observe(document.body, { subtree: true, childList: true, characterData: true });
   });
@@ -629,7 +629,7 @@ try {
   // Only when both turned it on: with alice's off, bob does not even try, and the server carries it
   await alice.page.getByTitle('Settings').click();
   await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
-  await alice.page.getByLabel('Send and receive files directly').uncheck();
+  await alice.page.getByLabel('Files directly between mumh5 users').selectOption('off');
   await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
   await bob.page.evaluate(() => {
     const Real = window.RTCPeerConnection;
@@ -645,6 +645,19 @@ try {
   await bob.page.locator('.chat .msg .file', { hasText: smallName }).locator(`a[download="${smallName}"]`).waitFor({ timeout: 30000 });
   assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no link tried');
   console.log('ok: with the sender\'s setting off the file goes through the server');
+
+  // Someone who wants the relay never gets a direct route: without a mumpeer relay on this server
+  // (none in this test), the file goes through the Mumble server and no connection is tried
+  await alice.page.getByTitle('Settings').click();
+  await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
+  await alice.page.getByLabel('Files directly between mumh5 users').selectOption('relay');
+  await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  const relayName = `relay-${tag}.bin`;
+  writeFileSync(path.join(path.dirname(bulkPath), relayName), bulk.subarray(0, 200_000));
+  await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), relayName));
+  await bob.page.locator('.chat .msg .file', { hasText: relayName }).locator(`a[download="${relayName}"]`).waitFor({ timeout: 30000 });
+  assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no direct route to someone who wants the relay');
+  console.log('ok: a sender who wants the relay gets no direct route');
 
   // A sharer who disconnects takes the stream with them
   await shareBtn.click();
