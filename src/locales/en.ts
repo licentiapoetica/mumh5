@@ -82,7 +82,8 @@ export const en = {
   'userBar.editProfile': 'Edit your profile',
   'userBar.configure': 'Configure',
   'userBar.collapseAll': 'Collapse all channels',
-  'userBar.expandAll': 'Expand all channels'
+  'userBar.expandAll': 'Expand all channels',
+  'player.loop': 'Loop'
 };
 
 export type Key = keyof typeof en;

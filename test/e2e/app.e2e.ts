@@ -659,7 +659,8 @@ try {
   const mediaHits: string[] = [];
   const mediaServer = mediaHttp.createServer((req, res) => {
     mediaHits.push(req.url ?? '');
-    const body = req.url === '/pic.png' ? linkedPic : req.url === '/clip.wav' ? clipWav : null;
+    // The sound also stands in for a video: Chromium plays it in a video element
+    const body = req.url === '/pic.png' ? linkedPic : req.url === '/clip.wav' || req.url === '/clip.webm' ? clipWav : null;
     if (!body) { res.writeHead(404).end(); return; }
     res.writeHead(200, { 'Content-Type': req.url === '/pic.png' ? 'image/png' : 'audio/wav', 'Content-Length': body.length });
     res.end(body);
@@ -687,8 +688,47 @@ try {
   await mediaMsg.getByRole('link', { name: 'Open pic.png', exact: true }).waitFor();
   await mediaMsg.getByRole('link', { name: 'Open clip.wav', exact: true }).waitFor();
   assert.ok((await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).embedHosts as string[])).includes(mediaHost));
-  mediaServer.close();
   console.log('ok: media links load when clicked, or at once from a listed host');
+
+  // Players: one saved volume, Loop in the right-click menu, a click on the picture plays and pauses
+  bob.sendText({ channels: [0] }, `watch <a href="http://${mediaHost}/clip.webm">http://${mediaHost}/clip.webm</a>`);
+  const videoMsg = page.locator('.msg', { hasText: 'watch' });
+  const video = videoMsg.locator('video');
+  await video.waitFor();
+  await page.waitForFunction(() => ((document.querySelector('.msg .embed video') as HTMLVideoElement)?.duration ?? 0) > 0.9);
+  await videoMsg.getByLabel('Volume for clip.webm').fill('0.3');
+  const sound = mediaMsg.locator('audio');
+  await page.waitForFunction(() => (document.querySelector('.msg .embed audio') as HTMLAudioElement).volume === 0.3);
+  assert.equal(await video.evaluate((v: HTMLVideoElement) => v.volume), 0.3);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).mediaVolume), 0.3);
+  await videoMsg.locator('.media-player').click({ button: 'right' });
+  // The message's own items are still there
+  await page.getByRole('menuitem', { name: 'Copy message text' }).waitFor();
+  await page.getByRole('menuitem', { name: 'Copy link address' }).waitFor();
+  await page.getByRole('menuitem', { name: 'Loop' }).click();
+  assert.equal(await video.evaluate((v: HTMLVideoElement) => v.loop), true);
+  assert.equal(await sound.evaluate((a: HTMLAudioElement) => a.loop), false, 'loop is per player');
+  await videoMsg.locator('.surface').click();
+  await videoMsg.getByRole('button', { name: 'Pause clip.webm' }).waitFor();
+  await videoMsg.locator('.surface').click();
+  await videoMsg.getByRole('button', { name: 'Play clip.webm' }).waitFor();
+  // In full screen the menu has to be inside the player to show
+  // A double click goes full screen without toggling playback twice
+  await videoMsg.locator('.surface').dblclick();
+  await page.waitForFunction(() => !!document.fullscreenElement);
+  await videoMsg.getByRole('button', { name: 'Pause clip.webm' }).waitFor();
+  await videoMsg.getByRole('button', { name: 'Pause clip.webm' }).click();
+  // The window may still be growing to the screen; any resize closes a menu
+  await page.waitForFunction(() => new Promise(done => {
+    const w = innerWidth, h = innerHeight;
+    setTimeout(() => done(w === innerWidth && h === innerHeight), 500);
+  }));
+  await video.click({ button: 'right', force: true });
+  await page.locator('.media-player:fullscreen').getByRole('menuitem', { name: 'Loop' }).click();
+  assert.equal(await video.evaluate((v: HTMLVideoElement) => v.loop), false);
+  await page.evaluate(() => document.exitFullscreen());
+  mediaServer.close();
+  console.log('ok: media players share a volume, loop from the menu and toggle on a click');
 
   // Bob -> DM
   const alice = [...bob.users.values()].find(u => u.name === 'alice')!;

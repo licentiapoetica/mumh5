@@ -60,6 +60,7 @@ export interface Settings {
   cameraFps: number;
   cameraMirror: boolean;  // show our own camera mirrored to ourselves, never to others
   shareVolume: number;    // volume of streams we watch, 0 to 1
+  mediaVolume: number;    // volume of videos and sounds in the chat, 0 to 1
   screenShareRoute: ScreenShareRoute;
   relayServer: string;    // a mumh5 web proxy whose STUN and relay to use for screen sharing
   stunServer: string;     // helps screen sharing connect through routers; empty contacts nobody
@@ -138,6 +139,7 @@ const defaults: Settings = {
   cameraFps: 30,
   cameraMirror: true,
   shareVolume: 1,
+  mediaVolume: 1,
   screenShareRoute: 'automatic',
   relayServer: '',
   stunServer: '',
@@ -173,6 +175,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
   shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',
+  mediaVolume: 'files',
   hints: 'accessibility',
   language: 'accessibility',
   updateCheck: 'about',

@@ -18,6 +18,16 @@
   $effect(() => { void menu.open; sliderValues = {}; sub = null; clearTimeout(hoverTimer); });
   let pos = $state({ x: 0, y: 0 });
 
+  // Full screen shows only the element's own content, so the menu moves into it while open
+  let host: HTMLDivElement;
+  $effect(() => {
+    const full = document.fullscreenElement;
+    if (!menu.open || !full) return;
+    const home = host.parentNode!, next = host.nextSibling;
+    full.appendChild(host);
+    return () => { home.insertBefore(host, next); };
+  });
+
   // Keep the menu on screen near the pointer
   $effect(() => {
     const m = menu.open;
@@ -115,6 +125,9 @@
   {:else if item.checked !== undefined}<span class="box" class:on={item.checked}></span>{/if}
 {/snippet}
 
+<!-- A right click inside the menu stays here: in full screen the menu sits inside the player,
+     whose own right click would open a new menu over this one -->
+<div class="host" bind:this={host} role="presentation" oncontextmenu={e => { e.preventDefault(); e.stopPropagation(); }}>
 {#if menu.open}
   <div class="catcher" role="presentation" onmousedown={() => menu.close()} oncontextmenu={e => { e.preventDefault(); menu.close(); }}></div>
   <div class="menu" role="menu" bind:this={el} style:left="{pos.x}px" style:top="{pos.y}px">
@@ -167,8 +180,10 @@
     </div>
   {/if}
 {/if}
+</div>
 
 <style>
+  .host { display: contents; }
   .catcher { position: fixed; inset: 0; z-index: 200; }
   .menu {
     position: fixed; z-index: 201; min-width: 210px; max-width: 280px; max-height: calc(100vh - 8px); overflow-y: auto; padding: 5px;
