@@ -35,6 +35,17 @@
     const parts = (Object.entries(p.via) as [PeerStat['route'], number][]).filter(([, n]) => n > 0);
     return parts.length > 1 ? ` (${parts.map(([r, n]) => `${n} ${ROUTE[r]}`).join(', ')})` : '';
   };
+  const LINK: Record<PeerStat['route'], string> = { server: 'Server', direct: 'Direct', relay: 'Relayed', mumpeer: 'Mumpeer' };
+  // A link apart from the route: "Mumpeer link up", "Mumpeer link failed: ...", "No mumpeer link: ..."
+  const linkLine = (p: PeerStat) => {
+    const l = p.link;
+    if (!l) return '';
+    const r = LINK[l.route];
+    const why = l.reason ? `: ${l.reason}` : '';
+    return { connecting: `${r} link: connecting`, open: `${r} link ${p.state === 'done' ? 'used' : 'up'}`, closed: `${r} link closed${why}`,
+      failed: `${r} link failed${why}`, declined: `${r} link declined${why}`, none: `No ${r.toLowerCase()} link${why}` }[l.state];
+  };
+  const SETTING = { off: 'off', relay: 'mumpeer only', direct: 'direct, or through a relay' } as const;
   const nameOf = (id: number) => { const u = session.user(id); return u ? store.displayName(u) : `#${id}`; };
 
   const downloading = $derived(!!t?.started);
@@ -55,6 +66,8 @@
     {/if}
     <dt>Check</dt><dd title="SHA-256 over the SHA-256 of every piece, from the announcement">{meta.h.slice(0, 16)}...{t?.state === 'ready' && downloading ? ', matched' : downloading ? ', checked when complete' : ''}</dd>
     {#if serverRtt != null}<dt>Server round trip</dt><dd>{serverRtt} ms</dd>{/if}
+    <dt>Links here</dt><dd>{SETTING[store.settings.fileLink] ?? 'off'}</dd>
+    {#if store.settings.fileLink !== 'off'}<dt>Mumpeer for files</dt><dd>{session.mumpeer.fileStatus}</dd>{/if}
   </dl>
 
   {#snippet people(title: string, list: PeerStat[])}
@@ -66,6 +79,7 @@
           <span class="what">{ROUTE[p.route]}, {stateOf(p)}</span>
           <!-- What we got from someone counts each piece once; what we sent can include pieces sent again -->
           <span class="num">{p.dir === 'from' ? `${formatBytes(p.bytes)} (${Math.min(100, Math.round((p.bytes / meta.s) * 100))}%)` : `${formatBytes(p.bytes)} sent`}, {p.pieces} {p.pieces === 1 ? 'piece' : 'pieces'}{mix(p)}{p.rate > 0 ? `, ${rate(p.rate)}` : ''}</span>
+          {#if p.link}<span class="link" class:bad={p.link.state === 'failed' || p.link.state === 'declined' || p.link.state === 'none'}>{linkLine(p)}</span>{/if}
           {#if p.path}<span class="path">{p.path}</span>{/if}
         </li>
       {/each}
@@ -89,5 +103,7 @@
   .what { text-align: right; }
   .num, .path { grid-column: 1 / -1; font-family: var(--mono); font-size: 11px; color: var(--text); overflow-wrap: anywhere; }
   .path { color: var(--text-dim); }
+  .link { grid-column: 1 / -1; font-size: 11px; color: var(--text); overflow-wrap: anywhere; }
+  .link.bad { color: var(--warn); }
   p { margin: 8px 0 0; }
 </style>

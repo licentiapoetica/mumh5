@@ -329,6 +329,17 @@ try {
       .slice(n).map(pc => pc.getConfiguration().iceTransportPolicy), before);
     assert.ok(policies.length && policies.every(p => p === 'relay'), `only the relay lane: ${policies}`);
   }
+  // The details on both sides name the mumpeer link
+  const fileDetails = (page: Page) => page.locator('.chat .msg .file', { hasText: fileName }).getByRole('region', { name: 'Transfer details' });
+  await bob.getByRole('button', { name: `Transfer details of ${fileName}` }).click();
+  await fileDetails(bob).locator('li', { hasText: aliceName }).getByText('Mumpeer link used').waitFor();
+  await fileDetails(bob).locator('li', { hasText: aliceName }).getByText('mumpeer, done').waitFor();
+  await alice.getByRole('button', { name: `Transfer details of ${fileName}` }).click();
+  await fileDetails(alice).locator('li', { hasText: bobName }).getByText('Mumpeer link used').waitFor();
+  if (process.env.SHOTS_DIR) {
+    await bob.locator('.chat .msg .file', { hasText: fileName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-mumpeer-receiver.png') });
+    await alice.locator('.chat .msg .file', { hasText: fileName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-mumpeer-sender.png') });
+  }
   console.log('ok: a file through mumpeer when one side asks for it, with no direct route');
   await fileLink(alice, 'off');
   await fileLink(bob, 'off');

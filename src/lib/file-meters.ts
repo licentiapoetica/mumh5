@@ -9,6 +9,11 @@ export type PeerRoute = 'server' | LinkRoute;
 export type PeerState = 'waiting' | 'connecting' | 'active' | 'done' | 'gone';
 export type PeerDir = 'from' | 'to';
 
+// A WebRTC link with this person, apart from the route the pieces took: being set up, up,
+// failed or declined (with why), or not possible at all (none, with why)
+export type LinkState = 'connecting' | 'open' | 'closed' | 'failed' | 'declined' | 'none';
+export interface LinkInfo { route: LinkRoute; state: LinkState; reason: string }
+
 export interface PeerStat {
   session: number;
   dir: PeerDir;
@@ -19,6 +24,7 @@ export interface PeerStat {
   pieces: number;
   rate: number;    // bytes per second over the last second
   path: string;    // a link's protocol, route and round trip, while the details are open
+  link: LinkInfo | null;
 }
 
 interface Meter extends PeerStat { prev: number; prevAt: number; lastAt: number }
@@ -47,7 +53,7 @@ export class Meters {
     const key = `${dir}:${session}`;
     let m = file.meters.get(key);
     if (!m) {
-      file.meters.set(key, m = { session, dir, route: 'server', via: {}, state: 'waiting', bytes: 0, pieces: 0, rate: 0, path: '', prev: 0, prevAt: Date.now(), lastAt: 0 });
+      file.meters.set(key, m = { session, dir, route: 'server', via: {}, state: 'waiting', bytes: 0, pieces: 0, rate: 0, path: '', link: null, prev: 0, prevAt: Date.now(), lastAt: 0 });
     }
     return m;
   }
@@ -61,6 +67,20 @@ export class Meters {
     if (patch.route && m.pieces && patch.route === 'server') delete patch.route;
     Object.assign(m, patch);
     if (m.state === 'done' || m.state === 'gone') m.rate = 0;
+    // The receiver closes the link as soon as the file is complete, before its word that it has
+    // it arrives: a link that closed with pieces over it was used, not cut off
+    if (m.state === 'done' && m.link?.state === 'closed' && (m.via[m.link.route] ?? 0) > 0) {
+      m.link = { ...m.link, state: 'open', reason: '' };
+    }
+    this.show(id);
+  }
+
+  /** What happened with a link to this person; a failure keeps its reason. */
+  link(s: Session, id: string, session: number, dir: PeerDir, link: LinkInfo): void {
+    const m = this.meter(s, id, session, dir);
+    // A link that closes after carrying the file stays "open" in the record, not "closed"
+    if (link.state === 'closed' && m.state === 'done') return;
+    m.link = link;
     this.show(id);
   }
 

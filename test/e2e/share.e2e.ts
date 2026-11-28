@@ -677,6 +677,9 @@ try {
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), relayName));
   await bob.page.locator('.chat .msg .file', { hasText: relayName }).locator(`a[download="${relayName}"]`).waitFor({ timeout: 30000 });
   assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no direct route to someone who wants the relay');
+  // The details say why there was no link
+  await bob.page.getByRole('button', { name: `Transfer details of ${relayName}` }).click();
+  await details(bob.page, relayName).locator('li', { hasText: aliceName }).getByText('No mumpeer link: No relay announced').waitFor();
   console.log('ok: a sender who wants the relay gets no direct route');
 
   // A sharer who disconnects takes the stream with them

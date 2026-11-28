@@ -80,3 +80,24 @@ test('the route is the one that carried most, and a late server piece does not c
   assert.equal(shown.f[0].route, 'direct');
   assert.deepEqual(shown.f[0].via, { server: 2, direct: 3 });
 });
+
+test('a link record keeps why it failed, and stays as used once the person has it', () => {
+  const { m, shown } = setup();
+  m.link(s, 'f', 1, 'from', { route: 'mumpeer', state: 'failed', reason: 'Relay trust required' });
+  assert.deepEqual(shown.f[0].link, { route: 'mumpeer', state: 'failed', reason: 'Relay trust required' });
+  m.link(s, 'f', 2, 'to', { route: 'mumpeer', state: 'open', reason: '' });
+  m.update(s, 'f', 2, 'to', { state: 'done' });
+  m.link(s, 'f', 2, 'to', { route: 'mumpeer', state: 'closed', reason: 'The link closed' });
+  assert.equal(shown.f.find(p => p.session === 2)!.link!.state, 'open');
+});
+
+test('a link that closed after carrying pieces counts as used once the person has it', () => {
+  const { m, shown } = setup();
+  m.add(s, 'f', 3, 'to', 10, 'mumpeer');
+  m.link(s, 'f', 3, 'to', { route: 'mumpeer', state: 'closed', reason: 'The link closed' });
+  m.update(s, 'f', 3, 'to', { state: 'done' });
+  assert.equal(shown.f[0].link!.state, 'open');
+  m.link(s, 'f', 4, 'to', { route: 'direct', state: 'closed', reason: 'The link closed' });
+  m.update(s, 'f', 4, 'to', { state: 'done' });
+  assert.equal(shown.f.find(p => p.session === 4)!.link!.state, 'closed', 'nothing went over it');
+});

@@ -17,7 +17,7 @@ import { DownLink, UpLink, linksSupported, okSdp, type LinkRoute } from './file-
 import { linkRoute, okMode, type LinkMode } from '../core/file-direct.ts';
 import { isRequestId, requestId } from '../core/mumpeer-signal.ts';
 import type { RelayLease } from './mumpeer.svelte.ts';
-import { Meters, type PeerStat } from './file-meters.ts';
+import { Meters, type LinkState, type PeerStat } from './file-meters.ts';
 
 export interface Transfer {
   state: 'idle' | 'finding' | 'loading' | 'ready' | 'failed';
@@ -73,6 +73,8 @@ interface Download {
   // Sources that take links, with how (see linkRoute), and those tried already
   linkPeers: Map<number, { mode: LinkMode; relay: string }>;
   directTried: Set<number>;
+  // How the current link attempt ended, when the other side said (a declined offer)
+  linkEnd: { state: LinkState; reason: string } | null;
 }
 
 interface Runtime {
@@ -291,7 +293,7 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set()
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null
     };
     this.downloads.set(meta.i, d);
     this.meters.clear(meta.i, 'from');
@@ -434,28 +436,36 @@ class Files {
     for (const [p, theirs] of d.linkPeers) {
       if (d.directTried.has(p) || !client.users.has(p)) continue;
       d.directTried.add(p);
-      route = linkRoute(mode, theirs.mode, d.s.mumpeer.capability(p, 'file'), theirs.relay);
+      const mine = d.s.mumpeer.capability(p, 'file');
+      route = linkRoute(mode, theirs.mode, mine, theirs.relay);
       if (route) { peer = p; break; }
+      // Mumpeer is wanted (by either side) and cannot be used: say why
+      const reason = !mine ? d.s.mumpeer.fileBlocked(p) : !theirs.relay ? 'No usable mumpeer relay on their side' : 'You trust different mumpeer relays';
+      this.meters.link(d.s, d.meta.i, p, 'from', { route: 'mumpeer', state: 'none', reason });
     }
     if (peer == null || !route) return;
+    const via = peer;
+    const kind: LinkRoute = route;
+    d.linkEnd = null;
     // Through mumpeer both sides ask for the relay pair first; the source is the side sending
-    let lease: RelayLease | null = null;
+    let lease: RelayLease | null = null, why = '';
     const relayId = route === 'mumpeer' ? requestId() : '';
     if (relayId) {
       try {
-        lease = d.s.mumpeer.acquire(peer, relayId, peer, () => link.close(), 'file');
-      } catch {
+        lease = d.s.mumpeer.acquire(peer, relayId, peer, reason => { why = reason; link.close(); }, 'file');
+      } catch (e) {
+        this.meters.link(d.s, d.meta.i, via, 'from', { route: kind, state: 'failed', reason: (e as Error).message });
         return this.tryDirect(d);
       }
     }
-    const via = peer;
-    this.meters.update(d.s, d.meta.i, via, 'from', { state: 'connecting', route: route === 'mumpeer' ? 'mumpeer' : 'direct' });
+    this.meters.link(d.s, d.meta.i, via, 'from', { route: kind, state: 'connecting', reason: '' });
     const link: DownLink = new DownLink(peer, d.count, k => pieceSize(d.meta, k), {
       open: route => {
         if (d.direct !== link) return;
         d.lastAt = Date.now();
         this.set(d.meta.i, { link: route });
         this.meters.update(d.s, d.meta.i, via, 'from', { route, state: 'active' });
+        this.meters.link(d.s, d.meta.i, via, 'from', { route, state: 'open', reason: '' });
         // The server route stops; what it already sent still counts
         const busy = [...d.sources].filter(([, src]) => src.window.size).map(([id]) => id);
         for (const src of d.sources.values()) src.window.clear();
@@ -469,6 +479,9 @@ class Files {
         d.direct = null;
         this.set(d.meta.i, { link: '' });
         this.meters.update(d.s, d.meta.i, via, 'from', { route: 'server', state: d.sources.has(via) ? 'waiting' : 'gone' });
+        const end = d.linkEnd ?? (wasOpen ? { state: 'closed' as const, reason: why || 'The link closed before the file was complete' }
+          : { state: 'failed' as const, reason: why || 'Did not connect in time' });
+        this.meters.link(d.s, d.meta.i, via, 'from', { route: kind, ...end });
         if (this.downloads.get(d.meta.i) !== d) return;
         // Back to the server route for what is missing, and the next source may take a link
         if (wasOpen) this.assign(d, true);
@@ -489,33 +502,45 @@ class Files {
     const sdp = okSdp(body.sdp) ? body.sdp : null;
     const relayId = isRequestId(body.m) ? body.m : null;
     const key = `${from}:${id}`;
-    const decline = () => this.signal(s, [from], FILE.answer, { i: id });
+    const kind: LinkRoute = relayId ? 'mumpeer' : 'direct';
+    // here: what this side shows; there: what the receiver shows (sent along)
+    const decline = (here: string, there: string) => {
+      if (this.local.has(id)) this.meters.link(s, id, from, 'to', { route: kind, state: 'declined', reason: here });
+      this.signal(s, [from], FILE.answer, { i: id, w: there });
+    };
     const mode = this.linkMode();
     const found = await this.find(id);
-    if (!found || !mode || (!sdp && !relayId) || (rt.links.size >= MAX_UPLINKS && !rt.links.has(key))) return decline();
+    if (!found) return decline('The file is not here', 'The file is not on their side any more');
+    if (!mode) return decline('Links are off here', 'Links are off on their side');
+    if (!sdp && !relayId) return;
+    if (rt.links.size >= MAX_UPLINKS && !rt.links.has(key)) return decline('Too many links at once', 'They serve too many links at once');
     // Someone who wants the relay never gets a direct route from us
-    if (!relayId && mode !== 1) return decline();
+    if (!relayId && mode !== 1) return decline('Only mumpeer is allowed here', 'They only take links through mumpeer');
     if (relayId && !sdp) {
       this.dropLease(rt, key);
       let lease: RelayLease;
       try {
-        lease = s.mumpeer.acquire(from, relayId, s.client!.session!, () => this.dropLease(rt, key), 'file');
-      } catch {
-        return decline();
+        lease = s.mumpeer.acquire(from, relayId, s.client!.session!, reason => {
+          this.meters.link(s, id, from, 'to', { route: 'mumpeer', state: 'failed', reason });
+          this.dropLease(rt, key);
+        }, 'file');
+      } catch (e) {
+        return decline(`Mumpeer: ${(e as Error).message}`, `Mumpeer on their side: ${(e as Error).message}`);
       }
+      this.meters.link(s, id, from, 'to', { route: 'mumpeer', state: 'connecting', reason: '' });
       rt.leases.set(key, { id: relayId, lease, timer: setTimeout(() => this.dropLease(rt, key), LEASE_MS) });
       return;
     }
     const pending = relayId ? rt.leases.get(key) : null;
-    if (relayId && pending?.id !== relayId) return decline();
+    if (relayId && pending?.id !== relayId) return decline('The relay pair was not set up', 'The relay pair was not set up on their side');
     if (pending) {
       clearTimeout(pending.timer);
       rt.leases.delete(key);
     }
     rt.links.get(key)?.close();
     const { meta, blob } = found;
-    let route: LinkRoute = pending ? 'mumpeer' : 'direct';
-    this.meters.update(s, id, from, 'to', { state: 'connecting', route });
+    let route: LinkRoute = kind, opened = false;
+    this.meters.link(s, id, from, 'to', { route: kind, state: 'connecting', reason: '' });
     const link: UpLink = new UpLink(from, id, pieceCount(meta), async k => {
       try {
         return new Uint8Array(await blob.slice(k * meta.c, k * meta.c + pieceSize(meta, k)).arrayBuffer());
@@ -523,7 +548,12 @@ class Files {
         return null;
       }
     }, {
-      open: r => { route = r; this.meters.update(s, id, from, 'to', { route: r, state: 'active' }); },
+      open: r => {
+        route = r;
+        opened = true;
+        this.meters.update(s, id, from, 'to', { route: r, state: 'active' });
+        this.meters.link(s, id, from, 'to', { route: r, state: 'open', reason: '' });
+      },
       sent: (_k, bytes) => this.meters.add(s, id, from, 'to', bytes, route),
       closed: () => {
         pending?.lease.close();
@@ -531,6 +561,7 @@ class Files {
         if (rt.links.get(key) === link) rt.links.delete(key);
         // The route stays the last one used; a piece through the server changes it
         this.meters.update(s, id, from, 'to', { state: 'waiting' });
+        this.meters.link(s, id, from, 'to', opened ? { route, state: 'closed', reason: 'The link closed' } : { route, state: 'failed', reason: 'Did not connect in time' });
         this.set(id, { sending: this.sending(rt, id) });
       }
     });
@@ -540,7 +571,7 @@ class Files {
     if (rt.links.get(key) !== link) return;
     if (!answer) {
       link.close();
-      return decline();
+      return decline('Could not answer the offer', 'Their side could not answer the offer');
     }
     this.set(id, { sending: this.sending(rt, id) });
     this.signal(s, [from], FILE.answer, { i: id, sdp: answer });
@@ -601,6 +632,9 @@ class Files {
         if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id, ...this.linkOffer(s, from) });
         break;
       case FILE.have:
+        if (mine && !okMode(body.p) && this.linkMode()) {
+          this.meters.link(s, id, from, 'from', { route: this.linkMode() === 2 ? 'mumpeer' : 'direct', state: 'none', reason: 'Links are off on their side, or they run an older version' });
+        }
         if (mine && okMode(body.p) && !mine.linkPeers.has(from)) {
           mine.linkPeers.set(from, { mode: body.p, relay: typeof body.r === 'string' ? body.r : '' });
           void this.tryDirect(mine);
@@ -656,7 +690,10 @@ class Files {
       case FILE.answer:
         if (mine?.direct?.peer !== from || mine.direct.open) return;
         if (okSdp(body.sdp)) await mine.direct.answer(body.sdp);
-        else mine.direct.close();
+        else {
+          mine.linkEnd = { state: 'declined', reason: typeof body.w === 'string' && body.w ? body.w.slice(0, 160) : 'Declined' };
+          mine.direct.close();
+        }
         break;
     }
   }
