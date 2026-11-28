@@ -110,7 +110,6 @@ class VoiceEngine {
   private direct = false;        // the output gain also feeds the context's own destination
   playingMedia = $state(false);  // the media element is playing (Media Session controls apply)
   private denoiseRun = 0;        // a load or node from an earlier run is stale
-  private micGain = false;       // whether the open microphone uses the browser's auto gain
   private micNoise = false;      // whether the open microphone uses the browser's filter
   // The browser's Opus codec (WebCodecs), or our own in WebAssembly where the browser has none
   private opus: Opus | null = null;
@@ -354,7 +353,6 @@ class VoiceEngine {
     this.micOpen = false;
     const s = this.settings;
     const browserNoise = this.browserNoise();
-    const browserGain = this.browserGain();
     let stream: MediaStream;
     this.openingSince = performance.now();
     try {
@@ -363,7 +361,7 @@ class VoiceEngine {
           deviceId: s.inputDevice && s.inputDevice !== 'default' ? { exact: s.inputDevice } : undefined,
           echoCancellation: s.echoCancellation,
           noiseSuppression: browserNoise,
-          autoGainControl: browserGain,
+          autoGainControl: s.autoGainControl,
           channelCount: 1,
           sampleRate: SAMPLE_RATE
         }
@@ -392,7 +390,6 @@ class VoiceEngine {
       track.addEventListener('unmute', () => { if (this.stream === stream) connLog.add('microphone unmuted by the system'); });
     }
     this.micNoise = browserNoise;
-    this.micGain = browserGain;
     this.micOpen = true;
     this.error = '';
     this.source = ctx.createMediaStreamSource(this.stream);
@@ -409,14 +406,8 @@ class VoiceEngine {
     return this.settings.noiseSuppression && !this.denoiser;
   }
 
-  // The browser's auto gain also stays out of the model's way: its moving level makes quiet speech
-  // look like noise to the model
-  private browserGain(): boolean {
-    return this.settings.autoGainControl && !(this.settings.noiseSuppression && this.denoiser);
-  }
-
   private applyMicNoise(): void {
-    if (this.stream && (this.micNoise !== this.browserNoise() || this.micGain !== this.browserGain())) this.syncInput(true);
+    if (this.stream && this.micNoise !== this.browserNoise()) this.syncInput(true);
   }
 
   private routeMic(): void {
