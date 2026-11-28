@@ -269,7 +269,7 @@
       <option value="relay">Through the server's mumpeer relay only (hides your IP address)</option>
       <option value="direct">Directly, or through a relay</option>
     </select>
-    <p class="help">Only with others who turned this on too. Faster than the Mumble server, which takes over when no connection comes up. A direct route uses the STUN and relay from Sharing and shows each of you the other's IP address, so it starts only when the receiver allows it on the file. Mumpeer is used when either of you chose it; it needs a relay on this server that allows files, trusted in Server information, and usually both of you registered.</p>
+    <p class="help">Only with others who turned this on too. Faster than the Mumble server, which takes over when no connection comes up. A direct route uses the STUN and relay from Sharing and shows each of you the other's IP address, so it starts only when the receiver allows it on the file; declined, the file goes through mumpeer or the Mumble server. Mumpeer is used when either of you chose it; it needs a relay on this server that allows files, trusted in Server information, and usually both of you registered.</p>
     <div class="row kept">
       <p class="help">Files sent and received are kept on this computer, up to 2 GB, so others can get them from you later. {files.usage != null ? `In use: ${formatBytes(files.usage)}.` : ''}</p>
       <button class="btn" disabled={!files.usage} onclick={() => files.clear()}>Delete kept files</button>

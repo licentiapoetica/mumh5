@@ -343,6 +343,26 @@ try {
     await alice.locator('.chat .msg .file', { hasText: fileName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-mumpeer-sender.png') });
   }
   console.log('ok: a file through mumpeer when one side asks for it, with no direct route');
+
+  // Both allow direct, the receiver declines it: the relay carries the file instead
+  await fileLink(alice, 'direct');
+  const [aliceBefore2, bobBefore2] = [await pcCount(alice), await pcCount(bob)];
+  const declinedName = `declined-${tag}.bin`;
+  const declinedPath = path.join(path.dirname(filePath), declinedName);
+  writeFileSync(declinedPath, fileData.subarray(0, 1024 * 1024));
+  await alice.locator('.chat .composer input[type=file]').first().setInputFiles(declinedPath);
+  const declinedCard = bob.locator('.chat .msg .file', { hasText: declinedName });
+  await declinedCard.getByRole('button', { name: 'Decline', exact: true }).click({ timeout: 15000 });
+  await declinedCard.locator(`a[download="${declinedName}"]`).waitFor({ timeout: 60000 });
+  await bob.getByRole('button', { name: `Transfer details of ${declinedName}` }).click();
+  const declinedDetails = declinedCard.getByRole('region', { name: 'Transfer details' }).locator('li', { hasText: aliceName });
+  await declinedDetails.getByText('Mumpeer link used').waitFor();
+  for (const [page, before] of [[alice, aliceBefore2], [bob, bobBefore2]] as const) {
+    const policies = await page.evaluate(n => (window as Window & { testPeerConnections?: RTCPeerConnection[] }).testPeerConnections!
+      .slice(n).map(pc => pc.getConfiguration().iceTransportPolicy), before);
+    assert.ok(policies.length && policies.every(p => p === 'relay'), `declined direct, only the relay lane: ${policies}`);
+  }
+  console.log('ok: a declined direct connection falls back to mumpeer');
   await fileLink(alice, 'off');
   await fileLink(bob, 'off');
 

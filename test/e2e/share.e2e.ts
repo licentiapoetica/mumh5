@@ -614,7 +614,7 @@ try {
   const bobFile = bob.page.locator('.chat .msg .file', { hasText: bulkName });
   await bobFile.waitFor({ timeout: 30000 });
   // A direct route shows both IP addresses: it waits for the receiver, and the server carries the file meanwhile
-  const connect = bobFile.getByRole('button', { name: 'Connect directly' });
+  const connect = bobFile.getByRole('button', { name: 'Allow direct connection' });
   await connect.waitFor({ timeout: 15000 });
   await bobFile.getByText(`${aliceName} can send this directly`).waitFor();
   assert.deepEqual(await bob.page.evaluate(() => (window as any).__fileRoutes), [], 'no direct route before the receiver allows it');
@@ -672,6 +672,24 @@ try {
   await bob.page.getByRole('button', { name: `Transfer details of ${smallName}` }).click();
   await details(bob.page, smallName).locator('li', { hasText: aliceName }).getByText('Mumble server, done').waitFor();
   console.log('ok: with the sender\'s setting off the file goes through the server');
+
+  // Declining the direct connection: no link at all here (no mumpeer in this test), the server carries it
+  await alice.page.getByTitle('Settings').click();
+  await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
+  await alice.page.getByLabel('Files directly between mumh5 users').selectOption('direct');
+  await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  const declinedName = `declined-${tag}.bin`;
+  writeFileSync(path.join(path.dirname(bulkPath), declinedName), bulk.subarray(0, 600_000));
+  await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), declinedName));
+  const declinedFile = bob.page.locator('.chat .msg .file', { hasText: declinedName });
+  await declinedFile.getByRole('button', { name: 'Decline', exact: true }).click({ timeout: 15000 });
+  await declinedFile.getByRole('button', { name: 'Allow direct connection' }).waitFor({ state: 'detached' });
+  await declinedFile.locator(`a[download="${declinedName}"]`).waitFor({ timeout: 30000 });
+  assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'declined: no connection');
+  await bob.page.getByRole('button', { name: `Transfer details of ${declinedName}` }).click();
+  await details(bob.page, declinedName).locator('li', { hasText: aliceName }).getByText('Direct link declined: Declined by you, so it goes through the Mumble server').waitFor();
+  await details(bob.page, declinedName).locator('li', { hasText: aliceName }).getByText('Mumble server, done').waitFor();
+  console.log('ok: a declined direct connection falls back to the server');
 
   // Someone who wants the relay never gets a direct route: without a mumpeer relay on this server
   // (none in this test), the file goes through the Mumble server and no connection is tried

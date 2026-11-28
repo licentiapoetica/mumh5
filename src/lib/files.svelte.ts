@@ -77,8 +77,10 @@ interface Download {
   directTried: Set<number>;
   // How the current link attempt ended, when the other side said (a declined offer)
   linkEnd: { state: LinkState; reason: string } | null;
-  // The receiver allowed a direct route for this download (allowDirect); mumpeer needs no click
+  // The receiver allowed a direct route for this download (allowDirect), or declined it
+  // (declineDirect): then only mumpeer, which keeps the addresses apart, or the server
   directOk: boolean;
+  directNo: boolean;
 }
 
 interface Runtime {
@@ -297,7 +299,7 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null, directOk: false
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null, directOk: false, directNo: false
     };
     this.downloads.set(meta.i, d);
     this.meters.clear(meta.i, 'from');
@@ -324,6 +326,15 @@ class Files {
     const d = this.downloads.get(id);
     if (!d || d.directOk) return;
     d.directOk = true;
+    this.set(id, { directAsk: null });
+    void this.tryDirect(d);
+  }
+
+  /** The receiver declined a direct route for this download: mumpeer when both can use it, else the server. */
+  declineDirect(id: string): void {
+    const d = this.downloads.get(id);
+    if (!d || d.directOk || d.directNo) return;
+    d.directNo = true;
     this.set(id, { directAsk: null });
     void this.tryDirect(d);
   }
@@ -444,13 +455,20 @@ class Files {
   // Tries the next source that takes links; the server route goes on meanwhile
   private async tryDirect(d: Download): Promise<void> {
     const client = d.s.client;
-    const mode = this.linkMode();
+    const setting = this.linkMode();
+    // Declined direct: as if this side had chosen mumpeer only
+    const mode = setting && d.directNo ? 2 : setting;
     if (d.direct || !client || !mode || this.downloads.get(d.meta.i) !== d) return;
     let peer: number | undefined, route: 'direct' | 'mumpeer' | null = null, ask: number | null = null;
     for (const [p, theirs] of d.linkPeers) {
       if (d.directTried.has(p) || !client.users.has(p)) continue;
       const mine = d.s.mumpeer.capability(p, 'file');
       const r = linkRoute(mode, theirs.mode, mine, theirs.relay);
+      if (!r && d.directNo && linkRoute(setting!, theirs.mode, mine, theirs.relay) === 'direct') {
+        d.directTried.add(p);
+        this.meters.link(d.s, d.meta.i, p, 'from', { route: 'direct', state: 'declined', reason: 'Declined by you, so it goes through the Mumble server' });
+        continue;
+      }
       // A direct route shows each side the other's address: only after the receiver allowed it
       if (r === 'direct' && !d.directOk) {
         if (ask == null) ask = p;
