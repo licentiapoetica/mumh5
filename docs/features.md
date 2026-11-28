@@ -110,5 +110,6 @@ Servers can raise the limits for faster transfers: `imagemessagelength` (larger 
 - Whisper and shout
 - Text channels: private ones, and history while nobody is online (needs a helper on the server)
 - Rich chat between mumh5 users: replies, edits, typing indicators
+- End-to-end encrypted direct messages (OTR or similar): under discussion, see [the plan](otr-plan.md)
 - Screen sharing: a media server for large rounds (today every sender uploads once per viewer, up to 8)
 - Release builds for all platforms
