@@ -3,6 +3,18 @@ import { menu, type MenuItem } from './menu.svelte.ts';
 
 // Right-click menu for text fields, messages, links and images. Elements with their own menu
 // (users, channels, servers) call preventDefault, so Electron does not report those.
+/** The items for the message an element is in: its text, and a reaction. Also used by menus of
+ *  their own inside messages (the media player), which would otherwise hide these. */
+export function messageItems(el: Element | null): MenuItem[] {
+  const msg = el?.closest('.msg, .system');
+  const text = msg?.querySelector('.html')?.textContent?.trim();
+  return [
+    ...(text ? [{ label: 'Copy message text', action: () => navigator.clipboard.writeText(text) }] : []),
+    // Message.svelte opens the emoji picker at the message
+    ...(msg?.matches('[data-reactable]') ? [{ label: 'Add reaction', action: () => msg.dispatchEvent(new Event('mumh5:react')) }] : [])
+  ];
+}
+
 export function startTextMenu(): void {
   if (!desktop) return;
   const api = desktop;
@@ -56,14 +68,7 @@ export function startTextMenu(): void {
           { label: 'Save image...', action: () => api.editAction('saveImage', p.srcURL) }
         ]);
       }
-      // The message under the pointer, as plain text
-      const msg = document.elementFromPoint(at.x, at.y)?.closest('.msg, .system');
-      const text = msg?.querySelector('.html')?.textContent?.trim();
-      add([
-        ...(text ? [{ label: 'Copy message text', action: () => navigator.clipboard.writeText(text) }] : []),
-        // Message.svelte opens the emoji picker at the message
-        ...(msg?.matches('[data-reactable]') ? [{ label: 'Add reaction', action: () => msg.dispatchEvent(new Event('mumh5:react')) }] : [])
-      ]);
+      add(messageItems(document.elementFromPoint(at.x, at.y)));
     }
 
     if (items.length) menu.showAt(at.x, at.y, items, true);

@@ -702,6 +702,9 @@ try {
   assert.equal(await video.evaluate((v: HTMLVideoElement) => v.volume), 0.3);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('mumh5.settings')!).mediaVolume), 0.3);
   await videoMsg.locator('.media-player').click({ button: 'right' });
+  // The message's own items are still there
+  await page.getByRole('menuitem', { name: 'Copy message text' }).waitFor();
+  await page.getByRole('menuitem', { name: 'Copy link address' }).waitFor();
   await page.getByRole('menuitem', { name: 'Loop' }).click();
   assert.equal(await video.evaluate((v: HTMLVideoElement) => v.loop), true);
   assert.equal(await sound.evaluate((a: HTMLAudioElement) => a.loop), false, 'loop is per player');
@@ -710,8 +713,16 @@ try {
   await videoMsg.locator('.surface').click();
   await videoMsg.getByRole('button', { name: 'Play clip.webm' }).waitFor();
   // In full screen the menu has to be inside the player to show
-  await videoMsg.getByRole('button', { name: 'Fullscreen clip.webm' }).click();
+  // A double click goes full screen without toggling playback twice
+  await videoMsg.locator('.surface').dblclick();
   await page.waitForFunction(() => !!document.fullscreenElement);
+  await videoMsg.getByRole('button', { name: 'Pause clip.webm' }).waitFor();
+  await videoMsg.getByRole('button', { name: 'Pause clip.webm' }).click();
+  // The window may still be growing to the screen; any resize closes a menu
+  await page.waitForFunction(() => new Promise(done => {
+    const w = innerWidth, h = innerHeight;
+    setTimeout(() => done(w === innerWidth && h === innerHeight), 500);
+  }));
   await video.click({ button: 'right', force: true });
   await page.locator('.media-player:fullscreen').getByRole('menuitem', { name: 'Loop' }).click();
   assert.equal(await video.evaluate((v: HTMLVideoElement) => v.loop), false);

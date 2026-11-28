@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { t } from '../lib/i18n.svelte.ts';
-  import { menu } from '../lib/menu.svelte.ts';
+  import { menu, type MenuItem } from '../lib/menu.svelte.ts';
+  import { messageItems } from '../lib/text-menu.ts';
   import { store } from '../lib/settings.svelte.ts';
 
   let { kind, url, name, autoplay = false, onerror }: {
@@ -12,7 +13,8 @@
   let paused = $state(true), currentTime = $state(0), duration = $state(0);
   let muted = $state(false), loop = $state(false), error = $state('');
   // One volume for every player, kept for the next one; muting and looping are per player
-  const volume = $derived(store.settings.mediaVolume);
+  // A saved value out of range would make every player throw
+  const volume = $derived(Math.min(1, Math.max(0, Number(store.settings.mediaVolume) || 0)));
   $effect(() => { if (media) media.volume = volume; });
   const length = $derived(Number.isFinite(duration) ? duration : 0);
 
@@ -26,9 +28,18 @@
     try { await media.play(); error = ''; } catch { error = 'Could not play this file.'; }
   }
   function setVolume(v: number) { store.settings.mediaVolume = v; muted = false; }
+  // Its own menu replaces the one the message would have, so the message's items come along
   function contextMenu(e: MouseEvent) {
-    menu.show(e, [{ label: t('player.loop'), checked: loop, action: () => (loop = !loop) }]);
+    const items: MenuItem[] = [{ label: t('player.loop'), checked: loop, action: () => (loop = !loop) }];
+    const video = kind === 'video' ? media as HTMLVideoElement | undefined : undefined;
+    if (video && document.pictureInPictureEnabled) items.push({ label: 'Picture in picture', action: () => { video.requestPictureInPicture().catch(() => {}); } });
+    if (/^https?:/i.test(url)) items.push({ separator: true, label: '' }, { label: 'Copy link address', action: () => navigator.clipboard.writeText(url) });
+    const message = messageItems(e.currentTarget as Element);
+    if (message.length) items.push({ separator: true, label: '' }, ...message);
+    menu.show(e, items);
   }
+  // A double click goes full screen; its second click must not toggle playback back
+  function surfaceClick(e: MouseEvent) { if (e.detail <= 1) toggle(); }
   function failed() { error = 'Could not play this file.'; onerror?.(); }
   async function fullscreen() {
     try {
@@ -44,7 +55,7 @@
       <video src={url} aria-label={name} bind:this={media} bind:paused bind:currentTime bind:duration bind:muted
         {autoplay} {loop} preload="metadata" playsinline onerror={failed}><track kind="captions" /></video>
       <!-- For the pointer only: keyboards and screen readers have the button below -->
-      <button class="surface" tabindex="-1" aria-hidden="true" onmousedown={e => e.preventDefault()} onclick={toggle}>
+      <button class="surface" tabindex="-1" aria-hidden="true" onmousedown={e => e.preventDefault()} onclick={surfaceClick} ondblclick={fullscreen}>
         {#if paused}<span><Icon name="play" size={22} /></span>{/if}
       </button>
     </div>

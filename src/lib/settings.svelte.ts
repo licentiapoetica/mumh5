@@ -168,7 +168,7 @@ const PARTS: Record<keyof Settings, SettingsPart> = {
   cameraDevice: 'video', cameraSize: 'video', cameraFps: 'video', cameraMirror: 'video', autoCameras: 'video',
   shareQuality: 'sharing', shareVolume: 'sharing', screenShareRoute: 'sharing', relayServer: 'sharing', stunServer: 'sharing',
   shareNoticeSeen: 'kept',
-  mediaVolume: 'kept',
+  mediaVolume: 'files',
   hints: 'accessibility',
   language: 'accessibility',
   updateCheck: 'about',

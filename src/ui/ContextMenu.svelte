@@ -125,7 +125,9 @@
   {:else if item.checked !== undefined}<span class="box" class:on={item.checked}></span>{/if}
 {/snippet}
 
-<div class="host" bind:this={host}>
+<!-- A right click inside the menu stays here: in full screen the menu sits inside the player,
+     whose own right click would open a new menu over this one -->
+<div class="host" bind:this={host} role="presentation" oncontextmenu={e => { e.preventDefault(); e.stopPropagation(); }}>
 {#if menu.open}
   <div class="catcher" role="presentation" onmousedown={() => menu.close()} oncontextmenu={e => { e.preventDefault(); menu.close(); }}></div>
   <div class="menu" role="menu" bind:this={el} style:left="{pos.x}px" style:top="{pos.y}px">
