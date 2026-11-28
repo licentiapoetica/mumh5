@@ -20,12 +20,18 @@ export interface SavedServer {
 
 export type ScreenShareRoute = 'automatic' | 'standard' | 'fallback' | 'relay-only' | 'direct-only' | 'off';
 
+// Files over a WebRTC link instead of the Mumble server. relay: only through the server's mumpeer
+// relay, which hides the IP address from the other person. direct: a direct route (or the relay
+// from Sharing), and mumpeer when the other side wants it.
+export type FileLink = 'off' | 'relay' | 'direct';
+
 export interface Settings {
   language: 'auto' | LanguageId; // the interface language; auto follows the browser
   embedHosts: string[];    // hosts whose media links render inline
   mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
   sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
   autoDownload: number;    // fetch announced files up to this many MB by themselves; 0: never
+  fileLink: FileLink;      // files over WebRTC with others who turned it on too (see FileLink)
   saveChatHistory: boolean;
   chatHistoryHours: number;
   compact: boolean;
@@ -105,6 +111,7 @@ const defaults: Settings = {
   mediaLinks: 'click',
   sendThumbnails: true,
   autoDownload: 20,
+  fileLink: 'off',
   saveChatHistory: false,
   chatHistoryHours: 24,
   compact: false,
@@ -152,7 +159,7 @@ export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'f
   | 'appearance.roles' | 'appearance.people' | 'appearance.layout'
   | 'appearance.background' | 'appearance.tree' | 'appearance.corners' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
-  embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files',
+  embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files', fileLink: 'files',
   saveChatHistory: 'files', chatHistoryHours: 'files', youtube: 'files', linkPreviews: 'files',
   compact: 'kept',
   theme: 'appearance.scheme',

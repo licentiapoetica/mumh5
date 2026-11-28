@@ -1,7 +1,7 @@
 // Drive two built Electron apps against stock Mumble, mumbot peer and mumpeer.
 import './english.ts';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -167,8 +167,13 @@ async function startShare(page: Page) {
   if (await consent.isVisible()) await consent.click();
   const dialog = page.getByRole('dialog', { name: 'Share your screen' });
   await dialog.getByLabel('Quality').selectOption('low');
-  const source = dialog.locator('.sources button').first();
-  await source.click({ timeout: 20000 });
+  // Listing is slow on the bare test display and can come back empty (as in share.e2e.ts)
+  const sources = dialog.locator('.sources button');
+  for (let i = 0; i < 6 && !(await sources.count()); i++) {
+    await Promise.race([sources.first().waitFor({ timeout: 20000 }), dialog.getByText('Nothing found').waitFor({ timeout: 20000 })]).catch(() => {});
+    if (await dialog.getByText('Nothing found').count()) await dialog.getByRole('button', { name: 'Refresh' }).click();
+  }
+  await sources.first().click({ timeout: 20000 });
   await dialog.getByRole('button', { name: 'Start sharing', exact: true }).click();
 }
 
@@ -289,6 +294,44 @@ try {
   await route(bob, 'off');
   assert.equal(await bob.getByRole('button', { name: 'Share your screen or camera', exact: true }).isDisabled(), true);
   console.log('ok: discovery can be re-enabled, working direct ICE avoids the relay, and sharing can be turned off');
+
+  // Files through the relay: one side asking for it is enough, and only the relay lane is used
+  await alice.getByRole('button', { name: 'Stop sharing your screen', exact: true }).click();
+  await waitFor(async () => await sessionCount() === 0, 'no pair before the file');
+  const fileLink = async (page: Page, mode: string) => {
+    await page.getByTitle('Settings').click();
+    await page.getByRole('tab', { name: 'Chat and files' }).click();
+    await page.getByLabel('Files directly between mumh5 users').selectOption(mode);
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+  };
+  await fileLink(alice, 'relay');
+  await fileLink(bob, 'direct');
+  const pcCount = (page: Page) => page.evaluate(() => (window as Window & { testPeerConnections?: RTCPeerConnection[] }).testPeerConnections!.length);
+  const [aliceBefore, bobBefore] = [await pcCount(alice), await pcCount(bob)];
+  await bob.evaluate(() => {
+    const seen = (window as any).__fileRoutes = [] as string[];
+    new MutationObserver(() => document.querySelectorAll('.media-card .detail').forEach(e => {
+      const m = e.textContent?.match(/, (direct|through the relay|through mumpeer)$/);
+      if (m && !seen.includes(m[1])) seen.push(m[1]);
+    })).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  const fileData = Buffer.alloc(3 * 1024 * 1024);
+  for (let i = 0; i < fileData.length; i += 65536) crypto.getRandomValues(fileData.subarray(i, i + 65536));
+  const fileName = `mumpeer-${tag}.bin`;
+  const filePath = path.join(mkdtempSync(path.join(tmpdir(), 'mumh5-mumpeer-file-')), fileName);
+  profiles.push(path.dirname(filePath));
+  writeFileSync(filePath, fileData);
+  await alice.locator('.chat .composer input[type=file]').first().setInputFiles(filePath);
+  await bob.locator('.chat .msg .file', { hasText: fileName }).locator(`a[download="${fileName}"]`).waitFor({ timeout: 60000 });
+  assert.deepEqual(await bob.evaluate(() => (window as any).__fileRoutes), ['through mumpeer']);
+  for (const [page, before] of [[alice, aliceBefore], [bob, bobBefore]] as const) {
+    const policies = await page.evaluate(n => (window as Window & { testPeerConnections?: RTCPeerConnection[] }).testPeerConnections!
+      .slice(n).map(pc => pc.getConfiguration().iceTransportPolicy), before);
+    assert.ok(policies.length && policies.every(p => p === 'relay'), `only the relay lane: ${policies}`);
+  }
+  console.log('ok: a file through mumpeer when one side asks for it, with no direct route');
+  await fileLink(alice, 'off');
+  await fileLink(bob, 'off');
 
   if (host === '127.0.0.1') {
     const otherHost = await launch(`mumpeer-alias-${tag}`, admin, 'localhost');

@@ -58,6 +58,15 @@
     });
   });
 
+  // Mumpeer discovery also serves files sent through the relay
+  let lastFileLink = store.settings.fileLink;
+  $effect(() => {
+    const v = store.settings.fileLink;
+    if (v === lastFileLink) return;
+    lastFileLink = v;
+    untrack(() => { for (const server of sessions.list) server.mumpeer.policyChanged(); });
+  });
+
   let width = $state(window.innerWidth);
   // wide: rail + sidebar + chat + panel; medium: panel as an overlay; narrow: everything but chat in drawers
   const layout = $derived(width >= 1100 ? 'wide' : width >= 760 ? 'medium' : 'narrow');

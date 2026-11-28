@@ -13,8 +13,15 @@ const tok = 'A'.repeat(43);
 test('relay requirements and endpoint are read from a bounded bot announcement', () => {
   const relay = { v: 1, t: 'relay', host: 'relay.example.org', tcp: 443, fp, state: 'up', seq: 3 };
   assert.deepEqual(decodeBot(json({ ...relay, u: ['img'], reg: true, unknown: 0 })), {
-    t: 'relay', host: relay.host, tcp: 443, fp, state: 'up', seq: 3, registeredOnly: true, screen: false
+    t: 'relay', host: relay.host, tcp: 443, fp, state: 'up', seq: 3, registeredOnly: true, screen: false, files: false
   });
+  // Files are a use of their own; an announcement without a list allows everything
+  const uses = (u?: string[]) => {
+    const m = decodeBot(json(u ? { ...relay, u } : relay));
+    return m?.t === 'relay' ? [m.screen, m.files] : null;
+  };
+  assert.deepEqual(uses(['file']), [false, true]);
+  assert.deepEqual(uses(), [true, true]);
   assert.equal(decodeBot(json({ ...relay, host: '2001:db8::1' }))?.t, 'relay');
   assert.equal(decodeBot(json({ ...relay, host: 'localhost:443' })), null);
   assert.equal(decodeBot(json({ ...relay, tcp: 65536 })), null);
@@ -30,6 +37,11 @@ test('automatic discovery matches host names and IP addresses without following 
   assert.equal(sameRelayHost('mumble.example.org', 'relay.mumble.example.org'), false);
   assert.equal(sameRelayHost('mumble.example.org', 'mumble.example.org.attacker.test'), false);
   assert.equal(sameRelayHost('bad:address', 'bad:address'), false);
+});
+
+test('a pair request names what it is for', () => {
+  assert.equal(JSON.parse(new TextDecoder().decode(requestPair(5, rid))).use, 'scr');
+  assert.equal(JSON.parse(new TextDecoder().decode(requestPair(5, rid, 'file'))).use, 'file');
 });
 
 test('only well-formed pair credentials enter share negotiation', () => {

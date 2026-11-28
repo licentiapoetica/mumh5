@@ -4,7 +4,8 @@ import './english.ts';
 import { _electron as electron, type Page } from 'playwright-core';
 import electronPath from 'electron';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -589,6 +590,74 @@ try {
   await bob.page.evaluate(() => localStorage.removeItem('mumh5.iceDebug'));
   console.log(`ok: cameras of several people at once, in the tiles, through the relay (${camStats.match(/Picture \| [^|]+/)?.[0]})`);
   void liveCams;
+
+  // Files directly between two people who both turned it on, much faster than through the server
+  for (const p of [alice.page, bob.page]) {
+    await p.getByTitle('Settings').click();
+    await p.getByRole('tab', { name: 'Chat and files' }).click();
+    await p.getByLabel('Files directly between mumh5 users').selectOption('direct');
+    await p.getByRole('button', { name: 'Done', exact: true }).click();
+  }
+  await bob.page.evaluate(() => {
+    const seen = (window as any).__fileRoutes = [] as string[];
+    new MutationObserver(() => document.querySelectorAll('.media-card .detail').forEach(e => {
+      const m = e.textContent?.match(/, (direct|through the relay|through mumpeer)$/);
+      if (m && !seen.includes(m[1])) seen.push(m[1]);
+    })).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
+  const bulk = Buffer.alloc(8 * 1024 * 1024);
+  for (let i = 0; i < bulk.length; i += 65536) crypto.getRandomValues(bulk.subarray(i, i + 65536));
+  const bulkName = `direct-${tag}.bin`;
+  const bulkPath = path.join(mkdtempSync(path.join(tmpdir(), 'mumh5-e2e-file-')), bulkName);
+  writeFileSync(bulkPath, bulk);
+  await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(bulkPath);
+  const bobFile = bob.page.locator('.chat .msg .file', { hasText: bulkName });
+  await bobFile.waitFor({ timeout: 30000 });
+  const started = Date.now();
+  // About 40 s through the server at its message limit
+  await bobFile.locator(`a[download="${bulkName}"]`).waitFor({ timeout: 20000 });
+  const took = Date.now() - started;
+  assert.deepEqual(await bob.page.evaluate(() => (window as any).__fileRoutes), ['direct']);
+  const got = await bob.page.evaluate(async name => {
+    const a = document.querySelector(`a[download="${name}"]`) as HTMLAnchorElement;
+    const bytes = await (await fetch(a.href)).arrayBuffer();
+    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+  }, bulkName);
+  assert.equal(got, createHash('sha256').update(bulk).digest('hex'), 'the file arrived intact');
+  console.log(`ok: a file directly between two people who turned it on (8 MB in ${(took / 1000).toFixed(1)} s)`);
+
+  // Only when both turned it on: with alice's off, bob does not even try, and the server carries it
+  await alice.page.getByTitle('Settings').click();
+  await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
+  await alice.page.getByLabel('Files directly between mumh5 users').selectOption('off');
+  await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  await bob.page.evaluate(() => {
+    const Real = window.RTCPeerConnection;
+    (window as any).__links = 0;
+    window.RTCPeerConnection = class extends Real {
+      constructor(c?: RTCConfiguration) { super(c); (window as any).__links++; }
+    } as typeof RTCPeerConnection;
+  });
+  const smallName = `server-${tag}.bin`;
+  const smallPath = path.join(path.dirname(bulkPath), smallName);
+  writeFileSync(smallPath, bulk.subarray(0, 300_000));
+  await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(smallPath);
+  await bob.page.locator('.chat .msg .file', { hasText: smallName }).locator(`a[download="${smallName}"]`).waitFor({ timeout: 30000 });
+  assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no link tried');
+  console.log('ok: with the sender\'s setting off the file goes through the server');
+
+  // Someone who wants the relay never gets a direct route: without a mumpeer relay on this server
+  // (none in this test), the file goes through the Mumble server and no connection is tried
+  await alice.page.getByTitle('Settings').click();
+  await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
+  await alice.page.getByLabel('Files directly between mumh5 users').selectOption('relay');
+  await alice.page.getByRole('button', { name: 'Done', exact: true }).click();
+  const relayName = `relay-${tag}.bin`;
+  writeFileSync(path.join(path.dirname(bulkPath), relayName), bulk.subarray(0, 200_000));
+  await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), relayName));
+  await bob.page.locator('.chat .msg .file', { hasText: relayName }).locator(`a[download="${relayName}"]`).waitFor({ timeout: 30000 });
+  assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no direct route to someone who wants the relay');
+  console.log('ok: a sender who wants the relay gets no direct route');
 
   // A sharer who disconnects takes the stream with them
   await shareBtn.click();

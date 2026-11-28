@@ -10,8 +10,8 @@ import { requestId } from '../core/mumpeer-signal.ts';
 import type { RelayLease } from './mumpeer.svelte.ts';
 import type { User } from '../core/client.ts';
 import type { Session } from './session.svelte.ts';
-import { desktop, isWeb, mumpeerSupported } from './native.ts';
-import { proxyIce, relayIce } from './web.svelte.ts';
+import { desktop, mumpeerSupported } from './native.ts';
+import { gathered, iceServers } from './ice.ts';
 import { store, type ScreenShareRoute } from './settings.svelte.ts';
 import { ui } from './ui.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
@@ -115,15 +115,8 @@ class ScreenShare {
     return !!s.client && s.client.serverVersionNum >= 0x010400 && typeof RTCPeerConnection !== 'undefined';
   }
 
-  private async iceServers(direct = false): Promise<RTCIceServer[]> {
-    const stun = store.settings.stunServer.trim();
-    const chosen: RTCIceServer[] = stun ? [{ urls: /^stuns?:/.test(stun) ? stun : `stun:${stun}` }] : [];
-    if (direct) return chosen;
-    // A mumh5 proxy adds its STUN and its relay, which takes over by itself when no direct
-    // connection comes up (mobile and company networks, browsers that forbid direct UDP). The
-    // browser build has the proxy it is served from; the desktop app the one set in Settings.
-    const relay = store.settings.relayServer.trim();
-    return [...chosen, ...(relay ? await relayIce(relay) : isWeb ? await proxyIce() : [])];
+  private iceServers(direct = false): Promise<RTCIceServer[]> {
+    return iceServers(direct);
   }
 
   // For testing the relay: localStorage mumh5.iceDebug = "relay" uses only relayed routes,
@@ -490,15 +483,8 @@ class ScreenShare {
     for (const session of Object.keys(s.sharing)) if (Number(session) !== s.client?.session) this.autoWatch(s, Number(session));
   }
 
-  // Candidates travel inside the description, so wait for them instead of sending each one
   private gathered(pc: RTCPeerConnection): Promise<void> {
-    if (pc.iceGatheringState === 'complete') return Promise.resolve();
-    return new Promise(resolve => {
-      const done = () => { clearTimeout(timer); pc.removeEventListener('icegatheringstatechange', check); resolve(); };
-      const check = () => { if (pc.iceGatheringState === 'complete') done(); };
-      const timer = setTimeout(done, 3000);
-      pc.addEventListener('icegatheringstatechange', check);
-    });
+    return gathered(pc);
   }
 
   private offerCurrent(a: OfferAttempt): boolean {

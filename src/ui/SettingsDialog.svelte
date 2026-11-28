@@ -263,6 +263,13 @@
       <option value="500">500 MB</option>
     </select>
     <label class="check"><input type="checkbox" bind:checked={s.sendThumbnails} onchange={saveFiles} /> Send a preview picture with pictures and videos</label>
+    <label for="s-file-link">Files directly between mumh5 users</label>
+    <select id="s-file-link" bind:value={s.fileLink} onchange={saveFiles}>
+      <option value="off">Off, only through the Mumble server</option>
+      <option value="relay">Through the server's mumpeer relay only (hides your IP address)</option>
+      <option value="direct">Directly, or through a relay</option>
+    </select>
+    <p class="help">Only with others who turned this on too. Faster than the Mumble server, which takes over when no connection comes up. A direct route uses the STUN and relay from Sharing and shows each of you the other's IP address. Mumpeer is used when either of you chose it; it needs a relay on this server that allows files, trusted in Server information, and usually both of you registered.</p>
     <div class="row kept">
       <p class="help">Files sent and received are kept on this computer, up to 2 GB, so others can get them from you later. {files.usage != null ? `In use: ${formatBytes(files.usage)}.` : ''}</p>
       <button class="btn" disabled={!files.usage} onclick={() => files.clear()}>Delete kept files</button>

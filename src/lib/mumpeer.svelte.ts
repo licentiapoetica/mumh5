@@ -2,7 +2,7 @@ import type { User } from '../core/client.ts';
 import {
   MUMCORD_HELLO, MUMCORD_PEER, PAIR_SIGNAL, PEER_HELLO,
   decodeBot, decodePair, encodePair, requestId, requestPair, sameRelayHost,
-  type BotMessage, type PairMessage, type RelayAnnouncement
+  type BotMessage, type PairMessage, type PairUse, type RelayAnnouncement
 } from '../core/mumpeer-signal.ts';
 import type { RelayTransport } from '../core/transport.ts';
 import type { Session } from './session.svelte.ts';
@@ -17,6 +17,8 @@ const pin = (bot: Announcer) => `${bot.hash}:${bot.message.fp}`;
 
 interface Pair {
   peer: number;
+  // Screen sharing pairs need the same channel; file pairs work across the server
+  use: PairUse;
   hash: string;
   bot: Announcer;
   low: boolean;
@@ -57,7 +59,7 @@ export class MumpeerSession {
 
   get enabled(): boolean {
     const route = store.settings.screenShareRoute;
-    return !!this.transport && (route === 'automatic' || route === 'fallback' || route === 'relay-only');
+    return !!this.transport && (route === 'automatic' || route === 'fallback' || route === 'relay-only' || store.settings.fileLink !== 'off');
   }
 
   private get key(): string | null {
@@ -103,19 +105,20 @@ export class MumpeerSession {
     return `Available · ${bot.message.host}`;
   }
 
-  private get available(): Announcer | null {
+  private availableFor(use: PairUse): Announcer | null {
     const bot = this.candidate;
     const key = this.key;
-    if (!this.enabled || !key || !bot || store.mumpeerPins[key] !== pin(bot)) return null;
-    return bot.message.state === 'up' && bot.message.screen ? bot : null;
+    if (!this.enabled || !key || !bot || store.mumpeerPins[key] !== pin(bot) || bot.message.state !== 'up') return null;
+    return (use === 'scr' ? bot.message.screen : bot.message.files) ? bot : null;
   }
 
-  capability(peer: number): string {
-    const bot = this.available;
+  /** The pinned relay both sides must name for a pair with this user, or '' when there is none. */
+  capability(peer: number, use: PairUse = 'scr'): string {
+    const bot = this.availableFor(use);
     const client = this.session.client;
     const self = client?.self;
     const other = client?.users.get(peer);
-    if (!bot || !self || !other || self.channelId !== other.channelId || self.session === peer) return '';
+    if (!bot || !self || !other || self.session === peer || (use === 'scr' && self.channelId !== other.channelId)) return '';
     if (!validHash(self.hash) || !validHash(other.hash) || self.hash === other.hash) return '';
     if (bot.message.registeredOnly && (self.userId == null || other.userId == null)) return '';
     return pin(bot);
@@ -175,7 +178,7 @@ export class MumpeerSession {
     const announcer = this.announcements.find(bot => bot.sender === user.session && !bot.departed);
     if (announcer && (announcer.hash !== user.hash.toLowerCase() || user.userId == null)) this.userLeft(user.session);
     const pair = this.pairs.get(user.session);
-    if (pair && (!this.sameChannel(user.session) || pair.hash !== user.hash.toLowerCase())) this.end(pair, 'The other user left the share.');
+    if (pair && ((pair.use === 'scr' && !this.sameChannel(user.session)) || pair.hash !== user.hash.toLowerCase())) this.end(pair, 'The other user left the share.');
   }
 
   userLeft(id: number): void {
@@ -200,7 +203,8 @@ export class MumpeerSession {
 
   receive(sender: number, dataId: string, data: Uint8Array): void {
     if (dataId === PAIR_SIGNAL) {
-      if (!this.enabled || !this.sameChannel(sender)) return;
+      // A file pair may come from another channel; peerMessage checks the pair's own use
+      if (!this.enabled) return;
       const msg = decodePair(data);
       if (msg) this.peerMessage(sender, msg);
       return;
@@ -232,27 +236,30 @@ export class MumpeerSession {
   }
 
   private rejectPending(): void {
-    const bot = this.available;
     for (const pair of this.pairs.values()) {
       if (pair.request?.phase === 'ready') continue;
+      const bot = this.availableFor(pair.use);
       if (!bot || bot.sender !== pair.bot.sender || pin(bot) !== pin(pair.bot)) this.end(pair, 'The mumpeer announcement changed.');
     }
   }
 
-  acquire(peer: number, share: string, sharer: number, fail: (reason: string) => void): RelayLease {
-    const bot = this.available;
+  // sharer: the side whose data goes out (the sharer, or the side sending the file); it picks the lane
+  acquire(peer: number, share: string, sharer: number, fail: (reason: string) => void, use: PairUse = 'scr'): RelayLease {
+    const bot = this.availableFor(use);
     const client = this.session.client;
     const self = client?.self;
     const other = client?.users.get(peer);
     const transport = this.transport;
-    if (!bot || !self || !other || !transport || !this.capability(peer)) throw new Error('Mumpeer is unavailable for this user.');
+    if (!bot || !self || !other || !transport || !this.capability(peer, use)) throw new Error('Mumpeer is unavailable for this user.');
     const low = self.session < peer;
     const lane = sharer === Math.min(self.session, peer) ? 0 : 1;
     let pair = this.pairs.get(peer);
+    // One link per pair of people, asked for one use: the relay operator allows each use on its own
+    if (pair && pair.use !== use) throw new Error('Mumpeer is in use between you for something else.');
     if (!pair) {
       const hash = other.hash.toLowerCase();
       if ([...this.pairs.values()].some(entry => entry.hash === hash)) throw new Error('Mumpeer is in use by another session of this user.');
-      pair = this.newPair(peer, hash, bot, low);
+      pair = this.newPair(peer, hash, bot, low, use);
     }
     if (pair.leases.has(lane)) throw new Error('A mumpeer connection for this share already exists.');
     const entry = { share, fail };
@@ -277,11 +284,13 @@ export class MumpeerSession {
     };
   }
 
-  private newPair(peer: number, hash: string, bot: Announcer, low: boolean): Pair {
+  private newPair(peer: number, hash: string, bot: Announcer, low: boolean, use: PairUse): Pair {
     let resolve!: Pair['resolve'];
     let reject!: Pair['reject'];
     const ready = new Promise<string>((ok, fail) => { resolve = ok; reject = fail; });
-    const pair: Pair = { peer, hash, bot, low, ready, resolve, reject, leases: new Map() };
+    // Nobody may be waiting on it yet (the other side has not answered); a failure is reported to the leases
+    ready.catch(() => {});
+    const pair: Pair = { peer, use, hash, bot, low, ready, resolve, reject, leases: new Map() };
     pair.timer = setTimeout(() => {
       const reason = pair.request?.phase === 'requested' ? 'The relay bot did not supply a token in time.' : 'The other client did not confirm the relay in time.';
       this.end(pair, reason);
@@ -306,8 +315,10 @@ export class MumpeerSession {
 
   private peerMessage(peer: number, msg: PairMessage): void {
     const self = this.session.client?.session;
-    if (self == null || peer === self || !this.capability(peer)) return;
     const pair = this.pairs.get(peer);
+    // Before a pair exists here, either use may be what the other side asks for
+    const usable = pair ? !!this.capability(peer, pair.use) : !!(this.capability(peer, 'scr') || this.capability(peer, 'file'));
+    if (self == null || peer === self || !usable) return;
     if (msg.t === 'need' && self < peer) {
       const current = this.needs.get(peer) ?? [];
       this.needs.set(peer, [...current.filter(id => id !== msg.share).slice(-3), msg.share]);
@@ -323,16 +334,16 @@ export class MumpeerSession {
     const pending = pair.request;
     if (msg.t === 'ack' && pair.low && pending?.phase === 'prepared' && pending.share === msg.share && pending.rid === msg.rid) {
       pending.phase = 'requested';
-      this.session.client?.sendPluginData([pair.bot.sender], MUMCORD_PEER, requestPair(peer, pending.rid));
+      this.session.client?.sendPluginData([pair.bot.sender], MUMCORD_PEER, requestPair(peer, pending.rid, pair.use));
     }
   }
 
   private token(sender: number, hash: string, msg: Exclude<BotMessage, RelayAnnouncement>): void {
     const self = this.session.client?.session;
     const pair = [...this.pairs.values()].find(pair => pair.request?.rid === msg.rid);
-    const current = this.available, transport = this.transport;
+    const current = pair && this.availableFor(pair.use), transport = this.transport;
     if (!pair || self == null || !transport || !current || current.sender !== sender || current.hash !== hash) return;
-    if (pair.bot.sender !== sender || pin(pair.bot) !== pin(current) || pair.request?.phase !== 'requested' || !this.capability(pair.peer)) return;
+    if (pair.bot.sender !== sender || pin(pair.bot) !== pin(current) || pair.request?.phase !== 'requested' || !this.capability(pair.peer, pair.use)) return;
     if (msg.t === 'token-err') {
       if (pair.low) this.end(pair, failures[msg.reason] ?? 'The relay bot refused the request.');
       return;
