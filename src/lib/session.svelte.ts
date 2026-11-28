@@ -262,6 +262,8 @@ export class Session {
     if (!this.movingUsers) {
       clearTimeout(this.userMoveTimer);
       if (!this.selectedUsers.length) this.selectingUsers = false;
+      // The bar shows a finished move only when someone was not moved
+      if (!this.userMove.people.some(p => p.status === 'failed')) this.userMove = null;
     }
   }
 
