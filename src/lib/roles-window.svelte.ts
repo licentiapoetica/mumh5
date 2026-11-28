@@ -1,7 +1,8 @@
 import { mount, unmount } from 'svelte';
 import RolesWindow from '../ui/RolesWindow.svelte';
 import { startHints } from './hints.ts';
-import { followLook } from './popup-look.ts';
+import { followLook, raiseWindow } from './popup-look.ts';
+import { fixSelects } from './popup-select.ts';
 import { desktop } from './native.ts';
 import { ui } from './ui.svelte.ts';
 
@@ -25,7 +26,7 @@ class RolesWindowStore {
     if (this.win && !this.win.closed) {
       // An open window keeps its unsaved changes; only a named tab or person moves it
       if (request.tab || request.userId != null) this.props!.jump = { ...request };
-      this.win.focus();
+      raiseWindow(this.win, 'mumh5-roles');
       return true;
     }
     let inline = false;
@@ -46,6 +47,7 @@ class RolesWindowStore {
 
     this.win = w;
     const listeners = this.listeners = new AbortController();
+    fixSelects(doc, listeners.signal);
     w.addEventListener('pagehide', () => { if (this.win === w) this.close(); }, { signal: listeners.signal });
     // Without this it would outlive the app, and keep it running with nothing behind it
     window.addEventListener('pagehide', () => this.close(), { signal: listeners.signal });

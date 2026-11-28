@@ -1,3 +1,11 @@
+import { desktop } from './native.ts';
+
+/** Brings a window the app opened forward. The desktop app needs its main process for that. */
+export function raiseWindow(w: Window, name: string): void {
+  w.focus();
+  desktop?.raiseWindow(name);
+}
+
 // The look of the app in an empty window of its own (Settings, the theme creator): its stylesheets
 // and the attributes of its root element (color scheme, rounded corners). Both keep following the
 // app, so a hot reload during development, or a stylesheet added later, reaches the window too.

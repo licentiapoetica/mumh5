@@ -1,7 +1,8 @@
 import { mount, unmount } from 'svelte';
 import SettingsWindow from '../ui/SettingsWindow.svelte';
 import { startHints } from './hints.ts';
-import { followLook } from './popup-look.ts';
+import { followLook, raiseWindow } from './popup-look.ts';
+import { fixSelects } from './popup-select.ts';
 import { desktop } from './native.ts';
 import { ui } from './ui.svelte.ts';
 
@@ -60,6 +61,7 @@ class SettingsWindowStore {
     this.usedLast = true;
     const listeners = this.listeners = new AbortController();
     const { signal } = listeners;
+    fixSelects(doc, signal);
     for (const type of ['pointerdown', 'keydown']) {
       doc.addEventListener(type, () => { this.usedLast = true; }, { capture: true, signal });
       document.addEventListener(type, () => { this.usedLast = false; }, { capture: true, signal });
@@ -80,7 +82,7 @@ class SettingsWindowStore {
   show(tab?: Tab) {
     if (!this.win || this.win.closed) return;
     if (tab && this.props) this.props.jump = { tab };
-    this.win.focus();
+    raiseWindow(this.win, 'mumh5-settings');
   }
 
   close() {
