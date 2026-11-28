@@ -4,6 +4,8 @@
 // TextDecoder or crypto, and the CSP forbids its new Function fallback. So the imports are below.
 
 const FRAME = 480;
+// Strongest cut in dB. At 100 the model also removes quiet consonants and soft voices.
+const ATTENUATION_LIMIT_DB = 30;
 const RING = 2048;
 // Frames arrive in steps of 480 and leave in steps of 128; this much queued never runs dry
 const START = FRAME + 128;
@@ -108,7 +110,7 @@ function createDf(module: WebAssembly.Module, model: ArrayBuffer): Df {
   const bytes = new Uint8Array(model);
   const modelPtr = w.__wbindgen_malloc(bytes.length, 1) >>> 0;
   new Uint8Array(w.memory.buffer).set(bytes, modelPtr);
-  const handle = w.df_create(modelPtr, bytes.length, 100) >>> 0;
+  const handle = w.df_create(modelPtr, bytes.length, ATTENUATION_LIMIT_DB) >>> 0;
   return {
     process(frame) {
       const ptr = w.__wbindgen_malloc(frame.length * 4, 4) >>> 0;

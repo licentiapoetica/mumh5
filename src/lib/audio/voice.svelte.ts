@@ -110,6 +110,7 @@ class VoiceEngine {
   private direct = false;        // the output gain also feeds the context's own destination
   playingMedia = $state(false);  // the media element is playing (Media Session controls apply)
   private denoiseRun = 0;        // a load or node from an earlier run is stale
+  private micGain = false;       // whether the open microphone uses the browser's auto gain
   private micNoise = false;      // whether the open microphone uses the browser's filter
   // The browser's Opus codec (WebCodecs), or our own in WebAssembly where the browser has none
   private opus: Opus | null = null;
@@ -353,6 +354,7 @@ class VoiceEngine {
     this.micOpen = false;
     const s = this.settings;
     const browserNoise = this.browserNoise();
+    const browserGain = this.browserGain();
     let stream: MediaStream;
     this.openingSince = performance.now();
     try {
@@ -361,7 +363,7 @@ class VoiceEngine {
           deviceId: s.inputDevice && s.inputDevice !== 'default' ? { exact: s.inputDevice } : undefined,
           echoCancellation: s.echoCancellation,
           noiseSuppression: browserNoise,
-          autoGainControl: s.autoGainControl,
+          autoGainControl: browserGain,
           channelCount: 1,
           sampleRate: SAMPLE_RATE
         }
@@ -390,10 +392,11 @@ class VoiceEngine {
       track.addEventListener('unmute', () => { if (this.stream === stream) connLog.add('microphone unmuted by the system'); });
     }
     this.micNoise = browserNoise;
+    this.micGain = browserGain;
     this.micOpen = true;
     this.error = '';
     this.source = ctx.createMediaStreamSource(this.stream);
-    this.source.connect(this.denoiser ?? gain);
+    this.source.connect(gain);
     this.refreshDevices();
     // The model became ready, or failed, while the browser was getting the microphone
     this.applyMicNoise();
@@ -406,14 +409,21 @@ class VoiceEngine {
     return this.settings.noiseSuppression && !this.denoiser;
   }
 
+  // The browser's auto gain also stays out of the model's way: its moving level makes quiet speech
+  // look like noise to the model
+  private browserGain(): boolean {
+    return this.settings.autoGainControl && !(this.settings.noiseSuppression && this.denoiser);
+  }
+
   private applyMicNoise(): void {
-    if (this.stream && this.micNoise !== this.browserNoise()) this.syncInput(true);
+    if (this.stream && (this.micNoise !== this.browserNoise() || this.micGain !== this.browserGain())) this.syncInput(true);
   }
 
   private routeMic(): void {
-    if (!this.source || !this.inputGainNode) return;
-    this.source.disconnect();
-    this.source.connect(this.denoiser ?? this.inputGainNode);
+    // The microphone gain comes first, so the model sees the level the user set
+    if (!this.inputGainNode || !this.capture) return;
+    this.inputGainNode.disconnect();
+    this.inputGainNode.connect(this.denoiser ?? this.capture);
   }
 
   private async syncDenoise(): Promise<void> {
@@ -448,7 +458,7 @@ class VoiceEngine {
   private onDenoiser(node: AudioWorkletNode, run: number, msg: { ready?: boolean; failed?: string; overloaded?: boolean }): void {
     if (run !== this.denoiseRun || !this.inputGainNode) return this.closeDenoiser(node);
     if (msg.ready) {
-      node.connect(this.inputGainNode);
+      if (this.capture) node.connect(this.capture);
       this.denoiser = node;
       this.denoise = 'on';
       this.denoisePaused = false;
