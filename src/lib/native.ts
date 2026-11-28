@@ -46,6 +46,8 @@ interface NativeApi extends PlatformApi {
   attention(): void;
   // Restore and focus the window (a click on a system notification)
   showWindow(): void;
+  // Bring one of the app's pop-up windows forward, by its frame name
+  raiseWindow(name: string): void;
   // Whether the window is on screen (not minimized or in the tray), now and on every change
   onWindowShown(fn: (shown: boolean) => void): () => void;
   linkPreview(url: string): Promise<LinkPreviewData | null>;

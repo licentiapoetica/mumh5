@@ -1,7 +1,7 @@
 import { mount, unmount } from 'svelte';
 import ThemeCreator from '../ui/ThemeCreator.svelte';
 import { startHints } from './hints.ts';
-import { followLook } from './popup-look.ts';
+import { followLook, raiseWindow } from './popup-look.ts';
 import { desktop } from './native.ts';
 import { studio } from './theme-studio.svelte.ts';
 
@@ -16,7 +16,7 @@ class ThemeWindow {
   /** from: the window of the button, which needs the click to be allowed to open another. */
   show(from: Window = window) {
     if (this.win && !this.win.closed) {
-      this.win.focus();
+      raiseWindow(this.win, 'mumh5-themes');
       return;
     }
     // The desktop app only allows this window from its main page. A phone has no windows.

@@ -307,6 +307,17 @@ ipcMain.on('window:show', e => {
   win.focus();
 });
 
+// The app's own pop-up windows by frame name. A page's focus() does not bring one forward on
+// Wayland (seen on KDE), asking from here does.
+const popups = new Map<string, BrowserWindow>();
+ipcMain.on('window:raise', (_e, name: string) => {
+  const win = popups.get(String(name));
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
+
 const isShown = (win: BrowserWindow) => win.isVisible() && !win.isMinimized();
 ipcMain.handle('window:isShown', e => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -367,6 +378,8 @@ function createWindow() {
   });
   // Links in those windows (the update download) go to the browser, like those in the app
   win.webContents.on('did-create-window', (child, { frameName }) => {
+    popups.set(frameName, child);
+    child.on('closed', () => { if (popups.get(frameName) === child) popups.delete(frameName); });
     if (frameName !== 'mumh5-settings' && frameName !== 'mumh5-themes' && frameName !== 'mumh5-roles') return;
     child.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);

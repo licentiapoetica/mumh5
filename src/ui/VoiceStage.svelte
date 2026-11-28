@@ -12,6 +12,7 @@
   import ResizeHandle from './ResizeHandle.svelte';
   import ShareStats from './ShareStats.svelte';
   import ZoomView from './ZoomView.svelte';
+  import { raiseWindow } from '../lib/popup-look.ts';
   import { mount, unmount } from 'svelte';
 
   // People in your voice channel as tiles. Shown on windows too narrow for the member list
@@ -210,7 +211,7 @@
   let spotVideo = $state<HTMLVideoElement>();
   const popped = $derived(share.poppedOut);
   function popOut() {
-    if (popup && !popup.closed) return popup.focus();
+    if (popup && !popup.closed) return raiseWindow(popup, 'mumh5-stream');
     const w = window.open('', 'mumh5-stream', 'popup,width=960,height=600');
     if (!w) {
       // Refused (a pop-up blocker, or an app build that predates this). The floating

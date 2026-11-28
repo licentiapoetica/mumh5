@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('mumh5Native', {
   updateTray: (state: unknown) => ipcRenderer.send('tray:update', state),
   attention: () => ipcRenderer.send('window:attention'),
   showWindow: () => ipcRenderer.send('window:show'),
+  raiseWindow: (name: string) => ipcRenderer.send('window:raise', name),
   // Calls fn with the current state, then on every change; returns the unsubscribe
   onWindowShown: (fn: (shown: boolean) => void) => {
     const listener = (_e: unknown, shown: boolean) => fn(shown);
