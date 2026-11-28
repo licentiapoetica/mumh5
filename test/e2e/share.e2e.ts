@@ -626,6 +626,22 @@ try {
   assert.equal(got, createHash('sha256').update(bulk).digest('hex'), 'the file arrived intact');
   console.log(`ok: a file directly between two people who turned it on (8 MB in ${(took / 1000).toFixed(1)} s)`);
 
+  // Details: pieces and the people it came from or went to, with the route; the sender learns it arrived
+  const details = (p: Page, name: string) => p.locator('.chat .msg .file', { hasText: name }).getByRole('region', { name: 'Transfer details' });
+  await bob.page.getByRole('button', { name: `Transfer details of ${bulkName}` }).click();
+  await details(bob.page, bulkName).getByText(/^\d+ of \d+, /).waitFor();
+  const fromAlice = details(bob.page, bulkName).locator('li', { hasText: aliceName });
+  await fromAlice.getByText('direct, done').waitFor();
+  await fromAlice.getByText(/^8\.0 MB \(100%\)/).waitFor();
+  await alice.page.getByRole('button', { name: `Transfer details of ${bulkName}` }).click();
+  const toBob = details(alice.page, bulkName).locator('li', { hasText: bobName });
+  await toBob.getByText('direct, has it').waitFor();
+  if (process.env.SHOTS_DIR) {
+    await bob.page.locator('.chat .msg .file', { hasText: bulkName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-details-receiver.png') });
+    await alice.page.locator('.chat .msg .file', { hasText: bulkName }).screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-details-sender.png') });
+  }
+  console.log('ok: transfer details on both sides, and the sender sees that it arrived');
+
   // Only when both turned it on: with alice's off, bob does not even try, and the server carries it
   await alice.page.getByTitle('Settings').click();
   await alice.page.getByRole('tab', { name: 'Chat and files' }).click();
@@ -640,10 +656,14 @@ try {
   });
   const smallName = `server-${tag}.bin`;
   const smallPath = path.join(path.dirname(bulkPath), smallName);
-  writeFileSync(smallPath, bulk.subarray(0, 300_000));
+  writeFileSync(smallPath, bulk.subarray(0, 1_000_000));
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(smallPath);
+  // Several pieces at the server's pace: the sender sees a progress bar while sending
+  await alice.page.getByRole('progressbar', { name: `Sending ${smallName}` }).waitFor({ timeout: 15000 });
   await bob.page.locator('.chat .msg .file', { hasText: smallName }).locator(`a[download="${smallName}"]`).waitFor({ timeout: 30000 });
   assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'no link tried');
+  await bob.page.getByRole('button', { name: `Transfer details of ${smallName}` }).click();
+  await details(bob.page, smallName).locator('li', { hasText: aliceName }).getByText('Mumble server, done').waitFor();
   console.log('ok: with the sender\'s setting off the file goes through the server');
 
   // Someone who wants the relay never gets a direct route: without a mumpeer relay on this server
