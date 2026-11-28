@@ -29,7 +29,7 @@ interface Df {
   free(): void;
 }
 
-function createDf(module: WebAssembly.Module, model: ArrayBuffer): Df {
+function createDf(module: WebAssembly.Module, model: ArrayBuffer, limitDb: number): Df {
   let w: DfExports;
   // wasm-bindgen's table of JavaScript values; the first 132 entries are reserved
   const heap: unknown[] = new Array(128).fill(undefined);
@@ -108,7 +108,7 @@ function createDf(module: WebAssembly.Module, model: ArrayBuffer): Df {
   const bytes = new Uint8Array(model);
   const modelPtr = w.__wbindgen_malloc(bytes.length, 1) >>> 0;
   new Uint8Array(w.memory.buffer).set(bytes, modelPtr);
-  const handle = w.df_create(modelPtr, bytes.length, 100) >>> 0;
+  const handle = w.df_create(modelPtr, bytes.length, limitDb) >>> 0;
   return {
     process(frame) {
       const ptr = w.__wbindgen_malloc(frame.length * 4, 4) >>> 0;
@@ -147,7 +147,7 @@ class DenoiseProcessor extends AudioWorkletProcessor {
       }
     };
     try {
-      this.df = createDf(options.processorOptions.module, options.processorOptions.model);
+      this.df = createDf(options.processorOptions.module, options.processorOptions.model, options.processorOptions.limit ?? 100);
       this.port.postMessage({ ready: true });
     } catch (e) {
       this.port.postMessage({ failed: (e as Error).message });

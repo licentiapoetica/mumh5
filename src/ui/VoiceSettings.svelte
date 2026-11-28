@@ -146,6 +146,10 @@
       {:else if voice.denoise === 'on'}DeepFilterNet is active. It runs on this device and adds about 30 ms of delay.
       {:else}Runs on this device and adds about 30 ms of delay. In the browser it is a 10 MB download the first time.{/if}
     </p>
+    <label for="v-dflimit">Maximum cut: {s.denoiseLimit >= 100 ? 'no limit' : `${s.denoiseLimit} dB`}</label>
+    <input id="v-dflimit" type="range" min="10" max="100" step="5" value={s.denoiseLimit}
+      onchange={e => voice.update({ denoiseLimit: Number(e.currentTarget.value) })} />
+    <p class="help">With no limit the filter can also remove quiet consonants and soft voices. A lower value keeps more of them, and leaves some background noise. Changing it restarts the filter.</p>
   {/if}
   <label class="check"><input type="checkbox" checked={s.echoCancellation} onchange={e => voice.update({ echoCancellation: e.currentTarget.checked })} /> Echo cancellation (for speakers instead of headphones)</label>
   <label class="check"><input type="checkbox" checked={s.autoGainControl} onchange={e => voice.update({ autoGainControl: e.currentTarget.checked })} /> Automatic gain control</label>

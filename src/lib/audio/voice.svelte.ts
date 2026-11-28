@@ -27,6 +27,7 @@ export interface VoiceSettings {
   echoCancellation: boolean;
   noiseSuppression: boolean;
   noiseEngine: NoiseEngine;  // which filter noiseSuppression uses
+  denoiseLimit: number;      // dB the DeepFilterNet filter may cut at most; 100 is no limit
   autoGainControl: boolean;
   bitrate: number;           // Opus bits per second
   frameMs: 10 | 20 | 40 | 60;
@@ -60,6 +61,7 @@ const defaults: VoiceSettings = {
   noiseSuppression: true,
   // In the browser the strong filter is a large download, so it is a choice there
   noiseEngine: desktop ? 'deepfilter' : 'browser',
+  denoiseLimit: 100,
   autoGainControl: true,
   bitrate: 40000,
   frameMs: 20,
@@ -177,6 +179,11 @@ class VoiceEngine {
       if (this.denoise === 'failed' || this.denoise === 'overloaded') this.denoise = 'off';
       this.syncDenoise();
       this.applyMicNoise();
+    }
+    // The engine takes its limit when it is created, so a new value starts a new one
+    if ('denoiseLimit' in patch && this.denoiser) {
+      this.dropDenoiser();
+      this.syncDenoise();
     }
     if (['inputDevice', 'echoCancellation', 'autoGainControl'].some(k => k in patch)) this.syncInput(true);
     else if ('releaseMicMuted' in patch) this.syncInput();
@@ -393,7 +400,7 @@ class VoiceEngine {
     this.micOpen = true;
     this.error = '';
     this.source = ctx.createMediaStreamSource(this.stream);
-    this.source.connect(this.denoiser ?? gain);
+    this.source.connect(gain);
     this.refreshDevices();
     // The model became ready, or failed, while the browser was getting the microphone
     this.applyMicNoise();
@@ -411,9 +418,10 @@ class VoiceEngine {
   }
 
   private routeMic(): void {
-    if (!this.source || !this.inputGainNode) return;
-    this.source.disconnect();
-    this.source.connect(this.denoiser ?? this.inputGainNode);
+    // The microphone gain comes first, so the model sees the level the user set
+    if (!this.inputGainNode || !this.capture) return;
+    this.inputGainNode.disconnect();
+    this.inputGainNode.connect(this.denoiser ?? this.capture);
   }
 
   private async syncDenoise(): Promise<void> {
@@ -435,7 +443,7 @@ class VoiceEngine {
       if (run !== this.denoiseRun) return;
       const node = new AudioWorkletNode(ctx, 'mumh5-denoise', {
         numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
-        channelCount: 1, channelCountMode: 'explicit', processorOptions: { module, model }
+        channelCount: 1, channelCountMode: 'explicit', processorOptions: { module, model, limit: this.settings.denoiseLimit }
       });
       node.port.onmessage = e => this.onDenoiser(node, run, e.data);
       node.onprocessorerror = () => this.onDenoiser(node, run, { failed: 'Processor error' });
@@ -448,7 +456,7 @@ class VoiceEngine {
   private onDenoiser(node: AudioWorkletNode, run: number, msg: { ready?: boolean; failed?: string; overloaded?: boolean }): void {
     if (run !== this.denoiseRun || !this.inputGainNode) return this.closeDenoiser(node);
     if (msg.ready) {
-      node.connect(this.inputGainNode);
+      if (this.capture) node.connect(this.capture);
       this.denoiser = node;
       this.denoise = 'on';
       this.denoisePaused = false;
