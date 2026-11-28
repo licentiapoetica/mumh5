@@ -167,8 +167,13 @@ async function startShare(page: Page) {
   if (await consent.isVisible()) await consent.click();
   const dialog = page.getByRole('dialog', { name: 'Share your screen' });
   await dialog.getByLabel('Quality').selectOption('low');
-  const source = dialog.locator('.sources button').first();
-  await source.click({ timeout: 20000 });
+  // Listing is slow on the bare test display and can come back empty (as in share.e2e.ts)
+  const sources = dialog.locator('.sources button');
+  for (let i = 0; i < 6 && !(await sources.count()); i++) {
+    await Promise.race([sources.first().waitFor({ timeout: 20000 }), dialog.getByText('Nothing found').waitFor({ timeout: 20000 })]).catch(() => {});
+    if (await dialog.getByText('Nothing found').count()) await dialog.getByRole('button', { name: 'Refresh' }).click();
+  }
+  await sources.first().click({ timeout: 20000 });
   await dialog.getByRole('button', { name: 'Start sharing', exact: true }).click();
 }
 
