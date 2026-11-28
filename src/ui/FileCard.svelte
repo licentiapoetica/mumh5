@@ -34,7 +34,7 @@
 
   const status = $derived.by(() => {
     if (!t || t.state === 'idle') return formatBytes(meta.s);
-    if (t.state === 'finding') return 'Looking for someone who has it';
+    if (t.state === 'finding') return t.directAsk != null ? 'Waiting for you to choose how' : 'Looking for someone who has it';
     if (t.state === 'loading') {
       const route = t.link === 'direct' ? ', direct' : t.link === 'relay' ? ', through the relay' : t.link === 'mumpeer' ? ', through mumpeer' : '';
       return `${formatBytes(t.got)} of ${formatBytes(meta.s)}${t.rate ? `, ${formatBytes(Math.round(t.rate))}/s` : ''}${route}`;

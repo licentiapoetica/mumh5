@@ -613,10 +613,14 @@ try {
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(bulkPath);
   const bobFile = bob.page.locator('.chat .msg .file', { hasText: bulkName });
   await bobFile.waitFor({ timeout: 30000 });
-  // A direct route shows both IP addresses: it waits for the receiver, and the server carries the file meanwhile
+  // A direct route shows both IP addresses: it waits for the receiver, and nothing comes meanwhile,
+  // not through the server either
   const connect = bobFile.getByRole('button', { name: 'Allow direct connection' });
   await connect.waitFor({ timeout: 15000 });
   await bobFile.getByText(`${aliceName} can send this directly`).waitFor();
+  await bob.page.waitForTimeout(4000);
+  await bobFile.getByText('Waiting for you to choose how').waitFor();
+  assert.equal(await bobFile.getByRole('progressbar').getAttribute('aria-valuenow'), '0', 'nothing arrived before the receiver chose');
   assert.deepEqual(await bob.page.evaluate(() => (window as any).__fileRoutes), [], 'no direct route before the receiver allows it');
   if (process.env.SHOTS_DIR) await bobFile.screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-direct-ask.png') });
   const started = Date.now();
@@ -682,7 +686,11 @@ try {
   writeFileSync(path.join(path.dirname(bulkPath), declinedName), bulk.subarray(0, 600_000));
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(path.join(path.dirname(bulkPath), declinedName));
   const declinedFile = bob.page.locator('.chat .msg .file', { hasText: declinedName });
-  await declinedFile.getByRole('button', { name: 'Decline', exact: true }).click({ timeout: 15000 });
+  // Fetched on its own for its size, and still held until the receiver answers
+  await declinedFile.getByRole('button', { name: 'Decline', exact: true }).waitFor({ timeout: 15000 });
+  await bob.page.waitForTimeout(3000);
+  assert.equal(await declinedFile.locator(`a[download="${declinedName}"]`).count(), 0, 'an automatic download waits for the answer');
+  await declinedFile.getByRole('button', { name: 'Decline', exact: true }).click();
   await declinedFile.getByRole('button', { name: 'Allow direct connection' }).waitFor({ state: 'detached' });
   await declinedFile.locator(`a[download="${declinedName}"]`).waitFor({ timeout: 30000 });
   assert.equal(await bob.page.evaluate(() => (window as any).__links), 0, 'declined: no connection');

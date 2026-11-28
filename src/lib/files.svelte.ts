@@ -81,6 +81,9 @@ interface Download {
   // (declineDirect): then only mumpeer, which keeps the addresses apart, or the server
   directOk: boolean;
   directNo: boolean;
+  // Waiting for that answer before anything moved: nothing comes through the server either,
+  // so a file is never fetched without the receiver choosing how
+  held: boolean;
 }
 
 interface Runtime {
@@ -299,12 +302,14 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null, directOk: false, directNo: false
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null, directOk: false, directNo: false, held: false
     };
     this.downloads.set(meta.i, d);
     this.meters.clear(meta.i, 'from');
     this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '', link: '', pieces: 0, count: d.count, started: now, ended: 0 });
-    if (author != null && author !== client.session && client.users.has(author)) {
+    // With links on, the author's answer to `who` says whether a direct route is possible, which
+    // needs the receiver's consent first: it becomes a source then, like everyone else
+    if (author != null && author !== client.session && client.users.has(author) && !this.linkMode()) {
       d.sources.set(author, new SourceWindow([], 0));
       this.meters.update(s, meta.i, author, 'from', { state: 'waiting' });
       this.assign(d);
@@ -369,6 +374,7 @@ class Files {
   private assign(d: Download, again = false): void {
     clearTimeout(d.rebalance);
     d.rebalance = undefined;
+    if (d.held) return;
     if (d.direct?.open) {
       d.direct.want(toRanges(this.missing(d)), again);
       return;
@@ -394,6 +400,11 @@ class Files {
 
   private dropSource(d: Download, id: number): void {
     if (d.direct?.peer === id) d.direct.close();
+    // The person asked about left: the question goes to the next one, or the server route goes on
+    if (this.transfers[d.meta.i]?.directAsk === id) {
+      d.linkPeers.delete(id);
+      void this.tryDirect(d);
+    }
     if (!d.sources.delete(id)) return;
     this.meters.update(d.s, d.meta.i, id, 'from', { state: 'gone' });
     if (d.sources.size) this.assign(d);
@@ -408,6 +419,8 @@ class Files {
       if (now > d.findUntil) this.fail(d, 'Nobody online has this file right now');
       return;
     }
+    // Waiting for the receiver is not a stall
+    if (d.held) d.lastAt = now;
     if (now - d.lastAt > STALL_MS) {
       if (++d.stalls > 2) return this.fail(d, 'The transfer stopped');
       d.lastAt = now;
@@ -430,7 +443,7 @@ class Files {
     const src = d.sources.get(from)!;
     if (this.accept(d, p.index, bytes, from, 'server')) return;
     // More before the source runs out, so it keeps sending without getting ahead of us
-    if (src.got(p.index) && !d.direct?.open) this.ask(d, from, src, false);
+    if (src.got(p.index) && !d.direct?.open && !d.held) this.ask(d, from, src, false);
   }
 
   // A piece from either route; true once the file is complete
@@ -451,6 +464,23 @@ class Files {
   }
 
   // ─── Direct links (file-links.ts) ───────────────────────────────────────────
+
+  // Nothing moves while the receiver has not answered the direct question, if nothing came yet;
+  // what the server was asked for already is called off. Once answered, the server route goes on.
+  private hold(d: Download, on: boolean): void {
+    if (on && !d.held && d.got === 0 && !d.direct) {
+      d.held = true;
+      clearTimeout(d.rebalance);
+      d.rebalance = undefined;
+      const busy = [...d.sources].filter(([, src]) => src.window.size).map(([id]) => id);
+      for (const src of d.sources.values()) src.window.clear();
+      if (busy.length) this.signal(d.s, busy, FILE.want, { i: d.meta.i, r: [] });
+    } else if (!on && d.held) {
+      d.held = false;
+      d.lastAt = Date.now();
+      if (this.downloads.get(d.meta.i) === d) this.assign(d);
+    }
+  }
 
   // Tries the next source that takes links; the server route goes on meanwhile
   private async tryDirect(d: Download): Promise<void> {
@@ -484,9 +514,11 @@ class Files {
     if (peer == null || !route) {
       this.set(d.meta.i, { directAsk: ask });
       if (ask != null) this.meters.link(d.s, d.meta.i, ask, 'from', { route: 'direct', state: 'ask', reason: '' });
+      this.hold(d, ask != null);
       return;
     }
     this.set(d.meta.i, { directAsk: null });
+    this.hold(d, false);
     const via = peer;
     const kind: LinkRoute = route;
     d.linkEnd = null;
