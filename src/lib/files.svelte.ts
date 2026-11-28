@@ -13,6 +13,7 @@ import type { Session } from './session.svelte.ts';
 import { getBlob, putBlob, getData, putData, deleteBlob } from './blobstore.ts';
 import { store } from './settings.svelte.ts';
 import { sounds } from './audio/sounds.svelte.ts';
+import { DownLink, UpLink, linksSupported, okSdp, type LinkRoute } from './file-links.ts';
 
 export interface Transfer {
   state: 'idle' | 'finding' | 'loading' | 'ready' | 'failed';
@@ -22,9 +23,10 @@ export interface Transfer {
   error: string;
   url: string;     // once ready
   sending: number; // people we are sending it to
+  link: '' | LinkRoute; // coming over a direct link (file-links.ts) instead of the server
 }
 
-const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '', url: '', sending: 0 };
+const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '', url: '', sending: 0, link: '' };
 
 // What this computer keeps of files it sent and received; the oldest go first
 const KEEP_BYTES = 2 * 1024 ** 3;
@@ -33,6 +35,8 @@ const INDEX = 'files:index';
 const FIND_MS = 3000;
 // A source that sent nothing for this long is asked again, twice, then the download stops
 const STALL_MS = 45000;
+// Direct links a computer serves at once
+const MAX_UPLINKS = 8;
 // Murmur allows 15 plugin messages at once and 4 a second; text channels use some of that
 const BURST = 4;
 const PER_SECOND = 1.5;
@@ -55,6 +59,11 @@ interface Download {
   timer: ReturnType<typeof setInterval>;
   rebalance: ReturnType<typeof setTimeout> | undefined;
   rateFrom: { at: number; bytes: number };
+  // The direct link, while one is tried or open; it takes over from the server route once open
+  direct: DownLink | null;
+  // Sources that take direct links, and those tried already
+  directPeers: number[];
+  directTried: Set<number>;
 }
 
 interface Runtime {
@@ -65,6 +74,8 @@ interface Runtime {
   level: number;
   levelAt: number;
   timer: ReturnType<typeof setTimeout> | undefined;
+  // Direct links we serve, by receiver and file
+  links: Map<string, UpLink>;
 }
 
 // Only types the app can show are kept as such; anything else (HTML, SVG) stays inert data
@@ -94,6 +105,11 @@ class Files {
   // Plugin data needs a 1.4 server; older ones would not pass the requests on
   supported(s: Session): boolean {
     return !!s.client && s.client.serverVersionNum >= 0x010400;
+  }
+
+  // Direct links need the setting on this computer and WebRTC
+  private directOn(): boolean {
+    return store.settings.fileDirect && linksSupported();
   }
 
   private set(id: string, patch: Partial<Transfer>): void {
@@ -155,7 +171,7 @@ class Files {
   private ready(meta: FileMeta, blob: Blob): void {
     this.local.set(meta.i, { meta, blob });
     const url = this.transfers[meta.i]?.url || URL.createObjectURL(new Blob([blob], { type: safeType(meta.m) }));
-    this.set(meta.i, { state: 'ready', got: meta.s, url, error: '', rate: 0, sources: 0 });
+    this.set(meta.i, { state: 'ready', got: meta.s, url, error: '', rate: 0, sources: 0, link: '' });
   }
 
   // Shows a file as ready when this computer has it
@@ -234,15 +250,16 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, directPeers: [], directTried: new Set()
     };
     this.downloads.set(meta.i, d);
-    this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '' });
+    this.set(meta.i, { state: 'finding', got: 0, rate: 0, sources: 0, error: '', link: '' });
     if (author != null && author !== client.session && client.users.has(author)) {
       d.sources.set(author, new SourceWindow([], 0));
       this.assign(d);
     }
-    const others = [...client.users.keys()].filter(id => id !== client.session && id !== author);
+    // The author is asked too when direct links are on: the answer says whether it takes one
+    const others = [...client.users.keys()].filter(id => id !== client.session && (id !== author || this.directOn()));
     this.signal(s, others, FILE.who, { i: meta.i });
   }
 
@@ -250,20 +267,23 @@ class Files {
     const d = this.downloads.get(id);
     if (!d) return;
     this.stop(d);
-    this.set(id, { state: 'idle', got: 0, rate: 0, sources: 0 });
+    this.set(id, { state: 'idle', got: 0, rate: 0, sources: 0, link: '' });
   }
 
   private stop(d: Download): void {
     clearInterval(d.timer);
     clearTimeout(d.rebalance);
     if (this.downloads.get(d.meta.i) === d) this.downloads.delete(d.meta.i);
+    const link = d.direct;
+    d.direct = null;
+    link?.close();
     const busy = [...d.sources].filter(([, src]) => src.window.size).map(([id]) => id);
     if (d.s.client) this.signal(d.s, busy, FILE.want, { i: d.meta.i, r: [] });
   }
 
   private fail(d: Download, error: string): void {
     this.stop(d);
-    this.set(d.meta.i, { state: 'failed', error, rate: 0, sources: 0 });
+    this.set(d.meta.i, { state: 'failed', error, rate: 0, sources: 0, link: '' });
     sounds.play('uploadFailed');
   }
 
@@ -278,6 +298,10 @@ class Files {
   private assign(d: Download, again = false): void {
     clearTimeout(d.rebalance);
     d.rebalance = undefined;
+    if (d.direct?.open) {
+      d.direct.want(toRanges(this.missing(d)), again);
+      return;
+    }
     const parts = split(this.missing(d), [...d.sources.keys()]);
     for (const [id, old] of d.sources) {
       const stretch = parts.get(id) ?? [];
@@ -298,6 +322,7 @@ class Files {
   }
 
   private dropSource(d: Download, id: number): void {
+    if (d.direct?.peer === id) d.direct.close();
     if (!d.sources.delete(id)) return;
     if (d.sources.size) this.assign(d);
     else if (Date.now() > d.findUntil) this.fail(d, 'Nobody online has this file right now');
@@ -330,18 +355,100 @@ class Files {
     if (!p || !d || d.s !== s || !d.sources.has(from) || p.index >= d.count || d.parts[p.index]) return;
     const bytes = decode15(p.payload, pieceSize(d.meta, p.index));
     if (!bytes) return;
-    d.parts[p.index] = new Blob([bytes as Uint8Array<ArrayBuffer>]);
-    d.digests[p.index] = sha256(bytes);
+    const src = d.sources.get(from)!;
+    if (this.accept(d, p.index, bytes)) return;
+    // More before the source runs out, so it keeps sending without getting ahead of us
+    if (src.got(p.index) && !d.direct?.open) this.ask(d, from, src, false);
+  }
+
+  // A piece from either route; true once the file is complete
+  private accept(d: Download, index: number, bytes: Uint8Array): boolean {
+    if (d.parts[index] || bytes.length !== pieceSize(d.meta, index)) return false;
+    d.parts[index] = new Blob([bytes as Uint8Array<ArrayBuffer>]);
+    d.digests[index] = sha256(bytes);
     d.got++;
     d.bytes += bytes.length;
     d.lastAt = Date.now();
     d.stalls = 0;
-    const src = d.sources.get(from)!;
     if (this.transfers[d.meta.i]?.state === 'finding' && d.rateFrom.bytes === 0) d.rateFrom = { at: Date.now(), bytes: 0 };
     this.set(d.meta.i, { state: 'loading', got: d.bytes });
-    if (d.got === d.count) this.finish(d);
-    // More before the source runs out, so it keeps sending without getting ahead of us
-    else if (src.got(p.index)) this.ask(d, from, src, false);
+    if (d.got < d.count) return false;
+    this.finish(d);
+    return true;
+  }
+
+  // ─── Direct links (file-links.ts) ───────────────────────────────────────────
+
+  // Tries the next source that takes direct links; the server route goes on meanwhile
+  private async tryDirect(d: Download): Promise<void> {
+    const client = d.s.client;
+    if (d.direct || !client || !this.directOn() || this.downloads.get(d.meta.i) !== d) return;
+    const peer = d.directPeers.find(p => !d.directTried.has(p) && client.users.has(p));
+    if (peer == null) return;
+    d.directTried.add(peer);
+    const link: DownLink = new DownLink(peer, d.count, k => pieceSize(d.meta, k), {
+      open: route => {
+        if (d.direct !== link) return;
+        d.lastAt = Date.now();
+        this.set(d.meta.i, { link: route });
+        // The server route stops; what it already sent still counts
+        const busy = [...d.sources].filter(([, src]) => src.window.size).map(([id]) => id);
+        for (const src of d.sources.values()) src.window.clear();
+        this.signal(d.s, busy, FILE.want, { i: d.meta.i, r: [] });
+        this.assign(d);
+      },
+      piece: (index, bytes) => { if (d.direct === link) this.accept(d, index, bytes); },
+      closed: wasOpen => {
+        if (d.direct !== link) return;
+        d.direct = null;
+        this.set(d.meta.i, { link: '' });
+        if (this.downloads.get(d.meta.i) !== d) return;
+        // Back to the server route for what is missing, and the next source may take a link
+        if (wasOpen) this.assign(d, true);
+        void this.tryDirect(d);
+      }
+    });
+    d.direct = link;
+    const sdp = await link.offer();
+    if (d.direct !== link) return;
+    if (!sdp) return link.close();
+    this.signal(d.s, [peer], FILE.offer, { i: d.meta.i, sdp });
+  }
+
+  // Someone wants a direct link for a file we have
+  private async offerFrom(s: Session, rt: Runtime, from: number, id: string, sdp: string): Promise<void> {
+    const found = await this.find(id);
+    const key = `${from}:${id}`;
+    if (!found || !this.directOn() || (rt.links.size >= MAX_UPLINKS && !rt.links.has(key))) {
+      return this.signal(s, [from], FILE.answer, { i: id });
+    }
+    rt.links.get(key)?.close();
+    const { meta, blob } = found;
+    const link: UpLink = new UpLink(from, id, pieceCount(meta), async k => {
+      try {
+        return new Uint8Array(await blob.slice(k * meta.c, k * meta.c + pieceSize(meta, k)).arrayBuffer());
+      } catch {
+        return null;
+      }
+    }, () => {
+      if (rt.links.get(key) === link) rt.links.delete(key);
+      this.set(id, { sending: this.sending(rt, id) });
+    });
+    rt.links.set(key, link);
+    const answer = await link.accept(sdp);
+    if (rt.links.get(key) !== link) return;
+    if (!answer) {
+      link.close();
+      return this.signal(s, [from], FILE.answer, { i: id });
+    }
+    this.set(id, { sending: this.sending(rt, id) });
+    this.signal(s, [from], FILE.answer, { i: id, sdp: answer });
+  }
+
+  // People we send a file to, over the server and over direct links
+  private sending(rt: Runtime, id: string): number {
+    const direct = new Set([...rt.links.values()].filter(l => l.file === id).map(l => l.peer));
+    return rt.sender.receivers(id) + direct.size;
   }
 
   private async finish(d: Download): Promise<void> {
@@ -359,7 +466,7 @@ class Files {
   private runtime(s: Session): Runtime {
     let rt = this.runtimes.get(s);
     if (!rt) {
-      rt = { assembler: new FileAssembler(), sender: new Sender(), pumping: false, queue: [], level: 0, levelAt: Date.now(), timer: undefined };
+      rt = { assembler: new FileAssembler(), sender: new Sender(), pumping: false, queue: [], level: 0, levelAt: Date.now(), timer: undefined, links: new Map() };
       this.runtimes.set(s, rt);
     }
     return rt;
@@ -377,9 +484,13 @@ class Files {
     const mine = d && d.s === s ? d : null;
     switch (signal.type) {
       case FILE.who:
-        if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id });
+        if (await this.find(id)) this.signal(s, [from], FILE.have, { i: id, ...this.directOn() ? { p: 1 } : {} });
         break;
       case FILE.have:
+        if (mine && body.p === 1 && !mine.directPeers.includes(from)) {
+          mine.directPeers.push(from);
+          void this.tryDirect(mine);
+        }
         if (!mine || mine.sources.has(from) || mine.sources.size >= maxSources(mine.meta.c)) return;
         mine.sources.set(from, new SourceWindow([], 0));
         mine.lastAt = Date.now();
@@ -396,7 +507,7 @@ class Files {
         // At most one window, also when asked for more: the server would hold the rest
         // Older versions number nothing and only ask again for what got lost
         const idle = rt.sender.want(id, from, pieces, { cap: windowSize(found.meta.c), again: body.a === 1 || q === undefined, q });
-        this.set(id, { sending: rt.sender.receivers(id) });
+        this.set(id, { sending: this.sending(rt, id) });
         // Everything asked for is on its way already
         if (idle && pieces.length) this.signal(s, [from], FILE.done, { i: id, q });
         this.pump(s, rt);
@@ -405,7 +516,7 @@ class Files {
       case FILE.done: {
         const src = mine?.sources.get(from);
         // An answer to an earlier request; a newer one is on its way
-        if (!mine || !src || (body.q !== undefined && body.q !== src.q)) return;
+        if (!mine || !src || (body.q !== undefined && body.q !== src.q) || mine.direct?.open) return;
         mine.lastAt = Date.now();
         const lost = [...src.window].some(k => !mine.parts[k]);
         if (!lost) {
@@ -419,6 +530,14 @@ class Files {
       }
       case FILE.gone:
         if (mine) this.dropSource(mine, from);
+        break;
+      case FILE.offer:
+        if (okSdp(body.sdp)) await this.offerFrom(s, rt, from, id, body.sdp);
+        break;
+      case FILE.answer:
+        if (mine?.direct?.peer !== from || mine.direct.open) return;
+        if (okSdp(body.sdp)) await mine.direct.answer(body.sdp);
+        else mine.direct.close();
         break;
     }
   }
@@ -438,8 +557,8 @@ class Files {
         return pieceMessage(pieceForm(client.config), file, k, encode15(bytes));
       },
       done: (r, file) => this.signal(s, [r], FILE.done, { i: file, q: rt.sender.serial(file, r) }),
-      gone: (rs, file) => { this.signal(s, rs, FILE.gone, { i: file }); this.set(file, { sending: 0 }); },
-      sent: file => this.set(file, { sending: rt.sender.receivers(file) })
+      gone: (rs, file) => { this.signal(s, rs, FILE.gone, { i: file }); this.set(file, { sending: this.sending(rt, file) }); },
+      sent: file => this.set(file, { sending: this.sending(rt, file) })
     }).finally(() => {
       rt.pumping = false;
       // Asked again while the last piece went out
@@ -479,7 +598,8 @@ class Files {
     const rt = this.runtimes.get(s);
     if (rt) {
       rt.sender.drop(session);
-      for (const id of Object.keys(this.transfers)) if (this.transfers[id].sending) this.set(id, { sending: rt.sender.receivers(id) });
+      for (const link of [...rt.links.values()]) if (link.peer === session) link.close();
+      for (const id of Object.keys(this.transfers)) if (this.transfers[id].sending) this.set(id, { sending: this.sending(rt, id) });
     }
     for (const d of [...this.downloads.values()]) if (d.s === s) this.dropSource(d, session);
   }
@@ -488,6 +608,7 @@ class Files {
     const rt = this.runtimes.get(s);
     if (rt) clearTimeout(rt.timer);
     this.runtimes.delete(s);
+    for (const link of [...rt?.links.values() ?? []]) link.close();
     for (const d of [...this.downloads.values()]) if (d.s === s) this.fail(d, 'Disconnected');
     for (const id of Object.keys(this.transfers)) if (this.transfers[id].sending) this.set(id, { sending: 0 });
   }

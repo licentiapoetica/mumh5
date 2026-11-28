@@ -23,10 +23,12 @@ export const FILE_DATA_ID = 'mumh5.file';
 
 export const FILE = {
   who: 1,    // who has file i? { i }
-  have: 2,   // I have file i: { i }
+  have: 2,   // I have file i: { i }, p: 1 when I take direct links
   want: 3,   // send me these pieces of i: { i, r: ranges }; replaces what was asked before, none stops
   done: 4,   // everything you asked for is sent: { i }
-  gone: 5    // I cannot send file i: { i }
+  gone: 5,   // I cannot send file i: { i }
+  offer: 6,  // a direct link for file i (file-direct.ts): { i, sdp }
+  answer: 7  // to an offer: { i, sdp }, or { i } when declined
 } as const;
 export type FileType = typeof FILE[keyof typeof FILE];
 

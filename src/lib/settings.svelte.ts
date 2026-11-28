@@ -26,6 +26,7 @@ export interface Settings {
   mediaLinks: 'click' | 'off'; // media links from other hosts: a card that loads when clicked, or plain links
   sendThumbnails: boolean; // a preview picture with sent pictures and videos (all that other clients see)
   autoDownload: number;    // fetch announced files up to this many MB by themselves; 0: never
+  fileDirect: boolean;     // files over WebRTC with others who turned it on too (shares the IP address)
   saveChatHistory: boolean;
   chatHistoryHours: number;
   compact: boolean;
@@ -105,6 +106,7 @@ const defaults: Settings = {
   mediaLinks: 'click',
   sendThumbnails: true,
   autoDownload: 20,
+  fileDirect: false,
   saveChatHistory: false,
   chatHistoryHours: 24,
   compact: false,
@@ -152,7 +154,7 @@ export type SettingsPart = 'video' | 'sharing' | 'sounds' | 'accessibility' | 'f
   | 'appearance.roles' | 'appearance.people' | 'appearance.layout'
   | 'appearance.background' | 'appearance.tree' | 'appearance.corners' | 'appearance.scheme';
 const PARTS: Record<keyof Settings, SettingsPart> = {
-  embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files',
+  embedHosts: 'files', mediaLinks: 'files', sendThumbnails: 'files', autoDownload: 'files', fileDirect: 'files',
   saveChatHistory: 'files', chatHistoryHours: 'files', youtube: 'files', linkPreviews: 'files',
   compact: 'kept',
   theme: 'appearance.scheme',
