@@ -11,7 +11,8 @@ export type PeerDir = 'from' | 'to';
 
 // A WebRTC link with this person, apart from the route the pieces took: being set up, up,
 // failed or declined (with why), or not possible at all (none, with why)
-export type LinkState = 'connecting' | 'open' | 'closed' | 'failed' | 'declined' | 'none';
+// ask: a direct link is possible and waits for the receiver to allow it
+export type LinkState = 'ask' | 'connecting' | 'open' | 'closed' | 'failed' | 'declined' | 'none';
 export interface LinkInfo { route: LinkRoute; state: LinkState; reason: string }
 
 export interface PeerStat {
@@ -113,7 +114,10 @@ export class Meters {
     const file = this.files.get(id);
     if (!file) return;
     for (const m of file.meters.values()) {
-      if (m.dir !== dir || m.state === 'done' || m.state === 'gone') continue;
+      if (m.dir !== dir) continue;
+      // An offer to connect directly that was never taken up is no longer open
+      if (m.link?.state === 'ask') m.link = null;
+      if (m.state === 'done' || m.state === 'gone') continue;
       m.state = state;
       m.rate = 0;
     }

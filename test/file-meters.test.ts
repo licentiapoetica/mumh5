@@ -101,3 +101,10 @@ test('a link that closed after carrying pieces counts as used once the person ha
   m.update(s, 'f', 4, 'to', { state: 'done' });
   assert.equal(shown.f.find(p => p.session === 4)!.link!.state, 'closed', 'nothing went over it');
 });
+
+test('an offer to connect directly that was never taken up goes away when the download ends', () => {
+  const { m, shown } = setup();
+  m.link(s, 'f', 1, 'from', { route: 'direct', state: 'ask', reason: '' });
+  m.finish('f', 'from', 'done');
+  assert.equal(shown.f[0].link, null);
+});

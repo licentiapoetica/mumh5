@@ -613,7 +613,14 @@ try {
   await alice.page.locator('.chat .composer input[type=file]').first().setInputFiles(bulkPath);
   const bobFile = bob.page.locator('.chat .msg .file', { hasText: bulkName });
   await bobFile.waitFor({ timeout: 30000 });
+  // A direct route shows both IP addresses: it waits for the receiver, and the server carries the file meanwhile
+  const connect = bobFile.getByRole('button', { name: 'Connect directly' });
+  await connect.waitFor({ timeout: 15000 });
+  await bobFile.getByText(`${aliceName} can send this directly`).waitFor();
+  assert.deepEqual(await bob.page.evaluate(() => (window as any).__fileRoutes), [], 'no direct route before the receiver allows it');
+  if (process.env.SHOTS_DIR) await bobFile.screenshot({ path: path.join(process.env.SHOTS_DIR, 'file-direct-ask.png') });
   const started = Date.now();
+  await connect.click();
   // About 40 s through the server at its message limit
   await bobFile.locator(`a[download="${bulkName}"]`).waitFor({ timeout: 20000 });
   const took = Date.now() - started;

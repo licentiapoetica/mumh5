@@ -33,9 +33,11 @@ export interface Transfer {
   count: number;
   started: number;     // when the download started, ms
   ended: number;       // when it finished or failed
+  // Someone who could send it directly; that shows both IP addresses, so it waits for a click
+  directAsk: number | null;
 }
 
-const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '', url: '', sending: 0, link: '', peers: [], pieces: 0, count: 0, started: 0, ended: 0 };
+const BLANK: Transfer = { state: 'idle', got: 0, rate: 0, sources: 0, error: '', url: '', sending: 0, link: '', peers: [], pieces: 0, count: 0, started: 0, ended: 0, directAsk: null };
 
 // What this computer keeps of files it sent and received; the oldest go first
 const KEEP_BYTES = 2 * 1024 ** 3;
@@ -75,6 +77,8 @@ interface Download {
   directTried: Set<number>;
   // How the current link attempt ended, when the other side said (a declined offer)
   linkEnd: { state: LinkState; reason: string } | null;
+  // The receiver allowed a direct route for this download (allowDirect); mumpeer needs no click
+  directOk: boolean;
 }
 
 interface Runtime {
@@ -293,7 +297,7 @@ class Files {
     const d: Download = {
       s, meta, count: pieceCount(meta), parts: [], digests: [], got: 0, bytes: 0, sources: new Map(),
       findUntil: now + FIND_MS, lastAt: now, stalls: 0, timer: setInterval(() => this.watch(d), 2000),
-      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null
+      rebalance: undefined, rateFrom: { at: now, bytes: 0 }, direct: null, linkPeers: new Map(), directTried: new Set(), linkEnd: null, directOk: false
     };
     this.downloads.set(meta.i, d);
     this.meters.clear(meta.i, 'from');
@@ -315,7 +319,17 @@ class Files {
     this.set(id, { state: 'idle', got: 0, rate: 0, sources: 0, link: '' });
   }
 
+  /** The receiver allowed a direct route for this download: tried now, the server route goes on meanwhile. */
+  allowDirect(id: string): void {
+    const d = this.downloads.get(id);
+    if (!d || d.directOk) return;
+    d.directOk = true;
+    this.set(id, { directAsk: null });
+    void this.tryDirect(d);
+  }
+
   private stop(d: Download): void {
+    this.set(d.meta.i, { directAsk: null });
     clearInterval(d.timer);
     clearTimeout(d.rebalance);
     if (this.downloads.get(d.meta.i) === d) this.downloads.delete(d.meta.i);
@@ -432,18 +446,29 @@ class Files {
     const client = d.s.client;
     const mode = this.linkMode();
     if (d.direct || !client || !mode || this.downloads.get(d.meta.i) !== d) return;
-    let peer: number | undefined, route: 'direct' | 'mumpeer' | null = null;
+    let peer: number | undefined, route: 'direct' | 'mumpeer' | null = null, ask: number | null = null;
     for (const [p, theirs] of d.linkPeers) {
       if (d.directTried.has(p) || !client.users.has(p)) continue;
-      d.directTried.add(p);
       const mine = d.s.mumpeer.capability(p, 'file');
-      route = linkRoute(mode, theirs.mode, mine, theirs.relay);
+      const r = linkRoute(mode, theirs.mode, mine, theirs.relay);
+      // A direct route shows each side the other's address: only after the receiver allowed it
+      if (r === 'direct' && !d.directOk) {
+        if (ask == null) ask = p;
+        continue;
+      }
+      d.directTried.add(p);
+      route = r;
       if (route) { peer = p; break; }
       // Mumpeer is wanted (by either side) and cannot be used: say why
       const reason = !mine ? d.s.mumpeer.fileBlocked(p) : !theirs.relay ? 'No usable mumpeer relay on their side' : 'You trust different mumpeer relays';
       this.meters.link(d.s, d.meta.i, p, 'from', { route: 'mumpeer', state: 'none', reason });
     }
-    if (peer == null || !route) return;
+    if (peer == null || !route) {
+      this.set(d.meta.i, { directAsk: ask });
+      if (ask != null) this.meters.link(d.s, d.meta.i, ask, 'from', { route: 'direct', state: 'ask', reason: '' });
+      return;
+    }
+    this.set(d.meta.i, { directAsk: null });
     const via = peer;
     const kind: LinkRoute = route;
     d.linkEnd = null;

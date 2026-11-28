@@ -6,7 +6,8 @@
   import PdfPreview from './PdfPreview.svelte';
   import FileDetails from './FileDetails.svelte';
   import { files, fileKind, type Transfer } from '../lib/files.svelte.ts';
-  import { sessions } from '../lib/session.svelte.ts';
+  import { session, sessions } from '../lib/session.svelte.ts';
+  import { store } from '../lib/settings.svelte.ts';
   import { formatBytes } from '../lib/html.ts';
   import type { FileMeta } from '../core/file-transfer.ts';
 
@@ -60,6 +61,13 @@
     {/if}
   {/snippet}
   {#snippet extra()}
+    {#if busy && t?.directAsk != null}
+      {@const who = session.user(t.directAsk)}
+      <div class="ask" role="group" aria-label="Direct transfer">
+        <span>{who ? store.displayName(who) : 'Someone'} can send this directly, which is faster. You would see each other's IP addresses.</span>
+        <button class="btn" onclick={() => files.allowDirect(meta.i)}>Connect directly</button>
+      </div>
+    {/if}
     {#if showDetails}<FileDetails {meta} {t} />{/if}
   {/snippet}
   {#if ready && kind === 'image'}
@@ -78,6 +86,9 @@
 
 <style>
   .icon-btn.on { color: var(--text); background: var(--bg-active); }
+  .ask { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid var(--line); background: var(--bg-0); font-size: 12px; color: var(--text-dim); }
+  .ask span { flex: 1; min-width: 0; }
+  .ask .btn { flex: none; }
   .poster { position: relative; display: block; padding: 0; max-width: 100%; }
   .poster:disabled { cursor: default; }
   .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; background: rgb(0 0 0 / 0.25); }

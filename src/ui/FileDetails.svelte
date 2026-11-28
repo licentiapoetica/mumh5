@@ -42,7 +42,7 @@
     if (!l) return '';
     const r = LINK[l.route];
     const why = l.reason ? `: ${l.reason}` : '';
-    return { connecting: `${r} link: connecting`, open: `${r} link ${p.state === 'done' ? 'used' : 'up'}`, closed: `${r} link closed${why}`,
+    return { ask: `${r} link: waiting for you to allow it`, connecting: `${r} link: connecting`, open: `${r} link ${p.state === 'done' ? 'used' : 'up'}`, closed: `${r} link closed${why}`,
       failed: `${r} link failed${why}`, declined: `${r} link declined${why}`, none: `No ${r.toLowerCase()} link${why}` }[l.state];
   };
   const SETTING = { off: 'off', relay: 'mumpeer only', direct: 'direct, or through a relay' } as const;
