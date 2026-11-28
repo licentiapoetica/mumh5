@@ -425,11 +425,12 @@ export async function pump(h: PumpHost): Promise<void> {
       continue;
     }
     // A slow upload slows the transfer down instead of piling up in front of chat and voice
+    // (the client also writes each piece at a pace the uplink keeps up with, see BulkPace)
     if (unconfirmed >= UNCONFIRMED) {
       await h.client.flushed();
       unconfirmed = 0;
     }
-    for (let w = h.client.bulkWait(); w > 0; w = h.client.bulkWait()) {
+    for (let w = h.client.bulkWait(html); w > 0; w = h.client.bulkWait(html)) {
       await sleep(w);
       if (!h.alive()) return;
     }
