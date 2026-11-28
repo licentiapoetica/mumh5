@@ -2,6 +2,7 @@ import { Emitter } from './emitter.ts';
 import { FrameReader, frame, type Codec, type MessageName } from './proto.ts';
 import type { Transport } from './transport.ts';
 import { LinkMeter } from './link-quality.ts';
+import { BulkPace } from './bulk-pace.ts';
 import { labelNames, parseDisplayName } from './display-name.ts';
 
 export const CLIENT_RELEASE = 'mumh5 0.2.0';
@@ -22,6 +23,25 @@ const RATE_LIMITED = new Set<MessageName>(['TextMessage', 'ChannelState', 'ACL',
 // File pieces (bulk chat messages) use the bucket only up to here, so two of the user's own
 // messages always go out at once
 const BULK_CAP = RATE_BURST - 2;
+// A bulk message is written in slices this often (see BulkPace); a late timer writes what it
+// owes, at most this much time's worth at once
+const BULK_TICK_MS = 10;
+const BULK_CATCH_UP_MS = 250;
+// Pings this soon after a bulk message may still have some of it ahead
+const BULK_SETTLE_MS = 1000;
+
+// UTF-8 bytes of a string, without encoding it
+function utf8Length(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n++;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c < 0xdc00) { n += 4; i++; }
+    else n += 3;
+  }
+  return n;
+}
 
 const sameBytes = (a: Uint8Array, b: Uint8Array | null) =>
   !!b && a.length === b.length && a.every((v, i) => v === b[i]);
@@ -214,6 +234,16 @@ export class MumbleClient extends Emitter<ClientEvents> {
   private queueTimer: ReturnType<typeof setTimeout> | null = null;
   private bulkLast = 0;        // when the last bulk message was sent
   private pingWaiters: { at: number; resolve: () => void }[] = [];
+  // The bulk message being written. Mumble frames cannot interleave, so whatever is sent
+  // meanwhile waits in `held`. Pings are not held: one goes out fresh right after the bulk
+  // message, timed from when it really leaves, and its round trip sets the pace.
+  readonly pace = new BulkPace();
+  private writing: { bytes: Uint8Array; off: number; rate: number; start: number; stop: () => void } | null = null;
+  private held: Uint8Array[] = [];
+  private probeDue = false;
+  private bulkEnd = 0;         // when the last bulk message was written out
+  private pingKinds = new Map<number, 'clean' | 'after'>();
+  private afterBulk = { bytes: 0, rate: 0 };
 
   private codec: Codec;
 
@@ -280,7 +310,12 @@ export class MumbleClient extends Emitter<ClientEvents> {
     // Only changes to our own user state count against the bucket
     const ownState = name === 'UserState' && (payload.session == null || payload.session === this.session);
     if (RATE_LIMITED.has(name) || ownState) this.sendPaced(bytes);
-    else this.transport.send(bytes);
+    else this.write(bytes);
+  }
+
+  private write(bytes: Uint8Array): void {
+    if (this.writing) this.held.push(bytes);
+    else this.transport?.send(bytes);
   }
 
   // Messages still waiting for the rate limit
@@ -300,14 +335,15 @@ export class MumbleClient extends Emitter<ClientEvents> {
   }
 
   private drain(): void {
-    if (this.queueTimer || this.closed) return;
+    // Runs again when the bulk message is out, which the bucket estimate counts from
+    if (this.queueTimer || this.closed || this.writing) return;
     while (this.queue.length) {
       const now = Date.now();
       const level = this.levelAt(now);
       if (level + 1 > RATE_BURST) break;
       this.bucket = level + 1;
       this.lastLimited = now;
-      this.transport?.send(this.queue.shift()!);
+      this.write(this.queue.shift()!);
     }
     if (this.queue.length) {
       // A full bucket leaks one message once a whole second (plus margin) has passed
@@ -319,23 +355,62 @@ export class MumbleClient extends Emitter<ClientEvents> {
   // How long until a bulk message may go out without delaying the user's own (0: now). Never
   // while their messages wait. Bulk goes in runs that start from an empty bucket: Murmur throws
   // away the part of a second that has not leaked each time a message arrives, so a steady
-  // one-by-one pace would lose most of a second every time.
-  bulkWait(now = Date.now()): number {
+  // one-by-one pace would lose most of a second every time. The server counts a message when
+  // its last byte arrives, so a paced one (see BulkPace) may start as early as writing it takes.
+  bulkWait(html = '', now = Date.now()): number {
     if (this.queue.length) return RATE_LEAK_MS;
-    const level = this.levelAt(now);
-    const inRun = this.bulkLast === this.lastLimited && now - this.lastLimited < 250;
+    if (this.writing) return Math.max(BULK_TICK_MS, Math.ceil(this.writeLeft()));
+    const arrive = now + utf8Length(html) / this.pace.rate * 1000;
+    const level = this.levelAt(arrive);
+    // A run only pays while pieces arrive close together; one that takes long to write loses
+    // less waiting for a whole second to leak
+    const inRun = this.bulkLast === this.lastLimited && arrive - this.lastLimited < RATE_MARGIN_MS;
     if (level === 0 || (inRun && level < BULK_CAP)) return 0;
-    return Math.max(5, this.lastLimited + level * RATE_LEAK_MS + RATE_MARGIN_MS - now + 5);
+    return Math.max(5, this.lastLimited + level * RATE_LEAK_MS + RATE_MARGIN_MS - arrive + 5);
   }
 
   // A chat message that waits for room instead of queueing (see bulkWait). false: not now.
   sendBulk(target: { users: number[] }, html: string): boolean {
-    if (!this.transport || this.closed || this.bulkWait() !== 0) return false;
+    if (!this.transport || this.closed || this.bulkWait(html) !== 0) return false;
+    const bytes = this.codec.encode('TextMessage', { session: target.users, channel_id: [], tree_id: [], message: html });
     const now = Date.now();
-    this.bucket = this.levelAt(now) + 1;
-    this.lastLimited = this.bulkLast = now;
-    this.transport.send(this.codec.encode('TextMessage', { session: target.users, channel_id: [], tree_id: [], message: html }));
+    const rate = this.pace.rate;
+    // Counted from when it will have arrived; writeSome puts in the real time
+    const arrive = now + bytes.length / rate * 1000;
+    this.bucket = this.levelAt(arrive) + 1;
+    this.lastLimited = this.bulkLast = arrive;
+    const w = { bytes, off: 0, rate, start: now, stop: () => {} };
+    this.writing = w;
+    w.stop = MumbleClient.every(BULK_TICK_MS, () => this.writeSome(w));
     return true;
+  }
+
+  // Milliseconds until the bulk message being written is out
+  private writeLeft(): number {
+    const w = this.writing;
+    return w ? (w.bytes.length - w.off) / w.rate * 1000 : 0;
+  }
+
+  private writeSome(w: NonNullable<MumbleClient['writing']>): void {
+    if (this.writing !== w) return;
+    if (this.closed || !this.transport) { w.stop(); return; }
+    // Counted from the start, so it is never out sooner than bulkWait expected
+    const due = Math.floor(w.rate * (Date.now() - w.start) / 1000);
+    const end = Math.min(w.bytes.length, due, w.off + Math.ceil(w.rate * BULK_CATCH_UP_MS / 1000));
+    if (end <= w.off) return;
+    // A copy: a view would carry the whole buffer through IPC each time
+    this.transport.send(w.bytes.slice(w.off, end));
+    w.off = end;
+    if (w.off < w.bytes.length) return;
+    w.stop();
+    this.writing = null;
+    this.lastLimited = this.bulkLast = this.bulkEnd = Date.now();
+    this.afterBulk = { bytes: w.bytes.length, rate: w.rate };
+    // The measuring ping goes first, so only the bulk message is ahead of it
+    this.ping('after');
+    for (const b of this.held.splice(0)) this.transport.send(b);
+    if (this.probeDue) { this.probeDue = false; this.probe(); }
+    this.drain();
   }
 
   // Resolves once the server has read everything sent before (a ping and its answer), so a
@@ -343,10 +418,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
   flushed(): Promise<void> {
     if (!this.transport || this.closed) return Promise.resolve();
     return new Promise(resolve => {
-      const at = Date.now();
-      this.pingWaiters.push({ at, resolve });
-      this.link.sent(at);
-      this.send('Ping', { timestamp: at });
+      this.pingWaiters.push({ at: Date.now(), resolve });
+      this.ping();
     });
   }
 
@@ -507,7 +580,7 @@ export class MumbleClient extends Emitter<ClientEvents> {
   // Voice over TCP: the UDPTunnel body is the raw voice packet, not a protobuf message
   sendVoiceTunnel(packet: Uint8Array): void {
     if (!this.transport || this.closed) return;
-    this.transport.send(frame(1, packet));
+    this.write(frame(1, packet));
   }
 
   // 1.5+ servers talk to 1.5+ clients in the protobuf voice format
@@ -526,6 +599,8 @@ export class MumbleClient extends Emitter<ClientEvents> {
   // network returns, where a half-open socket would otherwise look fine for a long while.
   probe(): void {
     if (this.closed || !this.transport) return;
+    // Its ping could not leave before the bulk message is out
+    if (this.writing) { this.probeDue = true; return; }
     const asked = Date.now();
     this.ping();
     setTimeout(() => {
@@ -546,15 +621,21 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.lastTick = at;
     // Only silence while the timer ran on time counts: after the page was paused, or for ticks
     // that queued up meanwhile, the answer may simply not have been read yet
-    if (this.synced && at - this.lastRx > SILENCE_LIMIT_MS && gap > PING_INTERVAL_MS / 2 && gap < 2 * PING_INTERVAL_MS) {
+    // While a bulk message is written our pings wait, so the server has nothing to answer
+    const quiet = this.writing ? 0 : at - Math.max(this.lastRx, this.bulkEnd);
+    if (this.synced && quiet > SILENCE_LIMIT_MS && gap > PING_INTERVAL_MS / 2 && gap < 2 * PING_INTERVAL_MS) {
       this.disconnect('Connection timed out');
       return;
     }
     this.ping();
   }
 
-  private ping(): void {
-    const at = Date.now();
+  private ping(kind?: 'after'): void {
+    if (this.writing) return;
+    let at = Date.now();
+    // Timestamps name the ping in its answer
+    while (this.pingKinds.has(at)) at++;
+    if (kind || at - this.bulkEnd > BULK_SETTLE_MS) this.pingKinds.set(at, kind ?? 'clean');
     this.link.sent(at);
     this.send('Ping', { timestamp: at });
   }
@@ -567,6 +648,9 @@ export class MumbleClient extends Emitter<ClientEvents> {
     this.stopPings = null;
     this.queueTimer = null;
     this.queue = [];
+    this.writing?.stop();
+    this.writing = null;
+    this.held = [];
     for (const w of this.pingWaiters.splice(0)) w.resolve();
     this.emit('close', reason);
   }
@@ -596,6 +680,10 @@ export class MumbleClient extends Emitter<ClientEvents> {
           const at = Number(msg.timestamp);
           this.rtt = Date.now() - at;
           this.link.answered(this.rtt, at);
+          const kind = this.pingKinds.get(at);
+          this.pingKinds.delete(at);
+          if (kind === 'clean') this.pace.idle(this.rtt);
+          else if (kind === 'after') this.pace.after(this.rtt, this.afterBulk.bytes, this.afterBulk.rate);
           this.emit('ping', this.rtt);
           if (this.pingWaiters.length) {
             const done = this.pingWaiters.filter(w => w.at <= at);
