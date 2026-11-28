@@ -36,6 +36,7 @@
             <button class="btn small" onclick={() => session.mumpeer.forget()}>Forget relay</button>
           {/if}
         </dd>
+        {#if session.mumpeer.allows}<dt>Relay allows</dt><dd>{session.mumpeer.allows}</dd>{/if}
       {/if}
       <dt>Certificate</dt><dd>{cert ? (cert.authorized ? 'Signed by a trusted authority' : 'Self-signed or untrusted, pinned on first connect') : 'unknown'}</dd>
       {#if cert}<dt>SHA-256</dt><dd class="mono">{cert.fingerprint}</dd>{/if}

@@ -13,7 +13,7 @@ const tok = 'A'.repeat(43);
 test('relay requirements and endpoint are read from a bounded bot announcement', () => {
   const relay = { v: 1, t: 'relay', host: 'relay.example.org', tcp: 443, fp, state: 'up', seq: 3 };
   assert.deepEqual(decodeBot(json({ ...relay, u: ['img'], reg: true, unknown: 0 })), {
-    t: 'relay', host: relay.host, tcp: 443, fp, state: 'up', seq: 3, registeredOnly: true, screen: false, files: false
+    t: 'relay', host: relay.host, tcp: 443, fp, state: 'up', seq: 3, registeredOnly: true, screen: false, files: false, uses: ['img']
   });
   // Files are a use of their own; an announcement without a list allows everything
   const uses = (u?: string[]) => {

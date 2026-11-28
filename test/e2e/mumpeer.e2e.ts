@@ -156,6 +156,8 @@ async function checkRelayStatus(page: Page, text: string | RegExp, checkTrust = 
     await dialog.getByRole('button', { name: 'Trust relay' }).click();
     await dialog.getByText(/Available ·/).waitFor();
   }
+  // What the relay allows, as the bot announces it (a fresh test relay allows everything)
+  if (typeof text !== 'string' && text.source.startsWith('Available')) await dialog.getByText('images, files, screen sharing').waitFor();
   await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
 }
 

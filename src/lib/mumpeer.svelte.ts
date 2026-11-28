@@ -118,6 +118,15 @@ export class MumpeerSession {
     return (use === 'scr' ? bot.message.screen : bot.message.files) ? bot : null;
   }
 
+  /** What the announced relay allows, in words; '' when there is no relay. */
+  get allows(): string {
+    const uses = this.candidate?.message.uses;
+    if (uses === undefined) return '';
+    if (uses === null) return 'everything (the bot sends no list)';
+    const NAMES: Record<string, string> = { img: 'images', file: 'files', scr: 'screen sharing', plg: 'plugin data', cam: 'cameras' };
+    return uses.length ? uses.map(u => NAMES[u] ?? u).join(', ') : 'nothing';
+  }
+
   /** Why there is no file pair with this user, or '' when there can be one. */
   fileBlocked(peer: number): string {
     if (this.capability(peer, 'file')) return '';
